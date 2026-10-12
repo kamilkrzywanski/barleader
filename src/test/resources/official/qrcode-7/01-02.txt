@@ -1,0 +1,11 @@
+ Only the fundamental tasks and drives are handled by the kernel - memory management, passing messages between processes.  
+    All other tasks are handled in user space by "servers" or "user-mode servers."
+    advantages
+        1)  easier to maintain
+        2)  testing is easier - can swap patches in and out
+    disadvantages
+        1)  Larger running footprint
+        2)  More complex to interact with - port calls from user-mode servers
+        3)  Process management can be more complex
+        
+Mo

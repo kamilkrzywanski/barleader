@@ -1,0 +1,66 @@
+barcode-pro
+Copyright 2026 Krzywanski
+
+This product includes a Java port of read-path detectors from zxing-cpp
+(https://github.com/zxing-cpp/zxing-cpp), tag v3.1.1:
+the Data Matrix detector (core/src/datamatrix/DMDetector.cpp, including DetectOld,
+core/src/WhiteRectDetector.cpp), the QR finder (core/src/qrcode/QRDetector.cpp, including the Micro QR sampler,
+core/src/ConcentricFinder.cpp, core/src/GridSampler.cpp), the QR bit decoder for Micro QR and model 2
+(core/src/qrcode/QRDecoder.cpp, core/src/qrcode/QRBitMatrixParser.cpp,
+core/src/qrcode/QRFormatInformation.cpp, core/src/qrcode/QRVersion.cpp,
+core/src/qrcode/QRDataBlock.cpp, core/src/qrcode/QRCodecMode.cpp,
+core/src/qrcode/QRDataMask.h), the Data Matrix bit decoder
+(core/src/datamatrix/DMDecoder.cpp, core/src/datamatrix/DMBitLayout.cpp,
+core/src/datamatrix/DMDataBlock.cpp, core/src/datamatrix/DMVersion.cpp), the Code 128 row decoder
+(core/src/oned/ODCode128Reader.cpp, core/src/oned/ODCode128Patterns.h,
+core/src/Pattern.h, core/src/oned/ODRowReader.h), the PDF417 pure decoder
+(core/src/pdf417/PDFReader.cpp, core/src/pdf417/PDFDetector.cpp,
+core/src/pdf417/PDFCodewordDecoder.cpp,
+core/src/pdf417/PDFScanningDecoder.cpp, core/src/pdf417/PDFBoundingBox.cpp,
+core/src/pdf417/PDFDetectionResult.cpp, core/src/pdf417/PDFDetectionResultColumn.cpp,
+core/src/pdf417/PDFBarcodeValue.cpp, core/src/pdf417/PDFDecoder.cpp,
+core/src/pdf417/PDF417.h), the UPC/EAN row decoder
+(core/src/oned/ODMultiUPCEANReader.cpp, core/src/oned/ODUPCEANCommon.cpp,
+core/src/GTIN.h), the Code 39 row decoder
+(core/src/oned/ODCode39Reader.cpp), the Code 93 row decoder
+(core/src/oned/ODCode93Reader.cpp, core/src/oned/ODCode93Patterns.h), the Codabar row decoder
+(core/src/oned/ODCodabarReader.cpp), the ITF row decoder
+(core/src/oned/ODITFReader.cpp), the DataBar row decoder
+(core/src/oned/ODDataBarReader.cpp, core/src/oned/ODDataBarLimitedReader.cpp,
+core/src/oned/ODDataBarExpandedBitDecoder.cpp, core/src/oned/ODDataBarExpandedReader.cpp,
+core/src/oned/ODDataBarCommon.cpp,
+core/src/oned/ODDataBarCommon.h), the Aztec detector
+(core/src/aztec/AZDetector.cpp, core/src/LocalGrid.cpp), the Aztec bit decoder
+(core/src/aztec/AZDecoder.cpp), the MaxiCode decoder
+(core/src/maxicode/MCReader.cpp, core/src/maxicode/MCDecoder.cpp,
+core/src/maxicode/MCBitMatrixParser.cpp), the Telepen row decoder
+(core/src/oned/ODTelepenReader.cpp), the DX Film Edge reader
+(core/src/oned/ODDXFilmEdgeReader.cpp), the ECI byte-to-text conversion
+(core/src/TextDecoder.cpp), the geometry those files use, the matrix binarizer in core/src/HybridBinarizer.cpp,
+the scanline histogram in core/src/GlobalHistogramBinarizer.cpp,
+and the luminance pyramid in core/src/ReadBarcode.cpp.
+Shift-JIS pairs 0x815C and 0x815F, and the user-area leads F0-F9, follow libzueci
+(BSD-3-Clause, Copyright 2022 gitlost), which zxing-cpp embeds.
+ISO/IEC 8859-10 and ISO/IEC 8859-14 are the standard repertoires; this JDK does not ship those charsets.
+zxing-cpp is derived from the ZXing project.
+
+Copyright 2006 Jeremias Maerki
+Copyright 2016 Huy Cuong Nguyen
+Copyright 2016 ZXing authors
+Copyright 2016 Nu-book Inc.
+Copyright 2017, 2020, 2023, 2026 Axel Waggershauser
+Copyright 2022 gitlost
+Copyright 2023 Antoine Mérino
+Copyright 2025 wooyechan
+
+Licensed under the Apache License, Version 2.0.
+The license text is at http://www.apache.org/licenses/LICENSE-2.0
+
+The test corpus in datasets/artelab-medium-barcode-1d/ is the Arte-Lab Medium
+Barcode 1D collection (Dataset1 with autofocus, Dataset2 without, 430 EAN-13
+photographs). It is not part of the 22-sample scan benchmark.
+Alessandro Zamberletti, Ignazio Gallo, Moreno Carullo, Elisabetta Binaghi,
+"Neural Image Restoration for Decoding 1-D Barcodes using Common Camera Phones",
+VISAPP 2010. DOI 10.5220/0002811600050011.
+License: Creative Commons Attribution 3.0
+http://creativecommons.org/licenses/by/3.0/

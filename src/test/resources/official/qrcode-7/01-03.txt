@@ -1,0 +1,11 @@
+dular Kernel
+    A monolithic kernel with binary modules/drivers that can me dynamically loaded or unloaded.
+    advantages:
+        1)  Faster and easier development for drivers that can operate as modules
+        2)  Easier to added drivers/services via modules
+    disadvantages
+        1)  More interfaces to pass through increases possibility of bugs
+        2)  Maintaining modules can be more difficult
+        
+
+To be clear, loading a module dynamically into the kernel can incure some overhead compar

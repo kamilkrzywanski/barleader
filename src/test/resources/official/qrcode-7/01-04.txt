@@ -1,0 +1,14 @@
+ed to having the module compiled into the kernel.  But, 
+this can be offset by having an overall smaller footprint in the monolithic kernel due to not having unnecessary code compiled into the kernel.  This 
+is chiefly beneficial to embedded systems.
+        
+        
+        
+        
+        
+Resources 
+
+http://www.systhread.net/texts/200510kdiff.php
+http://en.wikipedia.org/wiki/Microkernel
+http://en.wikipedia.org/wiki/Monolithic_kernel
+http://en.wikipedia.org/wiki/Initramfs

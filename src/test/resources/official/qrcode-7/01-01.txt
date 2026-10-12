@@ -1,0 +1,16 @@
+initrd vs initramfs
+
+Monolithic vs Modular kernel vs MicroKernel
+
+Monolithic:
+    All drivers, operations and code to perform kernel related tasks are compilied into the kernel.  Interactions with kernel are done through system calls.
+    advantages:
+        1)  Less code = less complexity
+        2)  Less code = smaller size
+        3)  Less code = fewer bugs and security issues
+    disadvantages
+        1)  difficult to patch and test
+        2)  bugs can affect large parts of system
+  
+Microkernel
+   
