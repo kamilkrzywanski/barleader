@@ -83,6 +83,12 @@ final class Scan {
             Transformed rotated = Geometry.rotate(gray, angle);
             tryGray(rotated.image(), rotated.toSource(), "rotate-" + angle, rotated.degrees(), false, false, 0.72, false);
         }
+        // A strip that is still tilted after ±15/±30. It sits here, not after Sauvola:
+        // the ninth crop of a miss needs attempt budget the rest of this ladder would spend.
+        // FAST has already returned. A hit on the angle loop stops before this runs.
+        if ((hits.isEmpty() || options.findAll()) && !stop()) {
+            tryLinearBands(gray);
+        }
         // zxing-cpp LumImagePyramid, after the angles so a rotated linear code still wins there.
         // FAST returns above. The full-resolution layer is the cheap ladder, not a second pass.
         tryDownscale(gray);
@@ -116,6 +122,90 @@ final class Scan {
             traceDataMatrix(inverted);
         }
         return hits.list();
+    }
+
+    /**
+     * Deskewed linear strips. Matrix and PDF417 stay off so a crop cannot invent a stacked code.
+     * Hybrid, stretch, Otsu, and local mean are the steps that won a labeled frame and still
+     * leave a miss enough attempts for Sauvola and scale 0.5. Otsu at 2× won two frames and is
+     * not run: nine crops of it pass attempt 100 before those later rungs. The tight window
+     * repeats hybrid and Otsu only.
+     */
+    private void tryLinearBands(GrayU8 gray) {
+        Set<Symbology> formats = linearFormats();
+        if (formats.isEmpty()) {
+            return;
+        }
+        for (LinearBand.Crop crop : LinearBand.find(gray)) {
+            if (stop()) {
+                return;
+            }
+            readBand(crop, formats, "");
+            if (stop()) {
+                return;
+            }
+            LinearBand.Crop tight = LinearBand.tighten(crop);
+            if (tight != null) {
+                readBand(tight, formats, "-tight");
+            }
+        }
+    }
+
+    private void readBand(LinearBand.Crop crop, Set<Symbology> formats, String suffix) {
+        GrayU8 image = crop.image();
+        PixelMap map = crop.toSource();
+        int degrees = crop.degrees();
+        tryGray(image, map, "linear-band" + suffix, degrees, false, formats, 0.70, false);
+        if (stop()) {
+            return;
+        }
+        if (suffix.isEmpty()) {
+            GrayU8 stretched = GrayImages.stretch(image);
+            if (stretched != image) {
+                tryGray(stretched, map, "linear-band-stretch", degrees, false, formats, 0.70, false);
+                if (stop()) {
+                    return;
+                }
+            }
+        }
+        tryGray(
+                GrayImages.binaryToLuma(Thresholds.otsu(image)),
+                map,
+                "linear-band-otsu" + suffix,
+                degrees,
+                true,
+                formats,
+                0.70,
+                false
+        );
+        if (stop()) {
+            return;
+        }
+        if (suffix.isEmpty()) {
+            tryGray(
+                    GrayImages.binaryToLuma(Thresholds.mean(image)),
+                    map,
+                    "linear-band-mean",
+                    degrees,
+                    true,
+                    formats,
+                    0.70,
+                    false
+            );
+            if (stop()) {
+                return;
+            }
+        }
+    }
+
+    private Set<Symbology> linearFormats() {
+        EnumSet<Symbology> formats = EnumSet.noneOf(Symbology.class);
+        for (Symbology symbology : symbologies) {
+            if (symbology.linear()) {
+                formats.add(symbology);
+            }
+        }
+        return formats;
     }
 
     /**

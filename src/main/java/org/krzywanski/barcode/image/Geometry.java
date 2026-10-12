@@ -10,6 +10,13 @@ import java.util.List;
 public final class Geometry {
     private static final long MAX_PIXELS = 1_600_000L;
 
+    /**
+     * Separate from {@link #MAX_PIXELS}. One Hybrid pass on a rotated frame was measured
+     * under 200 ms at 12.6 Mpx (2976×2232 at 30°). Scale stays on the smaller cap so FAST
+     * does not double a 1152×864 frame.
+     */
+    private static final long MAX_ROTATED_PIXELS = 13_000_000L;
+
     private Geometry() {
     }
 
@@ -18,14 +25,14 @@ public final class Geometry {
         return pixels >= 16.0 && pixels <= MAX_PIXELS;
     }
 
-    /** Bounding box of a clockwise rotation stays inside {@link #MAX_PIXELS}. */
+    /** Bounding box of a clockwise rotation stays inside {@link #MAX_ROTATED_PIXELS}. */
     public static boolean rotationFits(int width, int height, double degreesClockwise) {
         double radians = Math.toRadians(degreesClockwise);
         double cos = Math.abs(Math.cos(radians));
         double sin = Math.abs(Math.sin(radians));
         double newWidth = width * cos + height * sin;
         double newHeight = width * sin + height * cos;
-        return newWidth >= 2.0 && newHeight >= 2.0 && newWidth * newHeight <= MAX_PIXELS;
+        return newWidth >= 2.0 && newHeight >= 2.0 && newWidth * newHeight <= MAX_ROTATED_PIXELS;
     }
 
     /** Axis-aligned crop. The pixel map adds the crop origin. */

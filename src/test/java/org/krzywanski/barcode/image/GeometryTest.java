@@ -28,7 +28,12 @@ class GeometryTest {
     @Test
     void rotationFitsRejectsAnImagePastThePixelBudget() {
         assertTrue(Geometry.rotationFits(200, 80, -30));
+        assertTrue(Geometry.rotationFits(1152, 864, 30));
+        assertTrue(Geometry.rotationFits(1600, 1200, 15));
+        assertTrue(Geometry.rotationFits(2976, 2232, 30));
         assertFalse(Geometry.rotationFits(4000, 4000, 30));
+        assertFalse(Geometry.rotationFits(8000, 6000, 15));
+        assertFalse(Geometry.withinPixelBudget(1152, 864, 2.0));
     }
 
     @Test

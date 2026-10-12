@@ -59,6 +59,10 @@ The license text is at http://www.apache.org/licenses/LICENSE-2.0
 The test corpus in datasets/artelab-medium-barcode-1d/ is the Arte-Lab Medium
 Barcode 1D collection (Dataset1 with autofocus, Dataset2 without, 430 EAN-13
 photographs). It is not part of the 22-sample scan benchmark.
+Files in datasets/zxing-cpp-3.1.1/samples/ are the zxing-cpp 3.1.1
+test/samples images and texts whose bytes are not already under
+src/test/resources. They stay off the test classpath.
+
 Alessandro Zamberletti, Ignazio Gallo, Moreno Carullo, Elisabetta Binaghi,
 "Neural Image Restoration for Decoding 1-D Barcodes using Common Camera Phones",
 VISAPP 2010. DOI 10.5220/0002811600050011.

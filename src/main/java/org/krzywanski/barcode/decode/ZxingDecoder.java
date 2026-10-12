@@ -5,10 +5,12 @@ import com.google.zxing.BinaryBitmap;
 import com.google.zxing.DecodeHintType;
 import com.google.zxing.LuminanceSource;
 import com.google.zxing.MultiFormatReader;
+import com.google.zxing.NotFoundException;
 import com.google.zxing.ReaderException;
 import com.google.zxing.Result;
 import com.google.zxing.ResultMetadataType;
 import com.google.zxing.ResultPoint;
+import com.google.zxing.common.BitArray;
 import com.google.zxing.common.BitMatrix;
 import com.google.zxing.common.GlobalHistogramBinarizer;
 import com.google.zxing.common.HybridBinarizer;
@@ -25,6 +27,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumMap;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -94,7 +97,7 @@ public final class ZxingDecoder {
                 : pdf417Hits(owned, toSource, attempt, rotationDegrees, confidence, symbologies, findAll);
         List<BarcodeHit> ean = owned == null
                 ? List.of()
-                : eanHits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies);
+                : eanHits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies, binary);
         List<BarcodeHit> code39 = owned == null
                 ? List.of()
                 : code39Hits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies);
@@ -348,7 +351,8 @@ public final class ZxingDecoder {
             String attempt,
             int rotationDegrees,
             double confidence,
-            Set<Symbology> symbologies
+            Set<Symbology> symbologies,
+            boolean binary
     ) {
         if (!wantsEan(symbologies)) {
             return List.of();
@@ -358,6 +362,17 @@ public final class ZxingDecoder {
             return List.of();
         }
         if (!confirmedEan(source, found, symbologies)) {
+            return List.of();
+        }
+        // The first row that confirms can be a short glitch while the same bitmap's real bars
+        // span a much taller run. Foto(726) hybrid returned 2094297032262 on rows 5 px apart
+        // and the labeled 8023222032262 on a 54 px run of the same crop.
+        if (attempt.startsWith("linear-band") && widerRival(image, found.text())) {
+            return List.of();
+        }
+        // A binary band hit that lives on one or two adjacent rows is a threshold glitch.
+        // The same digits have to show on four rows, or on two rows at least 8 px apart.
+        if (binary && attempt.startsWith("linear-band") && !separatedEanRows(image, found.text())) {
             return List.of();
         }
         List<ImagePoint> corners = new ArrayList<>(2);
@@ -584,6 +599,130 @@ public final class ZxingDecoder {
             return -1;
         }
         return Math.floorMod((upsideDown ? 180 : 0) + rotationDegrees, 360);
+    }
+
+    /**
+     * True when the hit is a short run and another text on this bitmap covers a taller one.
+     * A hit that already spans 8 px stays: that is the same separation the binary gate accepts.
+     */
+    private static boolean widerRival(BinaryBitmap image, String text) {
+        Map<String, int[]> support = new HashMap<>();
+        BitArray row = new BitArray(image.getWidth());
+        for (int y = 0; y < image.getHeight(); y++) {
+            try {
+                row = image.getBlackRow(y, row);
+            } catch (NotFoundException ignored) {
+                continue;
+            }
+            noteEanRow(support, row, y);
+            noteEanRow(support, reversedRow(row), y);
+        }
+        String hitKey = eanKey(text);
+        int[] hit = support.get(hitKey);
+        if (hit == null) {
+            return false;
+        }
+        int hitSpan = hit[2] - hit[1];
+        if (hitSpan >= 8) {
+            return false;
+        }
+        for (Map.Entry<String, int[]> entry : support.entrySet()) {
+            if (entry.getKey().equals(hitKey)) {
+                continue;
+            }
+            int span = entry.getValue()[2] - entry.getValue()[1];
+            if (span >= 8 && span > hitSpan) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** {@code stats} is count, first row, last row. The same row in both directions counts once. */
+    private static void noteEanRow(Map<String, int[]> support, BitArray row, int y) {
+        String span = spanText(row);
+        if (span == null) {
+            return;
+        }
+        String key = eanKey(span);
+        int[] stats = support.get(key);
+        if (stats == null) {
+            support.put(key, new int[]{1, y, y});
+            return;
+        }
+        if (stats[2] == y) {
+            return;
+        }
+        stats[0]++;
+        stats[2] = y;
+    }
+
+    /** A leading-zero EAN-13 and the 12-digit UPC-A are one symbol. */
+    private static String eanKey(String text) {
+        if (text.length() == 13 && text.charAt(0) == '0') {
+            return text.substring(1);
+        }
+        return text;
+    }
+
+    private static boolean separatedEanRows(BinaryBitmap image, String text) {
+        int count = 0;
+        int first = -1;
+        int last = -1;
+        BitArray row = new BitArray(image.getWidth());
+        for (int y = 0; y < image.getHeight(); y++) {
+            try {
+                row = image.getBlackRow(y, row);
+            } catch (NotFoundException ignored) {
+                continue;
+            }
+            if (!eanRowMatches(row, text) && !eanRowMatches(reversedRow(row), text)) {
+                continue;
+            }
+            count++;
+            if (first < 0) {
+                first = y;
+            }
+            last = y;
+            if (count >= 4 || last - first >= 8) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean eanRowMatches(BitArray row, String text) {
+        String span = spanText(row);
+        if (span == null) {
+            return false;
+        }
+        if (span.equals(text)) {
+            return true;
+        }
+        return text.length() == 12
+                && span.length() == 13
+                && span.charAt(0) == '0'
+                && span.regionMatches(1, text, 0, 12);
+    }
+
+    private static String spanText(BitArray row) {
+        boolean[] black = new boolean[row.getSize()];
+        for (int x = 0; x < black.length; x++) {
+            black[x] = row.get(x);
+        }
+        UpcEanDecoder.Span span = UpcEanDecoder.decodeSpan(black);
+        return span == null ? null : span.text();
+    }
+
+    private static BitArray reversedRow(BitArray row) {
+        BitArray out = new BitArray(row.getSize());
+        int last = row.getSize() - 1;
+        for (int x = 0; x < row.getSize(); x++) {
+            if (row.get(last - x)) {
+                out.set(x);
+            }
+        }
+        return out;
     }
 
     private static boolean confirmedEan(LuminanceSource source, UpcEanScanner.Found found, Set<Symbology> symbologies) {
