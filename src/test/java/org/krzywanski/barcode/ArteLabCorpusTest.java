@@ -24,9 +24,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <p>The photographs live under {@code datasets/artelab-medium-barcode-1d/},
  * not on the test classpath, so a normal {@code mvn test} does not copy 216 MB
  * into {@code target/}. They are not part of {@code Samples.all()} and this
- * test does not decode them. A full read of all 430 frames is a separate
- * measurement: several frames take seconds, and a miss is not a contract failure
- * of the 22-sample suite.
+ * test does not decode them. A full read of all 430 frames is
+ * {@code org.krzywanski.barcode.eval.ArteLabReport}, not this test. A miss there
+ * is not a contract failure of the 22-sample suite. The named frames that are
+ * pinned run under {@code mvn -Partelab test}.
  */
 class ArteLabCorpusTest {
     /** Empty {@code .jpg.txt} files shipped in the upstream archive. */

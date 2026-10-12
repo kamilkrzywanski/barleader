@@ -27,7 +27,7 @@ Data: 2026-10-12, ten sam dzień co pomiar w sekcji [Pomiar](#pomiar). Repo star
 | --- | --- | --- |
 | 0 | Zbiór trudnych kodów, baseline ZXing, metryki | Generator syntetyczny i benchmark w testach. Liczby z ostatniego uruchomienia są w [Pomiar](#pomiar). |
 | 1 | Preprocessing i wieloetapowe próby | Zaimplementowane. Tryb `FAST` i `AGGRESSIVE`. Progi i morfologia są własne. |
-| 2 | Lokalizacja regionów, crop, deskew | Własne findery QR, Micro QR, Aztec i Data Matrix. Przerywany obrys: sześć dylatacji i próba `blob-quad`. Mały symbol 2D, którego wcześniejsze próby nie wezmą, idzie z kafelka. |
+| 2 | Lokalizacja regionów, crop, deskew | Własne findery QR, Micro QR, Aztec i Data Matrix. Przerywany obrys: sześć dylatacji i próba `blob-quad`. Mały symbol 2D, którego wcześniejsze próby nie wezmą, idzie z kafelka. Pochylony kod 1D, którego nie biorą obroty ±15° i ±30°, idzie z pasma `linear-band`. |
 | 3 | Ścieżki specjalne, odblaski, wiele kodów | Częściowo: osobna ścieżka QR/Aztec/Micro QR, normalizacja oświetlenia, `findAll`, dwa tryby. |
 | 4 | Stabilizacja i metadane | Częściowo: wynik niesie tekst, symbologię, narożniki, orientację, heurystyczną pewność i nazwę próby. Optymalizacja pod duże obrazy (limit pikseli, budżet czasu) jest wstępna. |
 
@@ -67,7 +67,10 @@ BarcodeReader.read(image, ReadOptions)
    qr-trace, mqr-trace, aztec-trace, dm-trace
       ↓
 3. Tylko AGGRESSIVE
-   obroty ±15° i ±30°, piramida, siatka kafelków 3×3 (tylko symbologie 2D),
+   obroty ±15° i ±30°, gdy prostokąt obrotu mieści się w 13 Mpx,
+   do dziewięciu pasów liniowych (hybryda, rozciągnięcie, Otsu, średnia,
+   potem ciaśniejsze okno: hybryda i Otsu),
+   piramida, siatka kafelków 3×3 (tylko symbologie 2D),
    próg Gaussa, Sauvola, morfologia, skale 1.5× i 0.5×,
    blob-quad, a gdy nadal pusto albo findAll: te same findery na odwróconej szarości
       ↓
@@ -94,6 +97,8 @@ Pakiet publiczny: `org.krzywanski.barcode`.
 
 Fałszywe trafienia 1D są ograniczone trojako. Warianty morfologiczne dekodują tylko symbologie 2D. Odczyt 1D bez dwóch punktów odległych o co najmniej 30 px jest odrzucany. Odczyt 1D musi powtórzyć się na równoległym pasku (8 px grubości, 4 px od linii, którą przyjął ZXing, z zapasem 40 px na cichą strefę): ta sama symbologia i ta sama treść. Jedna linia skośnych kresek, która sumą kontrolną wychodzi jako krótki UPC-E, odpada. Gdy obraz nie mieści takiego paska, trafienie zostaje.
 
+Na próbie, której nazwa zaczyna się od `linear-band`, EAN ma dwie dodatkowe bramki. Krótki przebieg odpada, gdy ta sama bitmapa niesie inny tekst o rozpiętości co najmniej 8 px i ściśle większej niż przebieg trafienia. Przebieg, który sam ma co najmniej 8 px, zostaje. Odczyt z progu binarnego (Otsu albo średnia lokalna) zostaje tylko wtedy, gdy ten sam tekst wraca na co najmniej czterech wierszach albo na wierszach odległych o co najmniej 8 px. Hybryda i rozciągnięcie kontrastu tej drugiej bramki nie dostają, bo jednowierszowy właściwy EAN ma zostać.
+
 ## Baseline pomiaru
 
 „Standardowy ZXing” w benchmarku to dokładnie to, co robi typowy fragment z dokumentacji:
@@ -111,7 +116,7 @@ Metryki:
 - fałszywe trafienia — odczyty, których treści nie ma w oczekiwaniach obrazu (na obrazach bez kodu każdy odczyt jest fałszywy);
 - czas — ścienny czas `read` na jednym obrazie.
 
-Obrazy testowe są syntetyczne i deterministyczne (uszkodzenia rysowane w Javie 2D / homografią): czyste kody, inwersja QR, Data Matrix i Code 128, perspektywa QR, QR o poziomie korekcji H trafiający w złą fazę bloków HybridBinarizera, odblask (biały owal o alfie 180), szum 2%, Data Matrix obrócony o 25° i wpisany w czworokąt, Code 128 obrócony o 30° i o 45°, mały Data Matrix na dużej etykiecie, stres (moduł 1 px, rozmycie, gradient), dwa QR, QR obok Code 128 oraz negatywy (pusto, szum, gradient). To jest zbiór fazy 0 do czasu pojawienia się prawdziwych skanów produkcyjnych. Prawdziwe zdjęcia należy dokładać jako pliki w `src/test/resources` i podpinać pod ten sam raport.
+Obrazy testowe są syntetyczne i deterministyczne (uszkodzenia rysowane w Javie 2D / homografią): czyste kody, inwersja QR, Data Matrix i Code 128, perspektywa QR, QR o poziomie korekcji H trafiający w złą fazę bloków HybridBinarizera, odblask (biały owal o alfie 180), szum 2%, Data Matrix obrócony o 25° i wpisany w czworokąt, Code 128 obrócony o 30° i o 45°, mały Data Matrix na dużej etykiecie, stres (moduł 1 px, rozmycie, gradient), dwa QR, QR obok Code 128 oraz negatywy (pusto, szum, gradient). To jest zbiór fazy 0. Mianownik 22 zostaje. Prawdziwe zdjęcia leżą poza `src/test/resources`, żeby `mvn test` nie kopiował ich do `target/`. Arte-Lab jest w `datasets/artelab-medium-barcode-1d/`.
 
 ## Harmonogram prób
 
@@ -125,7 +130,7 @@ Obrazy testowe są syntetyczne i deterministyczne (uszkodzenia rysowane w Javie 
 6. Lokalna normalizacja oświetlenia (średnia pudełkowa).
 7. Obroty ortogonalne 90°, 180°, 270° (przepisanie pikseli, bez interpolacji).
 8. Próg adaptacyjny średniej lokalnej i Otsu. Obraz binarny wraca do luminancji i idzie przez `GlobalHistogramBinarizer`.
-9. Skala 2×, najbliższy sąsiad, gdy krótszy bok ≤ 900 px i wynik mieści się w limicie pikseli.
+9. Skala 2×, najbliższy sąsiad, gdy krótszy bok ≤ 900 px i wynik mieści się w 1 600 000 pikseli. To jest limit skali. Obrót ±15° i ±30° ma osobny limit i go nie podnosi.
 10. Własne findery: `qr-trace`, `mqr-trace`, `aztec-trace`, `dm-trace`. W `qr-trace`, gdy LocalAverage nic nie zwróci, ten sam finder dostaje medianę 3×3 i czyta jeszcze raz, pod tą samą nazwą próby. Aztec o wymiarze co najmniej 35 jest próbkowany z lokalnej siatki wewnątrz `aztec-trace`. FAST tu wraca.
 
 Przy `findAll` pętla nie staje na pierwszym trafieniu. W jednej próbie własny odczyt zwraca symbole znalezione na tej bitmapie. `GenericMultipleBarcodeReader` zostaje dla formatu, który nadal idzie do ZXinga, na oryginale hybrydowym i na obrotach ortogonalnych.
@@ -134,7 +139,8 @@ Przy `findAll` pętla nie staje na pierwszym trafieniu. W jednej próbie własny
 
 Wszystko z FAST, a potem, zanim ruszą droższe progi:
 
-- obroty ±15° i ±30° z interpolacją dwuliniową, gdy obrócony obraz mieści się w limicie pikseli;
+- obroty ±15° i ±30° z interpolacją dwuliniową. Limit skali zostaje 1 600 000 pikseli, więc FAST nie podwaja klatki 1152×864. Obrót ma osobny limit 13 000 000 pikseli prostokąta po obrocie: 2976×2232 o 30° się mieści, ten sam kadr o 45° już nie. ±45° nie ma na drabinie.
+- pasmo liniowe, zanim zejdzie piramida. Finder daje co najwyżej dziewięć wycinków i dekoduje tylko symbologie liniowe, więc wycinek nie składa fałszywego PDF417. Na pełnym wycinku kolejno: hybryda (`linear-band`), rozciągnięcie kontrastu, Otsu, średnia lokalna. Ciaśniejsze okno powtarza tylko hybrydę i Otsu (`linear-band-tight`, `linear-band-otsu-tight`). Każdy taki odczyt zużywa jeden slot budżetu. Otsu w skali 2× na wycinku nie wchodzi. Na pudle dziewięć wycinków schodzi hybrydą, rozciągnięciem, Otsu, średnią i ciaśniejszym oknem, i zostaje miejsce na Sauvolę oraz skalę 0,5×. Dodatkowe Otsu 2× na ciaśniejszym oknie (dziewięć prób) spycha tę skalę za setny slot.
 - piramida o progu 500 i czynniku 3;
 - siatka 3×3 kafelków o boku 55% obrazu, tylko gdy krótszy bok ma co najmniej 240 px. Dekodowane są wyłącznie symbologie 2D. Kafelki są na mały symbol, którego wcześniejsze próby nie wzięły.
 
@@ -142,7 +148,7 @@ Dopiero później:
 
 - próg Gaussa i Sauvola (wąski promień, a gdy różni się od szerokiego, także szeroki);
 - odszumienie punktowe, erozja, dylacja, otwarcie i zamknięcie na wąskim obrazie Sauvoli (tylko symbologie 2D);
-- skala 1,5×, gdy wynik mieści się w limicie pikseli, oraz 0,5×, gdy obraz ma więcej pikseli niż 800×800 i wynik też się mieści;
+- skala 1,5×, gdy wynik mieści się w limicie skali 1 600 000 pikseli, oraz 0,5×, gdy obraz ma więcej pikseli niż 800×800 i wynik też się mieści;
 - do pięciu największych plam po sześciu dylatacjach wąskiego Sauvoli. Cztery skrajne punkty konturu idą do deskew jako próba `blob-quad` (Data Matrix, QR, Aztec, a przy wydłużonym boku także PDF417);
 - gdy nadal nic nie ma albo włączone jest `findAll`: findery QR, Micro QR, Aztec i Data Matrix na odwróconej szarości. Nazwy prób zostają `qr-trace`, `mqr-trace`, `aztec-trace`, `dm-trace`.
 
@@ -278,3 +284,44 @@ Dwa QR: baseline 1/2, FAST z `findAll` 2/2 (`QR-LEFT`, potem `QR-RIGHT`, obie `o
 
 Stres (moduł 1 px, rozmycie 5×5, łagodny gradient) czytają też baseline i FAST. Te wiersze nie wchodzą do przewagi.
 <!-- BENCHMARK-END -->
+
+## Arte-Lab
+
+Zbiór Medium Barcode 1D leży w `datasets/artelab-medium-barcode-1d/` (Dataset1 z autofokusem, Dataset2 bez, po 215 JPEG-ów). Pliki nie wchodzą do `Samples.all()` ani na classpath testów. `mvn test` sprawdza tylko obecność i etykiety oraz kilka zamrożonych fałszywych odczytów.
+
+Nazwany zestaw, którego tekst jest kontraktem, odpala się osobno:
+
+```
+mvn -Partelab test
+```
+
+Są to klatki pochylone, które wygrywa obrót albo pasmo, kontrola `Foto(542)` na FAST (`illumination`, `8002205319804`), puste `Foto(725)` i `Foto(707)` oraz wydrukowany GTIN na pustej etykiecie `Foto(844)`.
+
+Pełny pomiar 430 klatek nie jest testem. Z katalogu repozytorium:
+
+```
+mvn -q -Partelab-eval test-compile exec:java -Dexec.args="--out target/artelab-report.tsv"
+```
+
+Program czyta baseline (jeden `MultiFormatReader`, `HybridBinarizer`, `TRY_HARDER`), potem FAST, a AGGRESSIVE tylko wtedy, gdy FAST nie zwrócił etykiety. Drabina FAST jest przedrostkiem agresywnej i na trafieniu staje, więc pominięta kolumna ma klasę `skipped`.
+
+Klasa odczytu:
+
+- `exact` — tekst równy 13 cyfrom z pliku etykiety;
+- `upca` — etykieta ma 13 cyfr i zaczyna się od zera, a tekst to te cyfry bez jednego zera wiodącego. Ośmiocyfrowy UPC-E nie jest trafieniem;
+- `empty` — brak odczytu;
+- `allowed` — plik etykiety jest pusty, a tekst jest wydrukowanym kodem tej klatki: `05102009199` to `8002330112752`, `Foto(844)` i `Foto(849)` to `7321925005431`;
+- `fp` — każdy inny tekst;
+- `error` — klatka nie dała się wczytać.
+
+`unionHit` to `exact` albo `upca` na wyniku agresywnym, a gdy ta kolumna jest `skipped`, na wyniku FAST. `allowed` nie wlicza się do trafień ani do `fp`. Suma `unionHit + empty + allowed + fp + error` jest liczbą klatek. `target/` jest w `.gitignore`.
+
+Jeden przebieg tej komendy, 2026-10-12, trwał 549 s. 430 klatek, zero błędów wczytania. Baseline i FAST, klatka po klatce, są te same co w pomiarze sprzed pasma liniowego.
+
+| zbiór | n | baseline | fast | union | empty | allowed | fp | max fast ms | max aggressive ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dataset1 | 215 | 183 | 189 | 208 | 1 | 1 | 5 | 1746 | 5649 |
+| Dataset2 | 215 | 22 | 46 | 113 | 101 | 1 | 0 | 648 | 2778 |
+| razem | 430 | 205 | 235 | 321 | 102 | 2 | 5 | 1746 | 5649 |
+
+Wobec tamtego pomiaru przybyło 32 trafienia etykiety i żadne wcześniejsze nie zniknęło. Puste etykiety z wydrukowanym kodem to `05102009199` (`8002330112752`, `linear-band`) i `Foto(844)` (`7321925005431`, `scale-0.5`). `Foto(849)` zostaje puste. Pięć `fp` to zamknięta klasa: Data Matrix `2A127693515` na `05102009132`, Data Matrix `372260C` na `05102009161`–`163` oraz UPC-E `10058084` na `05102009159`. Najdłuższa klatka agresywna ma 5649 ms. Żadna nie doszła do 8 s, a FAST do 2,5 s.
