@@ -203,12 +203,48 @@ public final class Geometry {
      * Pixels outside the source are white.
      */
     public static Transformed rotate(GrayU8 source, double degreesClockwise) {
+        Rotation rotation = plan(source, degreesClockwise);
+        if (rotation == null) {
+            return new Transformed(source, PixelMap.IDENTITY, 0);
+        }
+        GrayU8 dest = new GrayU8(rotation.width, rotation.height);
+        paint(source, dest, rotation);
+        PixelMap map = (x, y) -> new ImagePoint(
+                rotation.srcCx + rotation.cos * (x - rotation.dstCx) + rotation.sin * (y - rotation.dstCy),
+                rotation.srcCy - rotation.sin * (x - rotation.dstCx) + rotation.cos * (y - rotation.dstCy)
+        );
+        return new Transformed(dest, map, (int) Math.round(rotation.normalized));
+    }
+
+    /**
+     * Same pixels as {@link #rotate}. A near-zero angle returns {@code source}.
+     * The image may alias a thread-local buffer that the next call on this thread overwrites.
+     */
+    public static GrayU8 rotatePixels(GrayU8 source, double degreesClockwise) {
+        Rotation rotation = plan(source, degreesClockwise);
+        if (rotation == null) {
+            return source;
+        }
+        int need = Math.multiplyExact(rotation.width, rotation.height);
+        byte[] storage = ROTATE_STORAGE.get();
+        if (storage.length < need) {
+            storage = new byte[need];
+            ROTATE_STORAGE.set(storage);
+        }
+        GrayU8 dest = new GrayU8(storage, rotation.width, rotation.height);
+        paint(source, dest, rotation);
+        return dest;
+    }
+
+    private static final ThreadLocal<byte[]> ROTATE_STORAGE = ThreadLocal.withInitial(() -> new byte[0]);
+
+    private static Rotation plan(GrayU8 source, double degreesClockwise) {
         double normalized = degreesClockwise % 360.0;
         if (normalized < 0) {
             normalized += 360.0;
         }
         if (normalized < 0.01 || normalized > 359.99) {
-            return new Transformed(source, PixelMap.IDENTITY, 0);
+            return null;
         }
         double radians = Math.toRadians(normalized);
         double cos = Math.cos(radians);
@@ -217,25 +253,97 @@ public final class Geometry {
         int newHeight = (int) Math.ceil(source.width * Math.abs(sin) + source.height * Math.abs(cos));
         newWidth = Math.max(1, newWidth);
         newHeight = Math.max(1, newHeight);
-        GrayU8 dest = white(newWidth, newHeight);
-        double srcCx = (source.width - 1) / 2.0;
-        double srcCy = (source.height - 1) / 2.0;
-        double dstCx = (newWidth - 1) / 2.0;
-        double dstCy = (newHeight - 1) / 2.0;
-        for (int y = 0; y < newHeight; y++) {
-            double dy = y - dstCy;
-            for (int x = 0; x < newWidth; x++) {
-                double dx = x - dstCx;
-                double sx = srcCx + cos * dx + sin * dy;
-                double sy = srcCy - sin * dx + cos * dy;
-                dest.set(x, y, sample(source, sx, sy));
+        return new Rotation(
+                normalized,
+                cos,
+                sin,
+                (source.width - 1) / 2.0,
+                (source.height - 1) / 2.0,
+                (newWidth - 1) / 2.0,
+                (newHeight - 1) / 2.0,
+                newWidth,
+                newHeight
+        );
+    }
+
+    /** Every destination pixel is written. The formula matches {@link #sample}. */
+    private static void paint(GrayU8 source, GrayU8 dest, Rotation rotation) {
+        byte[] src = source.data;
+        int sourceBase = source.startIndex;
+        int sourceStride = source.stride;
+        int limitX = source.width - 1;
+        int limitY = source.height - 1;
+        byte[] out = dest.data;
+        int destStride = dest.stride;
+        int destBase = dest.startIndex;
+        int width = dest.width;
+        int height = dest.height;
+        for (int y = 0; y < height; y++) {
+            double dy = y - rotation.dstCy;
+            double sinDy = rotation.sin * dy;
+            double cosDy = rotation.cos * dy;
+            int row = destBase + y * destStride;
+            for (int x = 0; x < width; x++) {
+                double dx = x - rotation.dstCx;
+                double sx = rotation.srcCx + rotation.cos * dx + sinDy;
+                double sy = rotation.srcCy - rotation.sin * dx + cosDy;
+                int value = 255;
+                if (Double.isFinite(sx) && Double.isFinite(sy) && sx >= 0 && sy >= 0 && sx <= limitX && sy <= limitY) {
+                    int x0 = (int) Math.floor(sx);
+                    int y0 = (int) Math.floor(sy);
+                    int x1 = Math.min(x0 + 1, limitX);
+                    int y1 = Math.min(y0 + 1, limitY);
+                    double fx = sx - x0;
+                    double fy = sy - y0;
+                    int row0 = sourceBase + y0 * sourceStride;
+                    int row1 = sourceBase + y1 * sourceStride;
+                    int p00 = src[row0 + x0] & 255;
+                    int p10 = src[row0 + x1] & 255;
+                    int p01 = src[row1 + x0] & 255;
+                    int p11 = src[row1 + x1] & 255;
+                    double sampled = p00 * (1.0 - fx) * (1.0 - fy)
+                            + p10 * fx * (1.0 - fy)
+                            + p01 * (1.0 - fx) * fy
+                            + p11 * fx * fy;
+                    value = GrayImages.clamp((int) Math.round(sampled));
+                }
+                out[row + x] = (byte) value;
             }
         }
-        PixelMap map = (x, y) -> new ImagePoint(
-                srcCx + cos * (x - dstCx) + sin * (y - dstCy),
-                srcCy - sin * (x - dstCx) + cos * (y - dstCy)
-        );
-        return new Transformed(dest, map, (int) Math.round(normalized));
+    }
+
+    private static final class Rotation {
+        final double normalized;
+        final double cos;
+        final double sin;
+        final double srcCx;
+        final double srcCy;
+        final double dstCx;
+        final double dstCy;
+        final int width;
+        final int height;
+
+        Rotation(
+                double normalized,
+                double cos,
+                double sin,
+                double srcCx,
+                double srcCy,
+                double dstCx,
+                double dstCy,
+                int width,
+                int height
+        ) {
+            this.normalized = normalized;
+            this.cos = cos;
+            this.sin = sin;
+            this.srcCx = srcCx;
+            this.srcCy = srcCy;
+            this.dstCx = dstCx;
+            this.dstCy = dstCy;
+            this.width = width;
+            this.height = height;
+        }
     }
 
     /**

@@ -182,6 +182,28 @@ class GeometryTest {
     }
 
     @Test
+    void rotatePixelsMatchRotateIncludingAReusedBuffer() {
+        GrayU8 source = white(48, 36);
+        for (int y = 0; y < source.height; y++) {
+            for (int x = 0; x < source.width; x++) {
+                source.set(x, y, (x * 17 + y * 31) & 255);
+            }
+        }
+        Geometry.rotatePixels(source, 40);
+        for (int degrees : new int[]{0, 15, -15, 33, 90, 180}) {
+            GrayU8 expected = Geometry.rotate(source, degrees).image();
+            GrayU8 actual = Geometry.rotatePixels(source, degrees);
+            assertEquals(expected.width, actual.width, degrees + " width");
+            assertEquals(expected.height, actual.height, degrees + " height");
+            for (int y = 0; y < expected.height; y++) {
+                for (int x = 0; x < expected.width; x++) {
+                    assertEquals(expected.get(x, y), actual.get(x, y), degrees + " @" + x + "," + y);
+                }
+            }
+        }
+    }
+
+    @Test
     void smallAngleRotationMapsTheMarkedPixelBack() {
         GrayU8 source = white(48, 36);
         source.set(8, 5, 0);

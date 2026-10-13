@@ -9,6 +9,11 @@ import org.krzywanski.barcode.image.Transformed;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
  * Aggressive-only locator for one linear symbol that is not horizontal in the frame.
@@ -38,18 +43,37 @@ final class LinearBand {
             return List.of();
         }
         GrayU8 view = GrayImages.stretch(low);
+        // Density and pitch rank the same runs. Angles do not depend on each other.
+        // Scores are merged in sweep order, so a tie stays with the earlier angle.
+        int[] sweep = new int[64];
+        int sweepCount = 0;
+        for (int degrees = -90; degrees < 90; degrees += 3) {
+            sweep[sweepCount++] = degrees;
+        }
+        Band[] densityBands = new Band[sweepCount];
+        Band[] pitchBands = new Band[sweepCount];
+        List<Runnable> tasks = new ArrayList<>(sweepCount);
+        for (int i = 0; i < sweepCount; i++) {
+            int index = i;
+            tasks.add(() -> {
+                GrayU8 rotated = Geometry.rotatePixels(view, sweep[index]);
+                List<Band> runs = candidates(rotated);
+                densityBands[index] = top(runs, false);
+                pitchBands[index] = top(runs, true);
+            });
+        }
+        runAll(tasks);
         double[] angles = new double[64];
         int[] densityScores = new int[64];
         int[] pitchScores = new int[64];
         int count = 0;
-        for (int degrees = -90; degrees < 90; degrees += 3) {
-            GrayU8 rotated = Geometry.rotate(view, degrees).image();
-            Band byDensity = topBand(rotated, false);
-            Band byPitch = topBand(rotated, true);
+        for (int i = 0; i < sweepCount; i++) {
+            Band byDensity = densityBands[i];
+            Band byPitch = pitchBands[i];
             if (byDensity == null && byPitch == null) {
                 continue;
             }
-            angles[count] = degrees;
+            angles[count] = sweep[i];
             densityScores[count] = byDensity == null ? -1 : byDensity.score;
             pitchScores[count] = byPitch == null ? -1 : byPitch.pitchScore;
             count++;
@@ -145,18 +169,58 @@ final class LinearBand {
     }
 
     private static double refine(GrayU8 view, double angle, boolean pitch) {
+        int rounded = (int) Math.round(angle);
+        int offsets = 9;
+        int[] scores = new int[offsets];
+        Arrays.fill(scores, -1);
+        List<Runnable> tasks = new ArrayList<>(offsets);
+        for (int i = 0; i < offsets; i++) {
+            int index = i;
+            int degrees = rounded - 4 + i;
+            tasks.add(() -> {
+                Band band = topBand(Geometry.rotatePixels(view, degrees), pitch);
+                scores[index] = band == null ? -1 : active(band, pitch);
+            });
+        }
+        runAll(tasks);
+        // A complete miss keeps the unrounded angle. A tie keeps the lower offset.
         double bestAngle = angle;
         int bestScore = -1;
-        int rounded = (int) Math.round(angle);
-        for (int degrees = rounded - 4; degrees <= rounded + 4; degrees++) {
-            Band band = topBand(Geometry.rotate(view, degrees).image(), pitch);
-            int score = band == null ? -1 : active(band, pitch);
-            if (score > bestScore) {
-                bestScore = score;
-                bestAngle = degrees;
+        for (int i = 0; i < offsets; i++) {
+            if (scores[i] > bestScore) {
+                bestScore = scores[i];
+                bestAngle = rounded - 4 + i;
             }
         }
         return bestAngle;
+    }
+
+    private static void runAll(List<Runnable> tasks) {
+        List<Callable<Void>> callables = new ArrayList<>(tasks.size());
+        for (Runnable task : tasks) {
+            callables.add(() -> {
+                task.run();
+                return null;
+            });
+        }
+        try {
+            List<Future<Void>> futures = AnglePool.EXECUTOR.invokeAll(callables);
+            for (Future<Void> future : futures) {
+                future.get();
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("linear band search interrupted", exception);
+        } catch (ExecutionException exception) {
+            Throwable cause = exception.getCause() == null ? exception : exception.getCause();
+            if (cause instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new IllegalStateException(cause);
+        }
     }
 
     private static int active(Band band, boolean pitch) {
@@ -220,57 +284,91 @@ final class LinearBand {
     }
 
     private static Band topBand(GrayU8 image, boolean pitch) {
-        List<Band> bands = rankBands(image, 1, pitch);
-        return bands.isEmpty() ? null : bands.get(0);
+        return top(candidates(image), pitch);
+    }
+
+    /** Highest run. Ties keep the earlier candidate, matching a stable sort of that list. */
+    private static Band top(List<Band> runs, boolean pitch) {
+        List<Band> picked = pick(runs, 1, pitch);
+        return picked.isEmpty() ? null : picked.get(0);
     }
 
     private static List<Band> rankBands(GrayU8 image, int limit, boolean pitch) {
+        return pick(candidates(image), limit, pitch);
+    }
+
+    private static List<Band> candidates(GrayU8 image) {
         int width = image.width;
         int height = image.height;
-        byte[][] change = new byte[height][width];
-        int[][] prefix = new int[height][width + 1];
+        Scratch scratch = SCRATCH.get();
+        int changeNeed = Math.multiplyExact(height, width);
+        int prefixStride = width + 1;
+        int prefixNeed = Math.multiplyExact(height, prefixStride);
+        if (scratch.change.length < changeNeed) {
+            scratch.change = new byte[changeNeed];
+        } else {
+            Arrays.fill(scratch.change, 0, changeNeed, (byte) 0);
+        }
+        if (scratch.prefix.length < prefixNeed) {
+            scratch.prefix = new int[prefixNeed];
+        } else {
+            Arrays.fill(scratch.prefix, 0, prefixNeed, 0);
+        }
+        if (scratch.column.length != width) {
+            scratch.column = new int[width];
+        }
+        byte[] change = scratch.change;
+        int[] prefix = scratch.prefix;
         for (int y = 0; y < height; y++) {
             int row = image.startIndex + y * image.stride;
             int previous = 0;
             int count = 0;
+            int changeRow = y * width;
+            int prefixRow = y * prefixStride;
             for (int x = 1; x < width; x++) {
                 int delta = (image.data[row + x] & 255) - (image.data[row + x - 1] & 255);
                 int absolute = delta < 0 ? -delta : delta;
                 if (absolute < EDGE) {
-                    prefix[y][x + 1] = count;
+                    prefix[prefixRow + x + 1] = count;
                     continue;
                 }
                 int sign = delta > 0 ? 1 : -1;
                 if (previous != 0 && sign != previous) {
-                    change[y][x] = 1;
+                    change[changeRow + x] = 1;
                     count++;
                 }
                 previous = sign;
-                prefix[y][x + 1] = count;
+                prefix[prefixRow + x + 1] = count;
             }
         }
         List<Band> all = new ArrayList<>();
+        int[] column = scratch.column;
         for (int bandHeight : new int[]{8, 12, 18, 28, 40}) {
             if (bandHeight >= height * 0.75) {
                 continue;
             }
-            int[] column = new int[width];
+            Arrays.fill(column, 0);
             for (int y = 0; y < bandHeight; y++) {
-                addRow(column, change[y]);
+                addRow(column, change, y * width);
             }
-            addBand(all, consider(image, prefix, column, 0, bandHeight));
+            addBand(all, consider(image, prefix, prefixStride, column, 0, bandHeight));
             for (int y0 = 0; y0 + bandHeight < height; y0++) {
-                subRow(column, change[y0]);
-                addRow(column, change[y0 + bandHeight]);
+                subRow(column, change, y0 * width);
+                addRow(column, change, (y0 + bandHeight) * width);
                 if ((y0 & 1) == 1) {
                     continue;
                 }
-                addBand(all, consider(image, prefix, column, y0 + 1, bandHeight));
+                addBand(all, consider(image, prefix, prefixStride, column, y0 + 1, bandHeight));
             }
         }
-        all.sort((left, right) -> Integer.compare(active(right, pitch), active(left, pitch)));
+        return all;
+    }
+
+    private static List<Band> pick(List<Band> runs, int limit, boolean pitch) {
+        List<Band> sorted = new ArrayList<>(runs);
+        sorted.sort((left, right) -> Integer.compare(active(right, pitch), active(left, pitch)));
         List<Band> picked = new ArrayList<>();
-        for (Band candidate : all) {
+        for (Band candidate : sorted) {
             boolean overlaps = false;
             for (Band kept : picked) {
                 if (overlapsY(candidate, kept)) {
@@ -316,19 +414,26 @@ final class LinearBand {
         return current;
     }
 
-    private static void addRow(int[] column, byte[] change) {
+    private static void addRow(int[] column, byte[] change, int offset) {
         for (int x = 0; x < column.length; x++) {
-            column[x] += change[x];
+            column[x] += change[offset + x];
         }
     }
 
-    private static void subRow(int[] column, byte[] change) {
+    private static void subRow(int[] column, byte[] change, int offset) {
         for (int x = 0; x < column.length; x++) {
-            column[x] -= change[x];
+            column[x] -= change[offset + x];
         }
     }
 
-    private static Band consider(GrayU8 image, int[][] prefix, int[] column, int y0, int bandHeight) {
+    private static Band consider(
+            GrayU8 image,
+            int[] prefix,
+            int prefixStride,
+            int[] column,
+            int y0,
+            int bandHeight
+    ) {
         int width = column.length;
         int max = 0;
         for (int value : column) {
@@ -359,7 +464,8 @@ final class LinearBand {
                 if (x == width || gap > gapLimit) {
                     int x1 = x - gap;
                     double gapCv = spacingCv(column, runX0, x1);
-                    best = better(best, scoreRun(image, prefix, y0, bandHeight, runX0, x1, runChanges, gapCv));
+                    best = better(best, scoreRun(
+                            image, prefix, prefixStride, y0, bandHeight, runX0, x1, runChanges, gapCv));
                     runX0 = -1;
                     gap = 0;
                 }
@@ -370,7 +476,8 @@ final class LinearBand {
 
     private static Band scoreRun(
             GrayU8 image,
-            int[][] prefix,
+            int[] prefix,
+            int prefixStride,
             int y0,
             int bandHeight,
             int x0,
@@ -386,10 +493,12 @@ final class LinearBand {
         int changes = 0;
         int bestRow = y0;
         int bestRowChanges = -1;
+        int last = prefixStride - 1;
         for (int y = y0; y < y1; y++) {
-            int end = Math.min(prefix[y].length - 1, x1);
-            int start = Math.min(prefix[y].length - 1, x0);
-            int rowChanges = prefix[y][end] - prefix[y][start];
+            int row = y * prefixStride;
+            int end = Math.min(last, x1);
+            int start = Math.min(last, x0);
+            int rowChanges = prefix[row + end] - prefix[row + start];
             changes += rowChanges;
             if (rowChanges > bestRowChanges) {
                 bestRowChanges = rowChanges;
@@ -634,6 +743,32 @@ final class LinearBand {
             return degrees;
         }
     }
+
+    /**
+     * Not the common pool: a caller that already parallelizes frames must not deadlock
+     * on a nested join. Daemon threads so the pool does not keep the JVM up.
+     */
+    private static final class AnglePool {
+        static final ExecutorService EXECUTOR = Executors.newFixedThreadPool(
+                Math.max(1, Runtime.getRuntime().availableProcessors() - 1),
+                runnable -> {
+                    Thread thread = new Thread(runnable, "linear-band-angle");
+                    thread.setDaemon(true);
+                    return thread;
+                });
+
+        private AnglePool() {
+        }
+    }
+
+    /** Per-thread edge buffers. {@link #candidates} does not call itself. */
+    private static final class Scratch {
+        byte[] change = new byte[0];
+        int[] prefix = new int[0];
+        int[] column = new int[0];
+    }
+
+    private static final ThreadLocal<Scratch> SCRATCH = ThreadLocal.withInitial(Scratch::new);
 
     private static final class Band {
         final int y0;

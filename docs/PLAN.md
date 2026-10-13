@@ -97,7 +97,7 @@ Pakiet publiczny: `org.krzywanski.barcode`.
 
 Fałszywe trafienia 1D są ograniczone trojako. Warianty morfologiczne dekodują tylko symbologie 2D. Odczyt 1D bez dwóch punktów odległych o co najmniej 30 px jest odrzucany. Odczyt 1D musi powtórzyć się na równoległym pasku (8 px grubości, 4 px od linii, którą przyjął ZXing, z zapasem 40 px na cichą strefę): ta sama symbologia i ta sama treść. Jedna linia skośnych kresek, która sumą kontrolną wychodzi jako krótki UPC-E, odpada. Gdy obraz nie mieści takiego paska, trafienie zostaje.
 
-Na próbie, której nazwa zaczyna się od `linear-band`, EAN ma dwie dodatkowe bramki. Krótki przebieg odpada, gdy ta sama bitmapa niesie inny tekst o rozpiętości co najmniej 8 px i ściśle większej niż przebieg trafienia. Przebieg, który sam ma co najmniej 8 px, zostaje. Odczyt z progu binarnego (Otsu albo średnia lokalna) zostaje tylko wtedy, gdy ten sam tekst wraca na co najmniej czterech wierszach albo na wierszach odległych o co najmniej 8 px. Hybryda i rozciągnięcie kontrastu tej drugiej bramki nie dostają, bo jednowierszowy właściwy EAN ma zostać.
+Na próbie, której nazwa zaczyna się od `linear-band`, EAN ma dwie dodatkowe bramki. Krótki przebieg odpada, gdy ta sama bitmapa niesie inny tekst o rozpiętości co najmniej 8 px i ściśle większej niż przebieg trafienia. Przebieg, który sam ma co najmniej 8 px, zostaje. Odczyt z progu binarnego (Otsu albo średnia lokalna) zostaje, gdy ten sam tekst wraca na co najmniej czterech wierszach albo na wierszach odległych o co najmniej 8 px. Pasek o wysokości 48 px nadal wymaga tego warunku. Wyższy wycinek może zostać przy dwóch wierszach: odblask na `05102009191` zostawia tylko taką parę, a średnia lokalna czyta z niej etykietę. Hybryda i rozciągnięcie kontrastu tej drugiej bramki nie dostają, bo jednowierszowy właściwy EAN ma zostać.
 
 ## Baseline pomiaru
 
@@ -131,7 +131,9 @@ Obrazy testowe są syntetyczne i deterministyczne (uszkodzenia rysowane w Javie 
 7. Obroty ortogonalne 90°, 180°, 270° (przepisanie pikseli, bez interpolacji).
 8. Próg adaptacyjny średniej lokalnej i Otsu. Obraz binarny wraca do luminancji i idzie przez `GlobalHistogramBinarizer`.
 9. Skala 2×, najbliższy sąsiad, gdy krótszy bok ≤ 900 px i wynik mieści się w 1 600 000 pikseli. To jest limit skali. Obrót ±15° i ±30° ma osobny limit i go nie podnosi.
-10. Własne findery: `qr-trace`, `mqr-trace`, `aztec-trace`, `dm-trace`. W `qr-trace`, gdy LocalAverage nic nie zwróci, ten sam finder dostaje medianę 3×3 i czyta jeszcze raz, pod tą samą nazwą próby. Aztec o wymiarze co najmniej 35 jest próbkowany z lokalnej siatki wewnątrz `aztec-trace`. FAST tu wraca.
+10. Własne findery: `qr-trace`, `mqr-trace`, `aztec-trace`, `dm-trace`. W `qr-trace`, gdy LocalAverage nic nie zwróci, ten sam finder dostaje medianę 3×3 i czyta jeszcze raz, pod tą samą nazwą próby. Środek okna mediany liczy się bez powtarzania piksela brzegowego; wynik jest ten sam co sortowanie okna z zaciskiem. Aztec o wymiarze co najmniej 35 jest próbkowany z lokalnej siatki wewnątrz `aztec-trace`. FAST tu wraca.
+
+Po `original-global`, gdy zbiór symbologii nie jest pusty, próby od odwróconej luminancji do skali 2× są liczone razem i przyjmowane w kolejności z listy wyżej. Trafienie na hybrydzie albo na progu globalnym tych obrazów już nie buduje. Przy AGGRESSIVE cztery kąty ±15° i ±30°, które mieszczą się w limicie obrotu, też są liczone razem i przyjmowane od −15° w górę. `stop()` przed zaliczeniem próby odrzuca późniejszy wynik. Kolejność zwycięzcy zostaje ta sama.
 
 Przy `findAll` pętla nie staje na pierwszym trafieniu. W jednej próbie własny odczyt zwraca symbole znalezione na tej bitmapie. `GenericMultipleBarcodeReader` zostaje dla formatu, który nadal idzie do ZXinga, na oryginale hybrydowym i na obrotach ortogonalnych.
 
@@ -140,15 +142,15 @@ Przy `findAll` pętla nie staje na pierwszym trafieniu. W jednej próbie własny
 Wszystko z FAST, a potem, zanim ruszą droższe progi:
 
 - obroty ±15° i ±30° z interpolacją dwuliniową. Limit skali zostaje 1 600 000 pikseli, więc FAST nie podwaja klatki 1152×864. Obrót ma osobny limit 13 000 000 pikseli prostokąta po obrocie: 2976×2232 o 30° się mieści, ten sam kadr o 45° już nie. ±45° nie ma na drabinie.
-- pasmo liniowe, zanim zejdzie piramida. Finder daje co najwyżej dziewięć wycinków i dekoduje tylko symbologie liniowe, więc wycinek nie składa fałszywego PDF417. Na pełnym wycinku kolejno: hybryda (`linear-band`), rozciągnięcie kontrastu, Otsu, średnia lokalna. Ciaśniejsze okno powtarza tylko hybrydę i Otsu (`linear-band-tight`, `linear-band-otsu-tight`). Każdy taki odczyt zużywa jeden slot budżetu. Otsu w skali 2× na wycinku nie wchodzi. Na pudle dziewięć wycinków schodzi hybrydą, rozciągnięciem, Otsu, średnią i ciaśniejszym oknem, i zostaje miejsce na Sauvolę oraz skalę 0,5×. Dodatkowe Otsu 2× na ciaśniejszym oknie (dziewięć prób) spycha tę skalę za setny slot.
+- pasmo liniowe, zanim zejdzie piramida. Finder daje co najwyżej dziewięć wycinków i dekoduje tylko symbologie liniowe, więc wycinek nie składa fałszywego PDF417. Na pełnym wycinku kolejno: hybryda (`linear-band`), rozciągnięcie kontrastu, Otsu, średnia lokalna. Ciaśniejsze okno powtarza tylko hybrydę i Otsu (`linear-band-tight`, `linear-band-otsu-tight`). Każdy taki odczyt zużywa jeden slot budżetu. Po zwykłych krokach, i tylko gdy nadal pudłują oraz całe zdjęcie ma co najwyżej 1 000 000 pikseli, dochodzi czternaście prób: pozioma maska wyostrzająca (promień 3, waga 3) na pierwszym wycinku, cięcia percentylowe 35, 45 i 50 uśrednionych wierszy, lokalna średnia najostrzejszych wierszy i krótkie wyostrzenie tej średniej, średnia tych wierszy cięta w 50. i w 40. percentylu, na drugim wycinku wyostrzenie tej średniej o promieniu 2 i wadze 4, na trzecim ta sama średnia oraz mediana i najciemniejszy piksel kolumny, na czwartym maska o promieniu 2 i wadze 2,5 plus Otsu, a na ciaśniejszym oknie piątego najbliższy sąsiad 2× i Otsu, gdy 2× mieści się w 2 000 000 pikseli. Zdjęcie powyżej miliona pikseli pomija te próby: wyostrzenie całego wycinka na kadrze 2976×2232 zjada około trzech sekund. Na pełnym pudle 1152×864 skala 0,5× jest setną próbą i jeszcze się wykonuje. Jedna dodatkowa próba przed nią gubi `Foto(799)` i `Foto(848)`.
 - piramida o progu 500 i czynniku 3;
 - siatka 3×3 kafelków o boku 55% obrazu, tylko gdy krótszy bok ma co najmniej 240 px. Dekodowane są wyłącznie symbologie 2D. Kafelki są na mały symbol, którego wcześniejsze próby nie wzięły.
 
 Dopiero później:
 
-- próg Gaussa i Sauvola (wąski promień, a gdy różni się od szerokiego, także szeroki);
-- odszumienie punktowe, erozja, dylacja, otwarcie i zamknięcie na wąskim obrazie Sauvoli (tylko symbologie 2D);
+- Sauvola (wąski promień, a gdy różni się od szerokiego, także szeroki);
 - skala 1,5×, gdy wynik mieści się w limicie skali 1 600 000 pikseli, oraz 0,5×, gdy obraz ma więcej pikseli niż 800×800 i wynik też się mieści;
+- slot po skali 0,5×. Próg Gaussa na pełnej klatce nie odzyskał etykiety. Gdy szukanie pasma już było, `findAll` jest wyłączone i są symbologie liniowe, ten slot zamiast Gaussa wyostrza pierwszy wycinek maską o promieniu 4 i wadze 4, potem Otsu (`linear-band-us4-otsu`). Inaczej zostaje próg Gaussa. Siatka kątów ma krok 3°, więc miękki kod potrafi zostać o 2° obok wycinka. Kolejne sloty, dopóki starcza budżetu prób, obracają wycinek o −2° (`linear-band-us4-rot`). Pierwszy bierze najszerszy miękki wycinek, co najmniej 400×100, o najniższej energii krawędzi, i wyostrza go promieniem 3: promień 4 gubi `Foto(837)` i `Foto(516)`, a promień 3 nadal czyta `Foto(849)`, `Foto(846)` i `Foto(851)`. Dalsze wycinki zostają przy promieniu 4. Potem idą wycinki o numerach 1, 2, 3, 0 i 4, z pominięciem już sprawdzonego, nadal o −2°. Gdy te pudłują i zostaje slot, wycinek 1 idzie jeszcze raz o −1°: tak czyta się `Foto(698)`. Wycinek 0 o −1° fałszuje `Foto(828)`, więc tego kąta tam nie ma. Ten sam wycinek 0 o +2° czyta `Foto(515)` i `Foto(824)`, i na dawnych pudłach nie fałszuje. Gdy i to pudłuje, dochodzą trzy kąty, każdy bez fałszywego odczytu na dawnych pudłach: wycinek 2 o +0,5° czyta `Foto(823)`, wycinek 3 o +1° czyta `Foto(828)`, a wycinek 3 o +2° czyta `Foto(830)`. Wszystkie trzy to `8011642111896`. Gdy i to pudłuje, trzy inne maski zostają na końcu. Wycinek 2 obrócony o −1° i ścięty medianą najostrzejszych wierszy po wyostrzeniu czyta `Foto(484)`. Wycinek 3 obrócony o +1°, ściągnięty z trapezu do prostokąta, potem ta sama maska i Otsu, czyta `Foto(496)`. Wycinek 0 obrócony o −1° i wyostrzony na średniej najostrzejszych wierszy promieniem 2 czyta UPC-A `Foto(761)`. Ostatni slot, jeden na wszystkie szerokie wycinki, koreluje najostrzejsze wiersze z szablonami cyfr EAN (`ean-correlate`): rozmyty pręt nie przechodzi progu, ale kształt modułu nadal pasuje do jednej cyfry. Tak czyta się `Foto(312)` (`8011642115887`) i `Foto(827)` (`8011642111896`) oraz UPC-A `Foto(760)` i `Foto(762)`. Strażnik końcowy nie jest wymagany, bo na ciasnym wycinku zlewa się z ciemną krawędzią. Cyfra musi mieć korelację co najmniej 0,52 i margines 0,02 nad drugim wzorcem, a całość parzystość i sumę kontrolną. Gdy ta siatka pudłuje na każdym szerokim wycinku, ten sam slot schodzi na grubszą: krok modułu 0,2, początek co najmniej co piksel, bez testu strażników, próg cyfry 0,55. Rozmazany pręt ma ujemną korelację strażnika, a cyfry nadal pasują. Tak czyta się `Foto(751)` (`4902520242204`) i UPC-A `Foto(771)`. Ten sam krok początku i ten sam próg cyfry, ale krok modułu 0,1, czyta `Foto(714)` (`8001410088710`): prawdziwy moduł ma 3,1 i nie leży na kroku 0,2. Drobny krok początku, bez strażników, przyjmuje fałszywy kod na `Foto(811)` i trwa sekundy, więc początek zostaje przy co najmniej jednym pikselu. Obie luźne siatki idą po strzeżonej, bo inaczej podmieniłyby jej trafienie. Numer 6 nie wchodzi na tę listę: na `Foto(839)` jest jedynym odczytem przy −2°, a tekst to wydrukowany GTIN, nie literówka z etykiety, więc byłby fałszywy. Gdy numer 6 sam jest najmiększym wycinkiem, jak na `Foto(849)`, i tak idzie pierwszy. Przy `findAll` tych slotów nie ma. Potem odszumienie punktowe, erozja, dylacja, otwarcie i zamknięcie na wąskim obrazie Sauvoli (tylko symbologie 2D); te nadal nic nie odzyskały. Na pełnym pudle 1152×864 budżet kończy się na skali 0,5× i żaden z tych slotów już nie startuje;
 - do pięciu największych plam po sześciu dylatacjach wąskiego Sauvoli. Cztery skrajne punkty konturu idą do deskew jako próba `blob-quad` (Data Matrix, QR, Aztec, a przy wydłużonym boku także PDF417);
 - gdy nadal nic nie ma albo włączone jest `findAll`: findery QR, Micro QR, Aztec i Data Matrix na odwróconej szarości. Nazwy prób zostają `qr-trace`, `mqr-trace`, `aztec-trace`, `dm-trace`.
 
@@ -295,7 +297,7 @@ Nazwany zestaw, którego tekst jest kontraktem, odpala się osobno:
 mvn -Partelab test
 ```
 
-Są to klatki pochylone, które wygrywa obrót albo pasmo, kontrola `Foto(542)` na FAST (`illumination`, `8002205319804`), puste `Foto(725)` i `Foto(707)` oraz wydrukowany GTIN na pustej etykiecie `Foto(844)`.
+Są to klatki pochylone, które wygrywa obrót albo pasmo, kontrola `Foto(542)` na FAST (`illumination`, `8002205319804`), odzyskane `Foto(503)`, `Foto(543)`, `Foto(707)`, `Foto(725)`, `Foto(481)`, `Foto(573)`, `Foto(728)`, `Foto(501)`, `Foto(556)`, `Foto(817)`, `Foto(820)`, `Foto(406)`, `Foto(483)`, `Foto(738)`, `Foto(504)`, `Foto(480)`, `Foto(676)`, `Foto(829)`, `Foto(427)`, `Foto(677)`, `Foto(846)`, `Foto(851)`, `Foto(489)`, `Foto(675)`, `Foto(678)`, `Foto(683)`, `Foto(722)`, `Foto(516)`, `Foto(837)`, `Foto(842)`, `Foto(698)`, `Foto(515)`, `Foto(824)`, `Foto(823)`, `Foto(828)`, `Foto(830)`, `Foto(484)`, `Foto(496)`, `Foto(312)`, `Foto(827)`, `Foto(751)` i `Foto(714)`, `05102009191`, UPC-A `Foto(765)`, `Foto(776)`, `Foto(778)`, `Foto(779)`, `Foto(763)`, `Foto(766)`, `Foto(769)`, `Foto(770)`, `Foto(772)`, `Foto(767)`, `Foto(761)`, `Foto(760)`, `Foto(762)` i `Foto(771)` oraz wydrukowany GTIN na pustej etykiecie `Foto(844)` i `Foto(849)`.
 
 Pełny pomiar 430 klatek nie jest testem. Z katalogu repozytorium:
 
@@ -316,12 +318,92 @@ Klasa odczytu:
 
 `unionHit` to `exact` albo `upca` na wyniku agresywnym, a gdy ta kolumna jest `skipped`, na wyniku FAST. `allowed` nie wlicza się do trafień ani do `fp`. Suma `unionHit + empty + allowed + fp + error` jest liczbą klatek. `target/` jest w `.gitignore`.
 
-Jeden przebieg tej komendy, 2026-10-12, trwał 549 s. 430 klatek, zero błędów wczytania. Baseline i FAST, klatka po klatce, są te same co w pomiarze sprzed pasma liniowego.
+Kolejny przebieg tej komendy, 2026-10-13, trwał 234 s. 430 klatek, zero błędów wczytania. Tekst baseline i FAST, klatka po klatce, jest ten sam co w przebiegu 240 s.
 
 | zbiór | n | baseline | fast | union | empty | allowed | fp | max fast ms | max aggressive ms |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Dataset1 | 215 | 183 | 189 | 208 | 1 | 1 | 5 | 1746 | 5649 |
-| Dataset2 | 215 | 22 | 46 | 113 | 101 | 1 | 0 | 648 | 2778 |
-| razem | 430 | 205 | 235 | 321 | 102 | 2 | 5 | 1746 | 5649 |
+| Dataset1 | 215 | 183 | 189 | 209 | 0 | 1 | 5 | 909 | 1808 |
+| Dataset2 | 215 | 22 | 46 | 169 | 44 | 2 | 0 | 264 | 2475 |
+| razem | 430 | 205 | 235 | 378 | 44 | 3 | 5 | 909 | 2475 |
 
-Wobec tamtego pomiaru przybyło 32 trafienia etykiety i żadne wcześniejsze nie zniknęło. Puste etykiety z wydrukowanym kodem to `05102009199` (`8002330112752`, `linear-band`) i `Foto(844)` (`7321925005431`, `scale-0.5`). `Foto(849)` zostaje puste. Pięć `fp` to zamknięta klasa: Data Matrix `2A127693515` na `05102009132`, Data Matrix `372260C` na `05102009161`–`163` oraz UPC-E `10058084` na `05102009159`. Najdłuższa klatka agresywna ma 5649 ms. Żadna nie doszła do 8 s, a FAST do 2,5 s.
+Wobec pomiaru z union 377 przybyło jedno trafienie i nic nie zniknęło. `Foto(714)` czyta `8001410088710` z `ean-correlate`, z kroku modułu 0,1 w tym samym slocie. Ta siatka startuje dopiero gdy strzeżona korelacja i krok 0,2 pudłują na wszystkich szerokich wycinkach. Krok początku zostaje co najmniej piksel, a próg cyfry 0,55. Drobny krok początku na tych samych wycinkach przyjmuje fałszywy kod `Foto(811)` i trwa kilka sekund, więc go nie ma. `Foto(811)` zostaje puste. Żaden wcześniejszy odczyt nie zmienił próby, nie ma nowego `fp`, a komórki FAST stoją. `Foto(751)` zostaje na `4902520242204`, `Foto(771)` na UPC-A `051122414831`, oba nadal z kroku 0,2. `Foto(799)` i `Foto(848)` zostają na `scale-0.5`. `Foto(849)` zostaje dozwolonym odczytem `7321925005431`. `Foto(839)` dalej pudłuje: etykieta ma literówkę, a wydrukowany GTIN nie jest trafieniem. Pięć `fp` to ta sama zamknięta klasa. Najdłuższa klatka agresywna ma 2475 ms (`Foto(753)`, pusto): krok 0,1 dochodzi na pełnym pudle. W Dataset1 najdłuższa ma 1808 ms (`PICT00gfhh38`, `linear-band-mean`). FAST najdłużej 909 ms, też `PICT00gfhh38` (klasa `empty`). W Dataset2 FAST najdłużej 264 ms (`Foto(477)`, klasa `empty`). Żadna nie doszła do 8 s, a FAST do 2,5 s.
+
+Przebieg 240 s miał union 377. 430 klatek, zero błędów wczytania. Tekst baseline i FAST, klatka po klatce, był ten sam co w przebiegu 226 s.
+
+| zbiór | n | baseline | fast | union | empty | allowed | fp | max fast ms | max aggressive ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dataset1 | 215 | 183 | 189 | 209 | 0 | 1 | 5 | 914 | 1880 |
+| Dataset2 | 215 | 22 | 46 | 168 | 45 | 2 | 0 | 363 | 1430 |
+| razem | 430 | 205 | 235 | 377 | 45 | 3 | 5 | 914 | 1880 |
+
+Wobec pomiaru z union 375 przybyły dwa trafienia i nic nie zniknęło. Oba schodzą z `ean-correlate`, z grubszej siatki w tym samym slocie, która startuje dopiero gdy strzeżona korelacja pudłuje na wszystkich szerokich wycinkach. `Foto(751)` czyta `4902520242204`. `Foto(771)` czyta UPC-A `051122414831`. Rozmazany pręt ma ujemną korelację strażnika początku, a cyfry nadal pasują; krok modułu 0,2 i próg cyfry 0,55 ten odczyt trzymają. Drobna siatka bez strażników na tych samych wycinkach przyjmuje fałszywy kod `Foto(811)` i trwa kilka sekund, więc jej nie ma. Żaden wcześniejszy odczyt nie zmienił próby, nie ma nowego `fp`, a komórki FAST stoją. `Foto(799)` i `Foto(848)` zostają na `scale-0.5`. `Foto(849)` zostaje dozwolonym odczytem `7321925005431`. `Foto(839)` dalej pudłuje: etykieta ma literówkę, a wydrukowany GTIN nie jest trafieniem. `Foto(811)` zostaje puste. Pięć `fp` to ta sama zamknięta klasa. Najdłuższa klatka agresywna ma 1880 ms (`PICT00gfhh38`, `linear-band-mean`). W Dataset2 najdłuższa ma 1430 ms (`Foto(719)`, pusto): grubsza siatka dochodzi na pełnym pudle. FAST najdłużej 914 ms, też `PICT00gfhh38` (klasa `empty`). W Dataset2 FAST najdłużej 363 ms (`Foto(518)`, klasa `empty`). Żadna nie doszła do 8 s, a FAST do 2,5 s.
+
+Przebieg 226 s miał union 375. 430 klatek, zero błędów wczytania. Tekst baseline i FAST, klatka po klatce, był ten sam co w przebiegu 227 s.
+
+| zbiór | n | baseline | fast | union | empty | allowed | fp | max fast ms | max aggressive ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dataset1 | 215 | 183 | 189 | 209 | 0 | 1 | 5 | 895 | 1847 |
+| Dataset2 | 215 | 22 | 46 | 166 | 47 | 2 | 0 | 271 | 760 |
+| razem | 430 | 205 | 235 | 375 | 47 | 3 | 5 | 895 | 1847 |
+
+Wobec pomiaru z union 371 przybyły cztery trafienia i nic nie zniknęło. Wszystkie schodzą z `ean-correlate`, korelacji cyfr na najostrzejszych wierszach wycinka. `Foto(312)` czyta `8011642115887`. `Foto(827)` czyta `8011642111896`. `Foto(760)` i `Foto(762)` czytają UPC-A `051122414831`. Żaden odczyt nie zmienił próby, nie ma nowego `fp`, a komórki FAST stoją. `Foto(799)` i `Foto(848)` zostają na `scale-0.5`. `Foto(849)` zostaje dozwolonym odczytem `7321925005431`. `Foto(839)` dalej pudłuje: etykieta ma literówkę, a wydrukowany GTIN nie jest trafieniem. Pięć `fp` to ta sama zamknięta klasa. Najdłuższa klatka agresywna ma 1847 ms (`PICT00gfhh38`, `linear-band-mean`). W Dataset2 najdłuższa ma 760 ms (`Foto(555)`, pusto). FAST najdłużej 895 ms, też `PICT00gfhh38` (klasa `empty`). Żadna nie doszła do 8 s, a FAST do 2,5 s.
+
+Przebieg 227 s miał union 371. Wobec pomiaru z union 368 przybyły wtedy trzy trafienia i nic nie zniknęło. `Foto(484)` czyta `8011642115962` z `linear-band-us4-top`, wycinek 2 obrócony o −1°. `Foto(496)` czyta `4902030187590` z `linear-band-key`, wycinek 3 obrócony o +1° i ściągnięty z trapezu. `Foto(761)` czyta UPC-A `051122414831` z `linear-band-su2-rot`, wycinek 0 obrócony o −1°. Najdłuższa klatka agresywna miała 1990 ms (`PICT00gfhh38`, `linear-band-mean`). W Dataset2 najdłuższa miała 787 ms (`Foto(555)`, pusto). FAST najdłużej 973 ms, też `PICT00gfhh38` (klasa `empty`).
+
+| zbiór | n | baseline | fast | union | empty | allowed | fp | max fast ms | max aggressive ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dataset1 | 215 | 183 | 189 | 209 | 0 | 1 | 5 | 973 | 1990 |
+| Dataset2 | 215 | 22 | 46 | 162 | 51 | 2 | 0 | 276 | 787 |
+| razem | 430 | 205 | 235 | 371 | 51 | 3 | 5 | 973 | 1990 |
+
+Przebieg 223 s miał union 368. Wobec pomiaru z union 365 przybyły wtedy trzy trafienia, wszystkie na `linear-band-us4-rot` i wszystkie z etykietą `8011642111896`. `Foto(823)` schodzi z wycinka 2 obróconego o +0,5°. `Foto(828)` schodzi z wycinka 3 obróconego o +1°. `Foto(830)` schodzi z wycinka 3 obróconego o +2°. Najdłuższa klatka agresywna miała 1837 ms (`PICT00gfhh38`, `linear-band-mean`), a w Dataset2 736 ms (`Foto(518)`, `scale-0.5`). FAST najdłużej 895 ms, też `PICT00gfhh38` (klasa `empty`).
+
+| zbiór | n | baseline | fast | union | empty | allowed | fp | max fast ms | max aggressive ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dataset1 | 215 | 183 | 189 | 209 | 0 | 1 | 5 | 895 | 1837 |
+| Dataset2 | 215 | 22 | 46 | 159 | 54 | 2 | 0 | 262 | 736 |
+| razem | 430 | 205 | 235 | 368 | 54 | 3 | 5 | 895 | 1837 |
+
+Przebieg 227 s miał union 365. Wobec pomiaru z union 363 przybyły wtedy dwa trafienia, oba na `linear-band-us4-rot`, z wycinka 0 obróconego o +2°. `Foto(515)` czyta `5030930017491`. `Foto(824)` czyta `8011642111896`. Najdłuższa klatka agresywna miała 1839 ms (`PICT00gfhh38`, `linear-band-mean`), a w Dataset2 743 ms (`Foto(516)`, trafienie). FAST najdłużej 922 ms, też `PICT00gfhh38` (klasa `empty`).
+
+| zbiór | n | baseline | fast | union | empty | allowed | fp | max fast ms | max aggressive ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dataset1 | 215 | 183 | 189 | 209 | 0 | 1 | 5 | 922 | 1839 |
+| Dataset2 | 215 | 22 | 46 | 156 | 57 | 2 | 0 | 279 | 743 |
+| razem | 430 | 205 | 235 | 365 | 57 | 3 | 5 | 922 | 1839 |
+
+Przebieg 228 s miał union 363. Wobec pomiaru z union 362 przybyło wtedy jedno trafienie: `Foto(698)` czyta `4902030195397` z wycinka 1 obróconego o −1°. Najdłuższa klatka agresywna miała 1857 ms (`PICT00gfhh38`, `linear-band-mean`), a w Dataset2 989 ms (`Foto(515)`, wtedy jeszcze pusto).
+
+| zbiór | n | baseline | fast | union | empty | allowed | fp | max fast ms | max aggressive ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dataset1 | 215 | 183 | 189 | 209 | 0 | 1 | 5 | 915 | 1857 |
+| Dataset2 | 215 | 22 | 46 | 154 | 59 | 2 | 0 | 266 | 989 |
+| razem | 430 | 205 | 235 | 363 | 59 | 3 | 5 | 915 | 1857 |
+
+Przebieg 239 s miał union 362. Wobec pomiaru z union 359 przybyły wtedy trzy trafienia, wszystkie na `linear-band-us4-rot`. Miękki wycinek jest wyostrzany promieniem 3. `Foto(516)` czyta `5030930017491`. `Foto(837)` i `Foto(842)` czytają `7321925005431`. Najdłuższa klatka agresywna miała wtedy 1988 ms (`PICT0036`, `linear-band`), a w Dataset2 946 ms (`Foto(515)`, pusto). FAST najdłużej 1075 ms (`PICT00daw23`).
+
+| zbiór | n | baseline | fast | union | empty | allowed | fp | max fast ms | max aggressive ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dataset1 | 215 | 183 | 189 | 209 | 0 | 1 | 5 | 1075 | 1988 |
+| Dataset2 | 215 | 22 | 46 | 153 | 60 | 2 | 0 | 318 | 946 |
+| razem | 430 | 205 | 235 | 362 | 60 | 3 | 5 | 1075 | 1988 |
+
+Przebieg 227 s miał union 359. Wobec pomiaru z union 353 przybyło wtedy sześć trafień, wszystkie z Dataset2 i wszystkie na `linear-band-us4-rot`. `Foto(489)`, `Foto(675)`, `Foto(678)` i `Foto(722)` czytają `4902030187590`. `Foto(683)` czyta `8011642115962`. `Foto(767)` czyta UPC-A `051122414831`. Nic nie zniknęło i nie było nowego `fp`. `Foto(799)` i `Foto(848)` zostają na `scale-0.5`. `Foto(849)` zostaje dozwolonym odczytem. Najdłuższa klatka agresywna miała 1813 ms (`PICT00gfhh38`, `linear-band-mean`), a w Dataset2 872 ms (`Foto(515)`, pusto). FAST najdłużej 918 ms, też `PICT00gfhh38` (klasa `empty`).
+
+| zbiór | n | baseline | fast | union | empty | allowed | fp | max fast ms | max aggressive ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dataset1 | 215 | 183 | 189 | 209 | 0 | 1 | 5 | 918 | 1813 |
+| Dataset2 | 215 | 22 | 46 | 150 | 63 | 2 | 0 | 282 | 872 |
+| razem | 430 | 205 | 235 | 359 | 63 | 3 | 5 | 918 | 1813 |
+
+Przebieg 225 s miał union 353. Wobec pomiaru z union 344 przybyło wtedy dziewięć trafień i jeden dozwolony odczyt. Nic nie zniknęło i nie było nowego `fp`. `Foto(427)` (`8002330002534`), `Foto(677)` (`4902030187590`), `Foto(846)` i `Foto(851)` (oba `7321925005431`) oraz UPC-A `051122414831` na `Foto(763)`, `Foto(766)`, `Foto(769)`, `Foto(770)` i `Foto(772)` schodzą na `linear-band-us4-rot`. `Foto(849)` ma pustą etykietę; ten sam obrót czyta wydrukowane `7321925005431`. `Foto(799)` i `Foto(848)` zostają na `scale-0.5`. Najdłuższa klatka agresywna miała 1840 ms (`PICT00gfhh38`, `linear-band-mean`), a w Dataset2 862 ms (`Foto(515)`, pusto).
+
+| zbiór | n | baseline | fast | union | empty | allowed | fp | max fast ms | max aggressive ms |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Dataset1 | 215 | 183 | 189 | 209 | 0 | 1 | 5 | 886 | 1840 |
+| Dataset2 | 215 | 22 | 46 | 144 | 69 | 2 | 0 | 271 | 862 |
+| razem | 430 | 205 | 235 | 353 | 69 | 3 | 5 | 886 | 1840 |
+
+Przebieg 230 s miał union 344. Wobec pomiaru z union 340 przybyły wtedy cztery trafienia. `05102009191` (`8002330112752`) schodzi na `linear-band-mean`: wyższy wycinek ma ten tekst na dwóch wierszach wolnych od odblasku. `Foto(480)`, `Foto(676)` i `Foto(829)` schodzą na `linear-band-us4-otsu` (GTIN `8011642111896`, `4902030187590` i znowu `8011642111896`). `Foto(741)` zostaje przy `8011642115887`, ale wygrywa wcześniej, na `linear-band-otsu` zamiast `linear-band`. Tekst baseline i FAST był ten sam co w przebiegu 368 s. Czasy były krótsze, bo próby po `original-global` i cztery kąty agresywne liczą się równolegle, a mediana 3×3 nie zaciska już środka okna. Najdłuższa klatka agresywna miała wtedy 1784 ms, a w Dataset2 886 ms.
+
+Przebieg 368 s miał union 340. Wobec pomiaru z union 332 przybyło wtedy osiem trafień, wszystkie z Dataset2: UPC-A `051122414831` na `Foto(765)`, `Foto(776)`, `Foto(778)` i `Foto(779)` (`linear-band-level-top`), `Foto(483)` (`linear-band-level-top40`, `8011642115962`), `Foto(406)` (mediana kolumn, `8011642115887`), `Foto(738)` (najciemniejszy piksel kolumny, ten sam GTIN) oraz `Foto(504)` (wyostrzenie promieniem 2 średniej ostrych wierszy, `8002330097875`). Zostają też: `Foto(481)` i `Foto(728)` na 35. percentylu, `Foto(573)` na 45., `Foto(556)` na 50. percentylu, `Foto(501)` na wyostrzeniu tej średniej, `Foto(817)` i `Foto(820)` na lokalnej średniej, `Foto(503)` i `Foto(543)` na wyostrzeniu wycinka, `Foto(707)` na 2× oraz `Foto(508)`, `Foto(725)` i `Foto(729)` na 35. percentylu. Ten sam GTIN `8011642111896` schodzi też wcześniej na `Foto(816)`, `Foto(818)` i `Foto(819)`. `Foto(724)` zostaje przy tym samym GTIN na `linear-band-unsharp-otsu`. Szukanie kąta buduje tabelę przebiegów raz i rankuje ją osobno gęstością oraz rytmem. Kąty są liczone równolegle i składane w kolejności kąta, więc remis zostaje przy wcześniejszym. Na wszystkich 430 klatkach wycinki są identyczne. Samo szukanie, bez wczytywania JPEG, spadło z 289 s do 52 s. Wcześniejsze złożenie dwóch rankingów w jeden przebieg zeszło z 408 s do 312 s.

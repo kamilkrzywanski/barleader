@@ -370,8 +370,9 @@ public final class ZxingDecoder {
         if (attempt.startsWith("linear-band") && widerRival(image, found.text())) {
             return List.of();
         }
-        // A binary band hit that lives on one or two adjacent rows is a threshold glitch.
-        // The same digits have to show on four rows, or on two rows at least 8 px apart.
+        // A binary strip hit on one or two adjacent rows is a threshold glitch.
+        // Four rows, or two rows at least 8 px apart, still required on a 48-row strip.
+        // A taller crop may keep just two intact rows under glare.
         if (binary && attempt.startsWith("linear-band") && !separatedEanRows(image, found.text())) {
             return List.of();
         }
@@ -688,7 +689,10 @@ public final class ZxingDecoder {
                 return true;
             }
         }
-        return false;
+        // A 48-row strip still needs four rows or an 8 px gap: that is where a
+        // one-row threshold glitch repeats. A taller crop can keep only a couple of
+        // intact rows when glare covers the rest (Dataset1/05102009191).
+        return count >= 2 && image.getHeight() > 48;
     }
 
     private static boolean eanRowMatches(BitArray row, String text) {
