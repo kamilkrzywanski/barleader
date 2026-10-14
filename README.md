@@ -104,6 +104,17 @@ When they are asked for, the opt-in symbologies read all of their samples: 245 o
 
 The aggressive ladder was tuned on these photos, so treat 378 as what the ladder can reach on this kind of image, not as a measurement on unseen data.
 
+**Public sets outside the repository.** `scripts/fetch-datasets.sh` and the snapshot run in [Measuring](#measuring) give these numbers, all with the default symbologies and no time budget. ZXing, fast and aggressive return one symbol an image; only `findAll` looks for the rest, which is what counts on images with many codes.
+
+| Set | Labelled | ZXing | fast | aggressive | fast, `findAll` |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| KAIST DEAL test split, EAN-13 photos (wrong texts) | 2000 | 1224 (73) | 1437 (38) | 1576 (46) | 1459 (18) |
+| KAIST DEAL EAN-8 photos | 90 | 70 | 80 | 88 | 81 |
+| BoofCV QR v3, QR codes found by place | 1232 | 149 | 410 | 429 | 1005 |
+| BarBeR without its Arte-Lab and KAIST parts, codes read | 5176 | 2450 | 3060 | 3348 | 3290 |
+
+On KAIST's 788 photos without a barcode, ZXing reads something on 7, fast on none and aggressive on one. BarBeR counts codes ZXing knows but barcode-pro reads only when asked, such as the Interleaved 2 of 5 of its SKUU DSP Lab part.
+
 **Speed.** A clean symbol is read on the first attempt in a few milliseconds. On 70 Arte-Lab photos (1152×864 to 2976×2232 pixels, most of them hard), fast mode took 0.12 s per photo and 0.32 s of CPU spread over the cores of a 12-thread laptop; aggressive mode took 0.41 s and 1.5 s of CPU. Numbers depend on the machine; the relative cost of the modes does not.
 
 **Robustness.** 1,500 random, degenerate (from 1×1 pixel to 3 megapixels) and damaged images in every mode raise no exception.
@@ -131,6 +142,10 @@ mvn verify
 ```
 
 This needs JDK 17 or later and Maven 3.9. CI builds on JDK 17, 21 and 25: [.github/workflows/verify.yml](.github/workflows/verify.yml). The default build skips the Arte-Lab photos; `mvn -Partelab test` reads the named frames whose text is pinned.
+
+## Measuring
+
+`mvn -q -Psnapshot test-compile exec:java -Dexec.args="target/snapshot.tsv"` reads every image of the sets in the repository with plain ZXing and in each mode, without a time budget, and writes every read plus a scored summary (`target/snapshot.tsv.summary.md`). Two runs of the same code give the same bytes, so a `diff` between runs before and after a change lists exactly the reads it moved. `scripts/fetch-datasets.sh` downloads more public sets that need no account (KAIST DEAL, the ZXing test images, BoofCV QR v3) to `~/.cache/barcode-pro/datasets`, checking their SHA-256, and unpacks BarBeR from `BARBER_ZIP=<archive>` (it needs an account, so it is not downloaded); `--external <that dir>` adds them to the run.
 
 ## Packages
 

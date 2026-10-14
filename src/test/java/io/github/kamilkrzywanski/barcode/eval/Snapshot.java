@@ -1,9 +1,18 @@
 package io.github.kamilkrzywanski.barcode.eval;
 
+import com.google.zxing.BinaryBitmap;
+import com.google.zxing.DecodeHintType;
+import com.google.zxing.MultiFormatReader;
+import com.google.zxing.NotFoundException;
+import com.google.zxing.Result;
+import com.google.zxing.ResultPoint;
+import com.google.zxing.client.j2se.BufferedImageLuminanceSource;
+import com.google.zxing.common.HybridBinarizer;
 import io.github.kamilkrzywanski.barcode.BarcodeHit;
 import io.github.kamilkrzywanski.barcode.BarcodeReader;
 import io.github.kamilkrzywanski.barcode.ImagePoint;
 import io.github.kamilkrzywanski.barcode.ReadOptions;
+import io.github.kamilkrzywanski.barcode.eval.Labels.Read;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -13,27 +22,37 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.stream.Stream;
 
 /**
- * Every hit on every image of the Arte-Lab set and the zxing-cpp samples, in fast, aggressive and
- * fast with findAll, without a time budget. The output has no timings, so two runs of the same
- * code give the same bytes on any machine, and {@code diff} between a run before and after a
- * change lists exactly the reads that changed: text, symbology, attempt, orientation, confidence
- * and corners.
+ * Every read on every image of the benchmark sets, in fast, aggressive and fast with findAll, without
+ * a time budget, and plain ZXing beside them. The output has no timings, so two runs of the same code
+ * give the same bytes on any machine, and {@code diff} between a run before and after a change lists
+ * exactly the reads that changed: text, symbology, attempt, orientation, confidence and corners.
+ * A summary next to it scores every set against its labels.
  *
  * <pre>
  * mvn -q -Psnapshot test-compile exec:java -Dexec.args="target/snapshot.tsv"
+ * scripts/fetch-datasets.sh
+ * mvn -q -Psnapshot test-compile exec:java -Dexec.args="target/snapshot.tsv --external ~/.cache/barcode-pro/datasets"
  * </pre>
  *
- * One line per image and configuration: path, configuration, hit count, then one
- * {@code symbology|text|attempt|orientation|confidence|corners} field per hit. Control characters,
- * {@code |} and {@code \} in the text are escaped as {@code \xNN}.
+ * <p>The sets in the repository are the Arte-Lab photos and the zxing-cpp samples. With
+ * {@code --external} the sets {@code scripts/fetch-datasets.sh} unpacks there join them under
+ * {@code external/}, and BarBeR too when its archive, which needs an account, was given to the script.
+ *
+ * <p>One TSV line per image and configuration: path, configuration, read count, then one
+ * {@code symbology|text|attempt|orientation|confidence|corners} field per read. Control characters,
+ * {@code |} and {@code \} in the text are escaped as {@code \xNN}. The summary is
+ * {@code <out>.summary.md}.
  */
 public final class Snapshot {
     private static final String[] ROOTS = {
@@ -41,55 +60,99 @@ public final class Snapshot {
             "datasets/zxing-cpp-3.1.1",
             "src/test/resources"
     };
+    private static final String[] EXTERNAL = {"kaist-deal", "zxing-blackbox", "boofcv-qr", "barber"};
+    static final String[] CONFIGS = {"zxing", "fast", "aggr", "fast-all"};
+    /** The symbology of the read that stands for an exception thrown by the reader. */
+    static final String ERROR = "ERROR";
 
     private Snapshot() {
     }
 
+    /** One image: where it is, and the path the TSV prints for it. */
+    record Source(Path file, String name) {
+    }
+
+    /** The reads of one image in every configuration, in {@link #CONFIGS} order. */
+    record Outcome(Source source, Map<String, List<Read>> reads, boolean unreadable) {
+    }
+
     public static void main(String[] args) throws Exception {
-        if (args.length < 1) {
-            System.err.println("Usage: Snapshot <out.tsv> [threads]");
+        Path out = null;
+        Path external = null;
+        int threads = Runtime.getRuntime().availableProcessors();
+        for (int i = 0; i < args.length; i++) {
+            if (args[i].equals("--external") && i + 1 < args.length) {
+                external = Path.of(args[++i].replaceFirst("^~", System.getProperty("user.home")));
+            } else if (args[i].equals("--threads") && i + 1 < args.length) {
+                threads = Integer.parseInt(args[++i]);
+            } else if (out == null) {
+                out = Path.of(args[i]);
+            } else {
+                threads = Integer.parseInt(args[i]);
+            }
+        }
+        if (out == null) {
+            System.err.println("Usage: Snapshot <out.tsv> [--external <datasets dir>] [--threads n]");
             System.exit(2);
         }
-        Path out = Path.of(args[0]);
-        int threads = args.length > 1 ? Integer.parseInt(args[1]) : Math.max(1, Runtime.getRuntime().availableProcessors() / 2);
-        List<Path> files = new ArrayList<>();
-        for (String root : ROOTS) {
-            Path dir = Path.of(root);
-            if (!Files.isDirectory(dir)) {
-                continue;
-            }
-            try (Stream<Path> walk = Files.walk(dir)) {
-                walk.filter(Files::isRegularFile).filter(Snapshot::isImage).sorted().forEach(files::add);
-            }
-        }
-        long noBudget = Long.MAX_VALUE;
-        ReadOptions[] configs = {
-                ReadOptions.fast().timeBudgetMillis(noBudget),
-                ReadOptions.aggressive().timeBudgetMillis(noBudget),
-                ReadOptions.fast().findAll(true).timeBudgetMillis(noBudget)
-        };
-        String[] names = {"fast", "aggr", "fast-all"};
-        BarcodeReader reader = new BarcodeReader();
-        ExecutorService callers = Executors.newFixedThreadPool(threads);
+        List<Source> sources = sources(external);
         long start = System.nanoTime();
+        List<Outcome> outcomes = new ArrayList<>();
+        ExecutorService callers = Executors.newFixedThreadPool(threads);
         try {
-            List<Future<String>> lines = new ArrayList<>();
-            for (Path file : files) {
-                lines.add(callers.submit(() -> lines(reader, file, configs, names)));
+            List<Future<Outcome>> futures = new ArrayList<>();
+            for (Source source : sources) {
+                futures.add(callers.submit(() -> read(source)));
             }
             Path parent = out.toAbsolutePath().getParent();
             if (parent != null) {
                 Files.createDirectories(parent);
             }
             try (PrintWriter writer = new PrintWriter(Files.newBufferedWriter(out, StandardCharsets.UTF_8))) {
-                for (Future<String> line : lines) {
-                    writer.print(line.get());
+                for (Future<Outcome> future : futures) {
+                    Outcome outcome = future.get();
+                    outcomes.add(outcome);
+                    writer.print(lines(outcome));
                 }
             }
         } finally {
             callers.shutdownNow();
         }
-        System.err.printf(Locale.ROOT, "%d images in %d s -> %s%n", files.size(), (System.nanoTime() - start) / 1_000_000_000L, out);
+        Path summary = out.resolveSibling(out.getFileName() + ".summary.md");
+        String report = SnapshotReport.render(outcomes);
+        Files.writeString(summary, report, StandardCharsets.UTF_8);
+        System.out.print(report);
+        System.err.printf(Locale.ROOT, "%d images in %d s -> %s, %s%n",
+                sources.size(), (System.nanoTime() - start) / 1_000_000_000L, out, summary);
+    }
+
+    private static List<Source> sources(Path external) throws IOException {
+        List<Source> sources = new ArrayList<>();
+        for (String root : ROOTS) {
+            Path dir = Path.of(root);
+            for (Path file : images(dir)) {
+                sources.add(new Source(file, file.toString().replace('\\', '/')));
+            }
+        }
+        if (external != null) {
+            for (String set : EXTERNAL) {
+                Path dir = external.resolve(set);
+                for (Path file : images(dir)) {
+                    String relative = external.relativize(file).toString().replace('\\', '/');
+                    sources.add(new Source(file, "external/" + relative));
+                }
+            }
+        }
+        return sources;
+    }
+
+    private static List<Path> images(Path dir) throws IOException {
+        if (!Files.isDirectory(dir)) {
+            return List.of();
+        }
+        try (Stream<Path> walk = Files.walk(dir)) {
+            return walk.filter(Files::isRegularFile).filter(Snapshot::isImage).sorted().toList();
+        }
     }
 
     private static boolean isImage(Path path) {
@@ -97,27 +160,78 @@ public final class Snapshot {
         return name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".gif") || name.endsWith(".bmp");
     }
 
-    private static String lines(BarcodeReader reader, Path file, ReadOptions[] configs, String[] names) {
+    private static Outcome read(Source source) {
         BufferedImage image;
         try {
-            image = ImageIO.read(file.toFile());
-        } catch (IOException exception) {
+            image = ImageIO.read(source.file().toFile());
+        } catch (IOException | RuntimeException exception) {
             image = null;
         }
-        String path = file.toString().replace('\\', '/');
         if (image == null) {
+            return new Outcome(source, Map.of(), true);
+        }
+        // The sequential reader gives the same hits as the parallel one; the callers are the parallelism here.
+        BarcodeReader reader = BarcodeReader.sequential();
+        long noBudget = Long.MAX_VALUE;
+        Map<String, List<Read>> reads = new LinkedHashMap<>();
+        reads.put("zxing", zxing(image));
+        reads.put("fast", reads(source, reader, image, ReadOptions.fast().timeBudgetMillis(noBudget)));
+        reads.put("aggr", reads(source, reader, image, ReadOptions.aggressive().timeBudgetMillis(noBudget)));
+        reads.put("fast-all", reads(source, reader, image, ReadOptions.fast().findAll(true).timeBudgetMillis(noBudget)));
+        return new Outcome(source, reads, false);
+    }
+
+    /** The reads of one configuration. An exception is a bug to fix, not a reason to lose the run: it becomes an ERROR read. */
+    private static List<Read> reads(Source source, BarcodeReader reader, BufferedImage image, ReadOptions options) {
+        List<BarcodeHit> hits;
+        try {
+            hits = reader.read(image, options);
+        } catch (RuntimeException | Error failure) {
+            System.err.println(source.name() + ": " + failure);
+            return List.of(new Read(ERROR, failure.toString(), "error", -1, 0, List.of()));
+        }
+        List<Read> reads = new ArrayList<>(hits.size());
+        for (BarcodeHit hit : hits) {
+            reads.add(new Read(hit.symbology().name(), hit.text(), hit.attempt(), hit.orientationDegrees(), hit.confidence(), hit.corners()));
+        }
+        return reads;
+    }
+
+    /** The baseline: MultiFormatReader, HybridBinarizer and TRY_HARDER, as most Java code calls ZXing. */
+    private static List<Read> zxing(BufferedImage image) {
+        Map<DecodeHintType, Object> hints = new EnumMap<>(DecodeHintType.class);
+        hints.put(DecodeHintType.TRY_HARDER, Boolean.TRUE);
+        try {
+            Result result = new MultiFormatReader().decode(
+                    new BinaryBitmap(new HybridBinarizer(new BufferedImageLuminanceSource(image))), hints);
+            List<ImagePoint> corners = new ArrayList<>();
+            if (result.getResultPoints() != null) {
+                for (ResultPoint point : result.getResultPoints()) {
+                    if (point != null) {
+                        corners.add(new ImagePoint(point.getX(), point.getY()));
+                    }
+                }
+            }
+            return List.of(new Read(result.getBarcodeFormat().name(), result.getText(), "zxing", -1, 1.0, corners));
+        } catch (NotFoundException | RuntimeException none) {
+            return List.of();
+        }
+    }
+
+    private static String lines(Outcome outcome) {
+        String path = outcome.source().name();
+        if (outcome.unreadable()) {
             return path + "\t-\tunreadable\n";
         }
         StringBuilder out = new StringBuilder();
-        for (int i = 0; i < configs.length; i++) {
-            List<BarcodeHit> hits = reader.read(image, configs[i]);
-            out.append(path).append('\t').append(names[i]).append('\t').append(hits.size());
-            for (BarcodeHit hit : hits) {
-                out.append('\t').append(hit.symbology()).append('|').append(escape(hit.text()))
-                        .append('|').append(hit.attempt())
-                        .append('|').append(hit.orientationDegrees())
-                        .append('|').append(hit.confidence()).append('|');
-                for (ImagePoint corner : hit.corners()) {
+        for (Map.Entry<String, List<Read>> config : outcome.reads().entrySet()) {
+            out.append(path).append('\t').append(config.getKey()).append('\t').append(config.getValue().size());
+            for (Read read : config.getValue()) {
+                out.append('\t').append(read.symbology()).append('|').append(escape(read.text()))
+                        .append('|').append(read.attempt())
+                        .append('|').append(read.orientation())
+                        .append('|').append(read.confidence()).append('|');
+                for (ImagePoint corner : read.corners()) {
                     out.append(Math.round(corner.x())).append(',').append(Math.round(corner.y())).append(' ');
                 }
             }

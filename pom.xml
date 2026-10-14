@@ -183,8 +183,9 @@
         </profile>
         <!--
             mvn -q -Psnapshot test-compile exec:java -Dexec.args="target/snapshot.tsv"
-            Every hit on the Arte-Lab photos and the zxing-cpp samples, without timings. Diff two runs
-            to see which reads a change moved.
+            Every read on the Arte-Lab photos and the zxing-cpp samples, without timings, and a scored
+            summary beside it. The external option, followed by a directory, adds the sets that
+            scripts/fetch-datasets.sh puts there. Diff two runs to see which reads a change moved.
         -->
         <profile>
             <id>snapshot</id>

@@ -236,7 +236,20 @@ mvn -q -Psnapshot test-compile exec:java -Dexec.args="target/snapshot-po.tsv"
 diff target/snapshot-przed.tsv target/snapshot-po.tsv
 ```
 
-`Snapshot` czyta wszystkie 1225 obrazów (Arte-Lab, próbki zxing-cpp w `datasets/` i w `src/test/resources`) w FAST, AGGRESSIVE i FAST z `findAll`, bez budżetu czasu. Wynik nie ma czasów, więc dwa przebiegi tego samego kodu dają te same bajty na każdej maszynie, a `diff` pokazuje każdy odczyt, któremu zmienił się tekst, symbologia, próba, orientacja, pewność albo narożniki. Zmiana czysto wydajnościowa ma dać pusty `diff`.
+`Snapshot` czyta wszystkie 1225 obrazów (Arte-Lab, próbki zxing-cpp w `datasets/` i w `src/test/resources`) zwykłym ZXingiem (`zxing`) oraz w FAST, AGGRESSIVE i FAST z `findAll`, bez budżetu czasu. Wynik nie ma czasów, więc dwa przebiegi tego samego kodu dają te same bajty na każdej maszynie, a `diff` pokazuje każdy odczyt, któremu zmienił się tekst, symbologia, próba, orientacja, pewność albo narożniki. Zmiana czysto wydajnościowa ma dać pusty `diff`. Obok TSV powstaje `<plik>.summary.md`: dla każdego zbioru i folderu liczba obrazów przeczytanych zgodnie z etykietą, liczba przeczytanych błędnie, odczyty na obrazach bez kodu, a dla QR znanych tylko z narożników liczba znalezionych kodów.
+
+Zbiory spoza repozytorium pobiera `scripts/fetch-datasets.sh` (domyślnie do `~/.cache/barcode-pro/datasets`, sprawdza SHA-256, rozpakowuje). Żadne nie wymaga konta:
+
+- KAIST DEAL (Do i Kim, Zenodo 13586402, CC BY 4.0): standardowy zbiór `barcode_bb` (EAN-13, kod w nazwie pliku; podział testowy `single_test` 2000 zdjęć i treningowy `rec` 1200), `e8_bb` (EAN-8), `multi_bb` (20 zdjęć po kilka kodów, etykiety to tylko ramki, więc liczy się odczyt EAN/UPC ze środkiem w ramce) i `background` (zdjęcia bez kodu). `rec` ma 482 zdjęcia w rozdzielczościach aparatów Arte-Lab, w tym zdjęcia o GTIN-ach z etykiet Arte-Lab, a AGGRESSIVE był strojony na Arte-Lab, więc raport pokazuje go osobno i nie wlicza do sum; `single_test` ma takich zdjęć 6. Starsze archiwum `real.zip` autorów zawiera wycinki zdjęć Arte-Lab i skrypt go nie pobiera.
+- Obrazy testowe ZXinga 3.5.4 z oczekiwanym tekstem (Apache 2.0).
+- BoofCV QR v3: trudne QR w 16 kategoriach `detection`, etykiety to tylko narożniki; kod liczy się jako znaleziony, gdy środek odczytu leży w etykiecie albo odwrotnie. Folder `decoding` (27 kodów z tekstem) liczy się jak zwykłe etykiety tekstowe.
+
+```
+scripts/fetch-datasets.sh
+mvn -q -Psnapshot test-compile exec:java -Dexec.args="target/snapshot.tsv --external $HOME/.cache/barcode-pro/datasets"
+```
+
+Zenodo podaje jedno połączenie wolno (ok. 60 KB/s), więc skrypt pobiera duży plik ośmioma zakresami naraz i wznawia przerwaną część przy następnym uruchomieniu. BarBeR (Vezzali i in., Modena: 8748 zdjęć z 12 zbiorów, każdy kod z typem, wielokątem i tekstem) wymaga konta, więc skrypt go nie pobiera, tylko sprawdza i rozpakowuje podane archiwum: `BARBER_ZIP=<ścieżka> scripts/fetch-datasets.sh`. Kod liczy się jako przeczytany, gdy któryś odczyt ma jego tekst; kody bez tekstu (autorzy zapisali `-1` lub `^`) i typy, których nie czyta żaden czytnik tutaj (kody pocztowe, IATA 2 of 5, samotny EAN-2), nie wchodzą do mianownika. Podzbiory `Artelab`, `Artelab Extended` i `Deal Kaist` raport pokazuje osobno, poza sumami: to te same zdjęcia Arte-Lab i KAIST, które są już wyżej.
 
 2026-10-14: przeniesienie pakietów, usunięcie martwej ścieżki `MultiFormatReader`, jedna konwersja obrazu zamiast trzech, leniwe dekodery w próbie, `Fanout`, szybsza mediana 3×3, korelator EAN na sumach całkowitych i `Bits` prosto z `BitMatrix` dały pusty `diff` (3675 odczytów). Na 70 zdjęciach Arte-Lab (50 z Dataset2, 20 z Dataset1) czas CPU spadł z 90,7 s do 61,1 s w FAST i ze 197 s do 141 s w AGGRESSIVE, przy tych samych trafieniach; pomiar na obciążonej maszynie, dwie rundy na przemian. Przepisany `traceStep` detektora Data Matrix (bez alokacji `P` na próbkę) też dał pusty `diff`. Zgadywanie kodowania naprawiło 4 obrazy (`microqrcode-1/M3-Binary`, `M4-Binary`, `qrcode-2/10`, `qrcode-2/30`), a pominięcie detektorów macierzowych na obrotach usunęło fałszywy AZTEC `083` z `maxicode-1/mode5-sequence2of3` i nic więcej nie zmieniło.
 
