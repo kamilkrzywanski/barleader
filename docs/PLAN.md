@@ -231,7 +231,7 @@ Rusztowanie faz 1–2 wygrywa z czystym ZXingiem na inwersji, perspektywie QR i 
 | `io.github.kamilkrzywanski.barcode.preprocess` | Progi i morfologia: Otsu, średnia lokalna, Gauss, Sauvola, erozja, dylacja, odszumienie |
 | `io.github.kamilkrzywanski.barcode.decode` | Odczyt bitów i deduplikacja. Priorytetowe symbologie i kody macierzowe są własne. ZXing zostaje przy binaryzatorze hybrydowym, Reed-Solomonie, korekcji PDF417 i formatach spoza zestawu |
 | `io.github.kamilkrzywanski.barcode.locate` | Findery QR, Micro QR, Aztec i Data Matrix oraz `blob-quad` |
-| `io.github.kamilkrzywanski.barcode.cli` | CLI: `Main <plik> [--aggressive] [--all]` |
+| `io.github.kamilkrzywanski.barcode.cli` | CLI: `java -jar barcode-pro.jar <plik> [--aggressive] [--all]` |
 
 Testy w `src/test/java` generują zbiór i porównują go z baseline.
 
