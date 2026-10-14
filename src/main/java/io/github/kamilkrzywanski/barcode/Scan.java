@@ -67,12 +67,28 @@ final class Scan {
             return List.of();
         }
         GrayImages.Converted converted = GrayImages.convert(image, true);
-        GrayU8 gray = converted.gray();
+        return run(converted.gray(), converted.zxing());
+    }
 
-        // The first two attempts read ZXing's own luminance of the image, the rest of the ladder reads gray.
-        LuminanceSource original = new GrayLuminanceSource(converted.zxing());
+    /**
+     * @param gray     what the ladder reads
+     * @param original what the first two attempts read: ZXing's own luminance of a colour image,
+     *                 or {@code gray} itself for luminance input. Nothing writes to either.
+     */
+    List<BarcodeHit> run(GrayU8 gray, GrayU8 original) {
+        if (gray.width < 2 || gray.height < 2) {
+            return List.of();
+        }
+        tryOriginals(new GrayLuminanceSource(original));
+        return ladder(gray);
+    }
+
+    private void tryOriginals(LuminanceSource original) {
         tryOriginal(original, false, "original-hybrid", 0.92, options.findAll());
         tryOriginal(original, true, "original-global", 0.84, false);
+    }
+
+    private List<BarcodeHit> ladder(GrayU8 gray) {
         // A hit on the two buffered attempts used to still build every later image and
         // then throw the decode away. Those images are independent, so a miss runs them
         // together and keeps the earliest hit in this same order.

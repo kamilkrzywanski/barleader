@@ -1,5 +1,7 @@
 package io.github.kamilkrzywanski.barcode;
 
+import io.github.kamilkrzywanski.barcode.image.GrayU8;
+
 import java.awt.image.BufferedImage;
 import java.util.List;
 import java.util.Objects;
@@ -62,5 +64,38 @@ public final class BarcodeReader {
         Objects.requireNonNull(image, "image");
         Objects.requireNonNull(options, "options");
         return new Scan(options, fanout).run(image);
+    }
+
+    /**
+     * {@link #read(byte[], int, int, int, int, ReadOptions)} for rows that follow each other
+     * without padding.
+     */
+    public List<BarcodeHit> read(byte[] luminance, int width, int height, ReadOptions options) {
+        return read(luminance, 0, width, width, height, options);
+    }
+
+    /**
+     * Reads 8-bit luminance, 0 black to 255 white, such as the Y plane of a camera frame or a
+     * grayscale buffer that never was a {@link BufferedImage}. The pixels are copied, so the
+     * array can be reused as soon as this returns.
+     *
+     * @param offset    index of the top-left pixel
+     * @param rowStride bytes from the start of one row to the start of the next, at least {@code width}
+     */
+    public List<BarcodeHit> read(byte[] luminance, int offset, int rowStride, int width, int height, ReadOptions options) {
+        Objects.requireNonNull(luminance, "luminance");
+        Objects.requireNonNull(options, "options");
+        if (width < 1 || height < 1) {
+            throw new IllegalArgumentException("width and height must be at least 1");
+        }
+        if (offset < 0 || rowStride < width
+                || offset + (long) (height - 1) * rowStride + width > luminance.length) {
+            throw new IllegalArgumentException("offset, rowStride, width and height do not fit the array");
+        }
+        GrayU8 gray = new GrayU8(width, height);
+        for (int y = 0; y < height; y++) {
+            System.arraycopy(luminance, offset + y * rowStride, gray.data, y * width, width);
+        }
+        return new Scan(options, fanout).run(gray, gray);
     }
 }
