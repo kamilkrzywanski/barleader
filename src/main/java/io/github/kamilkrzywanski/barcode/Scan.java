@@ -1,6 +1,5 @@
 package io.github.kamilkrzywanski.barcode;
 
-import com.google.zxing.LuminanceSource;
 import io.github.kamilkrzywanski.barcode.decode.HitCollector;
 import io.github.kamilkrzywanski.barcode.decode.ZxingDecoder;
 import io.github.kamilkrzywanski.barcode.image.Geometry;
@@ -83,7 +82,7 @@ final class Scan {
         return ladder(gray);
     }
 
-    private void tryOriginals(LuminanceSource original) {
+    private void tryOriginals(GrayLuminanceSource original) {
         tryOriginal(original, false, "original-hybrid", 0.92, options.findAll());
         tryOriginal(original, true, "original-global", 0.84, false);
     }
@@ -1513,7 +1512,7 @@ final class Scan {
         });
     }
 
-    private void tryOriginal(LuminanceSource source, boolean global, String attempt, double confidence, boolean multi) {
+    private void tryOriginal(GrayLuminanceSource source, boolean global, String attempt, double confidence, boolean multi) {
         if (stop()) {
             return;
         }

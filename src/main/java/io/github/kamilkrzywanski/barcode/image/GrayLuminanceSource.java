@@ -1,34 +1,42 @@
 package io.github.kamilkrzywanski.barcode.image;
 
-import com.google.zxing.LuminanceSource;
-
 /**
- * Row-major view of a {@link GrayU8} for ZXing. Crop and 90° rotation are supported
- * because several ZXing detectors call them while searching.
+ * Row-major view of a {@link GrayU8} for the binarizers, with a crop that shares the pixels.
  */
-public final class GrayLuminanceSource extends LuminanceSource {
+public final class GrayLuminanceSource {
     private final byte[] luminances;
+    private final int width;
+    private final int height;
     private final int dataWidth;
     private final int left;
     private final int top;
 
-    /** Shares the pixels of a packed image and copies any other. ZXing only reads them. */
+    /** Shares the pixels of a packed image and copies any other. The binarizers only read them. */
     public GrayLuminanceSource(GrayU8 image) {
         this(packed(image) ? image.data : copy(image), image.width, 0, 0, image.width, image.height);
     }
 
     private GrayLuminanceSource(byte[] luminances, int dataWidth, int left, int top, int width, int height) {
-        super(width, height);
         if (left < 0 || top < 0 || width < 0 || height < 0 || left + width > dataWidth || (top + height) * (long) dataWidth > luminances.length) {
             throw new IllegalArgumentException("crop rectangle does not fit");
         }
         this.luminances = luminances;
+        this.width = width;
+        this.height = height;
         this.dataWidth = dataWidth;
         this.left = left;
         this.top = top;
     }
 
-    @Override
+    public int getWidth() {
+        return width;
+    }
+
+    public int getHeight() {
+        return height;
+    }
+
+    /** Row {@code y} in {@code row} when it is long enough, else in a new array. */
     public byte[] getRow(int y, byte[] row) {
         if (y < 0 || y >= getHeight()) {
             throw new IllegalArgumentException("row " + y + " outside height " + getHeight());
@@ -40,10 +48,8 @@ public final class GrayLuminanceSource extends LuminanceSource {
         return row;
     }
 
-    @Override
+    /** The pixels, row-major and packed; the shared array itself when no copy is needed. */
     public byte[] getMatrix() {
-        int width = getWidth();
-        int height = getHeight();
         if (width == dataWidth && height * dataWidth == luminances.length && left == 0 && top == 0) {
             return luminances;
         }
@@ -56,25 +62,11 @@ public final class GrayLuminanceSource extends LuminanceSource {
         return matrix;
     }
 
-    @Override
-    public boolean isCropSupported() {
-        return true;
-    }
-
-    @Override
-    public LuminanceSource crop(int left, int top, int width, int height) {
+    public GrayLuminanceSource crop(int left, int top, int width, int height) {
         return new GrayLuminanceSource(luminances, dataWidth, this.left + left, this.top + top, width, height);
     }
 
-    @Override
-    public boolean isRotateSupported() {
-        return true;
-    }
-
-    @Override
-    public LuminanceSource rotateCounterClockwise() {
-        int width = getWidth();
-        int height = getHeight();
+    public GrayLuminanceSource rotateCounterClockwise() {
         byte[] rotated = new byte[width * height];
         int newWidth = height;
         for (int y = 0; y < height; y++) {

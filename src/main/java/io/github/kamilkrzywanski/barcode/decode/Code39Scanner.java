@@ -1,9 +1,7 @@
 package io.github.kamilkrzywanski.barcode.decode;
 
-import com.google.zxing.BinaryBitmap;
-import com.google.zxing.NotFoundException;
-import com.google.zxing.common.BitArray;
 import io.github.kamilkrzywanski.barcode.decode.Code39Decoder.Span;
+import io.github.kamilkrzywanski.barcode.image.BinaryBitmap;
 
 /**
  * Row scan for {@link Code39Decoder}, matching the middle-out loop in ZXing
@@ -30,7 +28,7 @@ final class Code39Scanner {
         int height = image.getHeight();
         int rowStep = Math.max(1, height >> 8);
         int middle = height / 2;
-        BitArray row = new BitArray(width);
+        boolean[] row = null;
         for (int step = 0; step < height; step++) {
             int away = (step + 1) / 2;
             boolean above = (step & 1) == 0;
@@ -38,11 +36,11 @@ final class Code39Scanner {
             if (y < 0 || y >= height) {
                 break;
             }
-            try {
-                row = image.getBlackRow(y, row);
-            } catch (NotFoundException ignored) {
+            boolean[] black = image.getBlackRow(y, row);
+            if (black == null) {
                 continue;
             }
+            row = black;
             Found forward = decode(row, y, false);
             if (forward != null) {
                 return forward;
@@ -55,8 +53,7 @@ final class Code39Scanner {
         return null;
     }
 
-    private static Found decode(BitArray row, int y, boolean upsideDown) {
-        boolean[] black = bits(row);
+    private static Found decode(boolean[] black, int y, boolean upsideDown) {
         Span span = Code39Decoder.decodeSpan(black);
         if (span == null || span.text() == null || span.text().isBlank()) {
             return null;
@@ -73,21 +70,10 @@ final class Code39Scanner {
         return new Found(span.text(), left, right, y, upsideDown);
     }
 
-    private static boolean[] bits(BitArray row) {
-        boolean[] black = new boolean[row.getSize()];
+    private static boolean[] reversed(boolean[] black) {
+        boolean[] out = new boolean[black.length];
         for (int x = 0; x < black.length; x++) {
-            black[x] = row.get(x);
-        }
-        return black;
-    }
-
-    private static BitArray reversed(BitArray row) {
-        boolean[] black = bits(row);
-        BitArray out = new BitArray(black.length);
-        for (int x = 0; x < black.length; x++) {
-            if (black[black.length - 1 - x]) {
-                out.set(x);
-            }
+            out[x] = black[black.length - 1 - x];
         }
         return out;
     }

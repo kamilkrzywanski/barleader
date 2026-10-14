@@ -6,17 +6,17 @@ import com.google.zxing.aztec.AztecWriter;
 import com.google.zxing.aztec.encoder.AztecCode;
 import com.google.zxing.aztec.encoder.Encoder;
 import com.google.zxing.common.BitMatrix;
-import com.google.zxing.client.j2se.BufferedImageLuminanceSource;
-import org.junit.jupiter.api.Test;
 import io.github.kamilkrzywanski.barcode.BarcodeHit;
 import io.github.kamilkrzywanski.barcode.Symbology;
 import io.github.kamilkrzywanski.barcode.decode.ZxingDecoder;
 import io.github.kamilkrzywanski.barcode.image.GrayImages;
 import io.github.kamilkrzywanski.barcode.image.PixelMap;
 import io.github.kamilkrzywanski.barcode.image.Samples;
+import io.github.kamilkrzywanski.barcode.image.ZxingLuminance;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Bits;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.P;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Warp;
+import org.junit.jupiter.api.Test;
 
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
@@ -40,7 +40,7 @@ class AztecDetectorTest {
     void readsARenderedSymbolOnTheScanPath() {
         EnumSet<Symbology> requested = EnumSet.of(Symbology.AZTEC);
         List<BarcodeHit> hits = ZxingDecoder.read(
-                new BufferedImageLuminanceSource(symbol("AZTEC-PRO")),
+                ZxingLuminance.of(symbol("AZTEC-PRO")),
                 PixelMap.IDENTITY,
                 "original-hybrid",
                 0,

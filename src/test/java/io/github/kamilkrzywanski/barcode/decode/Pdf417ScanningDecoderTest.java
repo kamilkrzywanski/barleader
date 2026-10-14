@@ -1,19 +1,19 @@
 package io.github.kamilkrzywanski.barcode.decode;
 
-import io.github.kamilkrzywanski.barcode.image.GrayU8;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.EncodeHintType;
-import com.google.zxing.client.j2se.BufferedImageLuminanceSource;
 import com.google.zxing.client.j2se.MatrixToImageWriter;
 import com.google.zxing.common.BitMatrix;
 import com.google.zxing.pdf417.PDF417Writer;
 import com.google.zxing.pdf417.encoder.Compaction;
-import org.junit.jupiter.api.Test;
 import io.github.kamilkrzywanski.barcode.BarcodeHit;
 import io.github.kamilkrzywanski.barcode.Symbology;
 import io.github.kamilkrzywanski.barcode.image.GrayImages;
+import io.github.kamilkrzywanski.barcode.image.GrayU8;
 import io.github.kamilkrzywanski.barcode.image.PixelMap;
+import io.github.kamilkrzywanski.barcode.image.ZxingLuminance;
 import io.github.kamilkrzywanski.barcode.locate.dm.OfficialMatrix;
+import org.junit.jupiter.api.Test;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -43,7 +43,7 @@ class Pdf417ScanningDecoderTest {
         BitMatrix modules = new PDF417Writer().encode("PDF417-PRO", BarcodeFormat.PDF_417, 420, 180, hints);
         EnumSet<Symbology> requested = EnumSet.of(Symbology.PDF_417);
         List<BarcodeHit> hits = ZxingDecoder.read(
-                new BufferedImageLuminanceSource(MatrixToImageWriter.toBufferedImage(modules)),
+                ZxingLuminance.of(MatrixToImageWriter.toBufferedImage(modules)),
                 PixelMap.IDENTITY,
                 "original-hybrid",
                 0,

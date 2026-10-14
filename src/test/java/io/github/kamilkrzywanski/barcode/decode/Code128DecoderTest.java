@@ -5,16 +5,16 @@ import com.google.zxing.ChecksumException;
 import com.google.zxing.EncodeHintType;
 import com.google.zxing.FormatException;
 import com.google.zxing.NotFoundException;
-import com.google.zxing.client.j2se.BufferedImageLuminanceSource;
 import com.google.zxing.client.j2se.MatrixToImageWriter;
 import com.google.zxing.common.BitArray;
 import com.google.zxing.common.BitMatrix;
 import com.google.zxing.oned.Code128Reader;
 import com.google.zxing.oned.Code128Writer;
-import org.junit.jupiter.api.Test;
 import io.github.kamilkrzywanski.barcode.BarcodeHit;
 import io.github.kamilkrzywanski.barcode.Symbology;
 import io.github.kamilkrzywanski.barcode.image.PixelMap;
+import io.github.kamilkrzywanski.barcode.image.ZxingLuminance;
+import org.junit.jupiter.api.Test;
 
 import java.util.EnumMap;
 import java.util.EnumSet;
@@ -170,7 +170,7 @@ class Code128DecoderTest {
         BitMatrix modules = new Code128Writer().encode("CODE-128", BarcodeFormat.CODE_128, 460, 140);
         EnumSet<Symbology> requested = EnumSet.of(Symbology.CODE_128);
         List<BarcodeHit> hits = ZxingDecoder.read(
-                new BufferedImageLuminanceSource(MatrixToImageWriter.toBufferedImage(modules)),
+                ZxingLuminance.of(MatrixToImageWriter.toBufferedImage(modules)),
                 PixelMap.IDENTITY,
                 "original-hybrid",
                 0,

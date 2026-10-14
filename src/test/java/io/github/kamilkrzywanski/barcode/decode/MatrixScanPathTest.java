@@ -1,18 +1,18 @@
 package io.github.kamilkrzywanski.barcode.decode;
 
 import com.google.zxing.BarcodeFormat;
-import com.google.zxing.client.j2se.BufferedImageLuminanceSource;
 import com.google.zxing.client.j2se.MatrixToImageWriter;
 import com.google.zxing.common.BitMatrix;
 import com.google.zxing.datamatrix.DataMatrixWriter;
 import com.google.zxing.qrcode.QRCodeWriter;
-import org.junit.jupiter.api.Test;
 import io.github.kamilkrzywanski.barcode.BarcodeHit;
 import io.github.kamilkrzywanski.barcode.BarcodeReader;
 import io.github.kamilkrzywanski.barcode.ReadOptions;
 import io.github.kamilkrzywanski.barcode.Symbology;
 import io.github.kamilkrzywanski.barcode.image.PixelMap;
 import io.github.kamilkrzywanski.barcode.image.Samples;
+import io.github.kamilkrzywanski.barcode.image.ZxingLuminance;
+import org.junit.jupiter.api.Test;
 
 import java.awt.image.BufferedImage;
 import java.util.EnumSet;
@@ -38,7 +38,7 @@ class MatrixScanPathTest {
         BufferedImage image = invert(MatrixToImageWriter.toBufferedImage(modules));
         EnumSet<Symbology> requested = EnumSet.of(Symbology.QR_CODE);
         List<BarcodeHit> hits = ZxingDecoder.read(
-                new BufferedImageLuminanceSource(image),
+                ZxingLuminance.of(image),
                 PixelMap.IDENTITY,
                 "original-hybrid",
                 0,
@@ -74,7 +74,7 @@ class MatrixScanPathTest {
     private static void assertMatrix(BitMatrix modules, Symbology symbology, String text) throws Exception {
         EnumSet<Symbology> requested = EnumSet.of(symbology);
         List<BarcodeHit> hits = ZxingDecoder.read(
-                new BufferedImageLuminanceSource(MatrixToImageWriter.toBufferedImage(modules)),
+                ZxingLuminance.of(MatrixToImageWriter.toBufferedImage(modules)),
                 PixelMap.IDENTITY,
                 "original-hybrid",
                 0,

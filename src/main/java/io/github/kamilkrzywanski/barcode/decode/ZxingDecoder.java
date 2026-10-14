@@ -1,21 +1,15 @@
 package io.github.kamilkrzywanski.barcode.decode;
 
-import com.google.zxing.BinaryBitmap;
-import com.google.zxing.LuminanceSource;
-import com.google.zxing.NotFoundException;
-import com.google.zxing.ReaderException;
-import com.google.zxing.common.BitArray;
-import com.google.zxing.common.BitMatrix;
-import com.google.zxing.common.GlobalHistogramBinarizer;
-import com.google.zxing.common.HybridBinarizer;
 import io.github.kamilkrzywanski.barcode.BarcodeHit;
 import io.github.kamilkrzywanski.barcode.EanAddOn;
 import io.github.kamilkrzywanski.barcode.ImagePoint;
 import io.github.kamilkrzywanski.barcode.Symbology;
+import io.github.kamilkrzywanski.barcode.image.BinaryBitmap;
+import io.github.kamilkrzywanski.barcode.image.BlackMatrix;
 import io.github.kamilkrzywanski.barcode.image.GrayLuminanceSource;
+import io.github.kamilkrzywanski.barcode.image.GrayU8;
 import io.github.kamilkrzywanski.barcode.image.PixelMap;
 import io.github.kamilkrzywanski.barcode.locate.dm.MatrixReader;
-import io.github.kamilkrzywanski.barcode.image.GrayU8;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -31,12 +25,12 @@ import java.util.function.Supplier;
  * Code 39 by {@link Code39Scanner}, Code 93 by {@link Code93Scanner}, ITF by {@link ItfScanner},
  * Codabar by {@link CodabarScanner}, PDF417 by {@link Pdf417ScanningDecoder}, EAN/UPC by
  * {@link UpcEanScanner}, and DataBar by {@link DataBarDecoder} and {@link DataBarExpandedReader}.
- * ZXing only binarizes. A linear hit must repeat on a parallel strip. Matrix hits do not. Angled
+ * {@link BinaryBitmap} binarizes. A linear hit must repeat on a parallel strip. Matrix hits do not. Angled
  * bars can checksum as a short UPC-E on a single row, and that row is not a barcode.
  */
 public final class ZxingDecoder {
     private static final double MIN_LINEAR_SPAN_SQ = 30.0 * 30.0;
-    /** Pixels between the row ZXing accepted and the confirming strip. */
+    /** Pixels between the row a scanner accepted and the confirming strip. */
     private static final int PARALLEL_SHIFT = 4;
     /** Height of a horizontal confirming strip, or width of a vertical one. */
     private static final int PARALLEL_THICKNESS = 8;
@@ -78,7 +72,7 @@ public final class ZxingDecoder {
     }
 
     public static List<BarcodeHit> read(
-            LuminanceSource source,
+            GrayLuminanceSource source,
             PixelMap toSource,
             String attempt,
             int rotationDegrees,
@@ -90,9 +84,9 @@ public final class ZxingDecoder {
         return read(source, toSource, attempt, rotationDegrees, confidence, symbologies, binary, findAll, EanAddOn.IGNORE);
     }
 
-    /** {@link #read(LuminanceSource, PixelMap, String, int, double, Set, boolean, boolean)} with an EAN/UPC supplement mode. */
+    /** {@link #read(GrayLuminanceSource, PixelMap, String, int, double, Set, boolean, boolean)} with an EAN/UPC supplement mode. */
     public static List<BarcodeHit> read(
-            LuminanceSource source,
+            GrayLuminanceSource source,
             PixelMap toSource,
             String attempt,
             int rotationDegrees,
@@ -137,8 +131,8 @@ public final class ZxingDecoder {
     }
 
     /**
-     * QR, Data Matrix, Aztec, and Micro QR from this attempt's binarizer. The matrix is copied
-     * before a later ZXing pass can invert it in place. Matrix symbols skip the linear strip.
+     * QR, Data Matrix, Aztec, and Micro QR from this attempt's binarizer. The reader copies the
+     * matrix before it inverts it, since the other readers share it. Matrix symbols skip the linear strip.
      */
     private static List<BarcodeHit> matrixHits(
             BinaryBitmap image,
@@ -152,10 +146,8 @@ public final class ZxingDecoder {
         if (!MatrixReader.wants(symbologies)) {
             return List.of();
         }
-        BitMatrix matrix;
-        try {
-            matrix = image.getBlackMatrix();
-        } catch (ReaderException ignored) {
+        BlackMatrix matrix = image.getBlackMatrix();
+        if (matrix == null) {
             return List.of();
         }
         return MatrixReader.read(matrix, toSource, attempt, rotationDegrees, confidence, symbologies, findAll);
@@ -195,13 +187,11 @@ public final class ZxingDecoder {
         if (!symbologies.contains(Symbology.PDF_417)) {
             return List.of();
         }
-        BitMatrix matrix;
-        try {
-            matrix = image.getBlackMatrix();
-        } catch (ReaderException ignored) {
+        BlackMatrix matrix = image.getBlackMatrix();
+        if (matrix == null) {
             return List.of();
         }
-        boolean[][] bits = rows(matrix);
+        boolean[][] bits = matrix.rows();
         List<BarcodeHit> hits = new ArrayList<>();
         for (Pdf417ScanningDecoder.Found found : Pdf417ScanningDecoder.read(bits, findAll)) {
             if (found.text() == null || found.text().isBlank()) {
@@ -231,7 +221,7 @@ public final class ZxingDecoder {
      * with the global histogram and the same requested set.
      */
     private static List<BarcodeHit> eanHits(
-            LuminanceSource source,
+            GrayLuminanceSource source,
             BinaryBitmap image,
             PixelMap toSource,
             String attempt,
@@ -295,7 +285,7 @@ public final class ZxingDecoder {
      * decoded again with the global histogram.
      */
     private static List<BarcodeHit> code39Hits(
-            LuminanceSource source,
+            GrayLuminanceSource source,
             BinaryBitmap image,
             PixelMap toSource,
             String attempt,
@@ -334,7 +324,7 @@ public final class ZxingDecoder {
      * decoded again with the global histogram. Code 93 is absent from the default set.
      */
     private static List<BarcodeHit> code93Hits(
-            LuminanceSource source,
+            GrayLuminanceSource source,
             BinaryBitmap image,
             PixelMap toSource,
             String attempt,
@@ -373,7 +363,7 @@ public final class ZxingDecoder {
      * decoded again with the global histogram.
      */
     private static List<BarcodeHit> code128Hits(
-            LuminanceSource source,
+            GrayLuminanceSource source,
             BinaryBitmap image,
             PixelMap toSource,
             String attempt,
@@ -411,7 +401,7 @@ public final class ZxingDecoder {
      * The quiet-zone minimum inside the decoder stays 6 modules.
      */
     private static List<BarcodeHit> itfHits(
-            LuminanceSource source,
+            GrayLuminanceSource source,
             BinaryBitmap image,
             PixelMap toSource,
             String attempt,
@@ -473,28 +463,26 @@ public final class ZxingDecoder {
         if (!wantsDataBar(symbologies)) {
             return List.of();
         }
-        BitMatrix matrix;
-        try {
-            matrix = image.getBlackMatrix();
-        } catch (ReaderException ignored) {
+        BlackMatrix matrix = image.getBlackMatrix();
+        if (matrix == null) {
             return List.of();
         }
-        boolean[][] rows = rows(matrix);
+        boolean[][] rows = matrix.rows();
         List<BarcodeHit> hits = new ArrayList<>(1);
         int orientation = linearOrientation(false, rotationDegrees);
         if (symbologies.contains(Symbology.DATABAR)) {
-            addDataBar(hits, DataBarDecoder.decodeLocated(rows), Symbology.DATABAR, toSource, matrix.getWidth(), orientation, confidence,
+            addDataBar(hits, DataBarDecoder.decodeLocated(rows), Symbology.DATABAR, toSource, matrix.width(), orientation, confidence,
                     attempt);
         }
         if (symbologies.contains(Symbology.DATABAR_EXPANDED)) {
             addDataBar(hits, DataBarExpandedReader.decodeLocated(rows), Symbology.DATABAR_EXPANDED, toSource,
-                    matrix.getWidth(), orientation, confidence, attempt);
+                    matrix.width(), orientation, confidence, attempt);
         }
         if (symbologies.contains(Symbology.DATABAR_LIMITED)) {
             for (int y = 0; y < rows.length; y++) {
                 DataBarDecoder.Located located = DataBarDecoder.decodeLimitedLocated(rows[y], y);
                 if (located != null) {
-                    addDataBar(hits, located, Symbology.DATABAR_LIMITED, toSource, matrix.getWidth(), orientation, confidence,
+                    addDataBar(hits, located, Symbology.DATABAR_LIMITED, toSource, matrix.width(), orientation, confidence,
                             attempt);
                     break;
                 }
@@ -525,31 +513,8 @@ public final class ZxingDecoder {
         hits.add(new BarcodeHit(located.text(), symbology, corners, orientation, confidence, attempt));
     }
 
-    /** The black matrix as rows of modules, unpacked 32 at a time. */
-    private static boolean[][] rows(BitMatrix matrix) {
-        int width = matrix.getWidth();
-        int height = matrix.getHeight();
-        boolean[][] rows = new boolean[height][width];
-        BitArray row = new BitArray(width);
-        for (int y = 0; y < height; y++) {
-            int[] words = matrix.getRow(y, row).getBitArray();
-            boolean[] out = rows[y];
-            for (int word = 0, x0 = 0; x0 < width; word++, x0 += 32) {
-                int value = words[word];
-                if (value == 0) {
-                    continue;
-                }
-                int end = Math.min(32, width - x0);
-                for (int bit = 0; bit < end; bit++) {
-                    out[x0 + bit] = (value & (1 << bit)) != 0;
-                }
-            }
-        }
-        return rows;
-    }
-
     private static List<BarcodeHit> codabarHits(
-            LuminanceSource source,
+            GrayLuminanceSource source,
             BinaryBitmap image,
             PixelMap toSource,
             String attempt,
@@ -603,13 +568,13 @@ public final class ZxingDecoder {
      */
     private static boolean widerRival(BinaryBitmap image, String text) {
         Map<String, int[]> support = new HashMap<>();
-        BitArray row = new BitArray(image.getWidth());
+        boolean[] row = null;
         for (int y = 0; y < image.getHeight(); y++) {
-            try {
-                row = image.getBlackRow(y, row);
-            } catch (NotFoundException ignored) {
+            boolean[] black = image.getBlackRow(y, row);
+            if (black == null) {
                 continue;
             }
+            row = black;
             noteEanRow(support, row, y);
             noteEanRow(support, reversedRow(row), y);
         }
@@ -635,7 +600,7 @@ public final class ZxingDecoder {
     }
 
     /** {@code stats} is count, first row, last row. The same row in both directions counts once. */
-    private static void noteEanRow(Map<String, int[]> support, BitArray row, int y) {
+    private static void noteEanRow(Map<String, int[]> support, boolean[] row, int y) {
         String span = spanText(row);
         if (span == null) {
             return;
@@ -665,13 +630,13 @@ public final class ZxingDecoder {
         int count = 0;
         int first = -1;
         int last = -1;
-        BitArray row = new BitArray(image.getWidth());
+        boolean[] row = null;
         for (int y = 0; y < image.getHeight(); y++) {
-            try {
-                row = image.getBlackRow(y, row);
-            } catch (NotFoundException ignored) {
+            boolean[] black = image.getBlackRow(y, row);
+            if (black == null) {
                 continue;
             }
+            row = black;
             if (!eanRowMatches(row, text) && !eanRowMatches(reversedRow(row), text)) {
                 continue;
             }
@@ -690,7 +655,7 @@ public final class ZxingDecoder {
         return count >= 2 && image.getHeight() > 48;
     }
 
-    private static boolean eanRowMatches(BitArray row, String text) {
+    private static boolean eanRowMatches(boolean[] row, String text) {
         String span = spanText(row);
         if (span == null) {
             return false;
@@ -704,22 +669,16 @@ public final class ZxingDecoder {
                 && span.regionMatches(1, text, 0, 12);
     }
 
-    private static String spanText(BitArray row) {
-        boolean[] black = new boolean[row.getSize()];
-        for (int x = 0; x < black.length; x++) {
-            black[x] = row.get(x);
-        }
+    private static String spanText(boolean[] black) {
         UpcEanDecoder.Span span = UpcEanDecoder.decodeSpan(black);
         return span == null ? null : span.text();
     }
 
-    private static BitArray reversedRow(BitArray row) {
-        BitArray out = new BitArray(row.getSize());
-        int last = row.getSize() - 1;
-        for (int x = 0; x < row.getSize(); x++) {
-            if (row.get(last - x)) {
-                out.set(x);
-            }
+    private static boolean[] reversedRow(boolean[] row) {
+        boolean[] out = new boolean[row.length];
+        int last = row.length - 1;
+        for (int x = 0; x < row.length; x++) {
+            out[x] = row[last - x];
         }
         return out;
     }
@@ -732,10 +691,10 @@ public final class ZxingDecoder {
         return symbology == Symbology.EAN_13 || symbology == Symbology.UPC_A;
     }
 
-    private static boolean confirmedEan(LuminanceSource source, UpcEanScanner.Found found, Set<Symbology> symbologies) {
+    private static boolean confirmedEan(GrayLuminanceSource source, UpcEanScanner.Found found, Set<Symbology> symbologies) {
         boolean sawStrip = false;
         for (int shift : new int[]{PARALLEL_SHIFT, -PARALLEL_SHIFT}) {
-            LuminanceSource strip = parallelStrip(source, found.row(), found.left(), found.right(), shift, true);
+            GrayLuminanceSource strip = parallelStrip(source, found.row(), found.left(), found.right(), shift, true);
             if (strip == null) {
                 continue;
             }
@@ -748,10 +707,10 @@ public final class ZxingDecoder {
         return !sawStrip;
     }
 
-    private static boolean confirmedCode39(LuminanceSource source, Code39Scanner.Found found) {
+    private static boolean confirmedCode39(GrayLuminanceSource source, Code39Scanner.Found found) {
         boolean sawStrip = false;
         for (int shift : new int[]{PARALLEL_SHIFT, -PARALLEL_SHIFT}) {
-            LuminanceSource strip = parallelStrip(source, found.row(), found.left(), found.right(), shift, true);
+            GrayLuminanceSource strip = parallelStrip(source, found.row(), found.left(), found.right(), shift, true);
             if (strip == null) {
                 continue;
             }
@@ -764,10 +723,10 @@ public final class ZxingDecoder {
         return !sawStrip;
     }
 
-    private static boolean confirmedCode93(LuminanceSource source, Code93Scanner.Found found) {
+    private static boolean confirmedCode93(GrayLuminanceSource source, Code93Scanner.Found found) {
         boolean sawStrip = false;
         for (int shift : new int[]{PARALLEL_SHIFT, -PARALLEL_SHIFT}) {
-            LuminanceSource strip = parallelStrip(source, found.row(), found.left(), found.right(), shift, true);
+            GrayLuminanceSource strip = parallelStrip(source, found.row(), found.left(), found.right(), shift, true);
             if (strip == null) {
                 continue;
             }
@@ -780,10 +739,10 @@ public final class ZxingDecoder {
         return !sawStrip;
     }
 
-    private static boolean confirmedItf(LuminanceSource source, ItfScanner.Found found) {
+    private static boolean confirmedItf(GrayLuminanceSource source, ItfScanner.Found found) {
         boolean sawStrip = false;
         for (int shift : new int[]{PARALLEL_SHIFT, -PARALLEL_SHIFT}) {
-            LuminanceSource strip = parallelStrip(source, found.row(), found.left(), found.right(), shift, true);
+            GrayLuminanceSource strip = parallelStrip(source, found.row(), found.left(), found.right(), shift, true);
             if (strip == null) {
                 continue;
             }
@@ -796,10 +755,10 @@ public final class ZxingDecoder {
         return !sawStrip;
     }
 
-    private static boolean confirmedCodabar(LuminanceSource source, CodabarScanner.Found found) {
+    private static boolean confirmedCodabar(GrayLuminanceSource source, CodabarScanner.Found found) {
         boolean sawStrip = false;
         for (int shift : new int[]{PARALLEL_SHIFT, -PARALLEL_SHIFT}) {
-            LuminanceSource strip = parallelStrip(source, found.row(), found.left(), found.right(), shift, true);
+            GrayLuminanceSource strip = parallelStrip(source, found.row(), found.left(), found.right(), shift, true);
             if (strip == null) {
                 continue;
             }
@@ -812,10 +771,10 @@ public final class ZxingDecoder {
         return !sawStrip;
     }
 
-    private static boolean confirmedCode128(LuminanceSource source, Code128Scanner.Found found) {
+    private static boolean confirmedCode128(GrayLuminanceSource source, Code128Scanner.Found found) {
         boolean sawStrip = false;
         for (int shift : new int[]{PARALLEL_SHIFT, -PARALLEL_SHIFT}) {
-            LuminanceSource strip = parallelStrip(source, found.row(), found.left(), found.right(), shift, true);
+            GrayLuminanceSource strip = parallelStrip(source, found.row(), found.left(), found.right(), shift, true);
             if (strip == null) {
                 continue;
             }
@@ -828,8 +787,8 @@ public final class ZxingDecoder {
         return !sawStrip;
     }
 
-    private static LuminanceSource parallelStrip(
-            LuminanceSource source,
+    private static GrayLuminanceSource parallelStrip(
+            GrayLuminanceSource source,
             int origin,
             int spanStart,
             int spanEnd,
@@ -844,7 +803,7 @@ public final class ZxingDecoder {
         int width = horizontal ? alongEnd - alongStart : PARALLEL_THICKNESS;
         int height = horizontal ? PARALLEL_THICKNESS : alongEnd - alongStart;
         int[] box = clampBox(source.getWidth(), source.getHeight(), left, top, width, height);
-        if (box == null || !source.isCropSupported()) {
+        if (box == null) {
             return null;
         }
         int crossOrigin = horizontal ? box[1] : box[0];
@@ -898,8 +857,8 @@ public final class ZxingDecoder {
         return max >= MIN_LINEAR_SPAN_SQ;
     }
 
-    private static BinaryBitmap bitmap(LuminanceSource source, boolean binary) {
-        return new BinaryBitmap(binary ? new GlobalHistogramBinarizer(source) : new HybridBinarizer(source));
+    private static BinaryBitmap bitmap(GrayLuminanceSource source, boolean binary) {
+        return binary ? BinaryBitmap.global(source) : BinaryBitmap.hybrid(source);
     }
 
 }

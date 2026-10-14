@@ -1,14 +1,14 @@
 package io.github.kamilkrzywanski.barcode.locate.dm;
 
-import com.google.zxing.client.j2se.BufferedImageLuminanceSource;
-import org.junit.jupiter.api.Test;
 import io.github.kamilkrzywanski.barcode.BarcodeHit;
 import io.github.kamilkrzywanski.barcode.Symbology;
 import io.github.kamilkrzywanski.barcode.decode.ZxingDecoder;
 import io.github.kamilkrzywanski.barcode.image.GrayImages;
 import io.github.kamilkrzywanski.barcode.image.PixelMap;
 import io.github.kamilkrzywanski.barcode.image.Samples;
+import io.github.kamilkrzywanski.barcode.image.ZxingLuminance;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Bits;
+import org.junit.jupiter.api.Test;
 
 import java.awt.image.BufferedImage;
 import java.util.Arrays;
@@ -148,7 +148,7 @@ class MicroQrDetectorTest {
     void readsARenderedSymbolOnTheScanPath() {
         EnumSet<Symbology> requested = EnumSet.of(Symbology.MICRO_QR);
         List<BarcodeHit> hits = ZxingDecoder.read(
-                new BufferedImageLuminanceSource(flat()),
+                ZxingLuminance.of(flat()),
                 PixelMap.IDENTITY,
                 "original-hybrid",
                 0,

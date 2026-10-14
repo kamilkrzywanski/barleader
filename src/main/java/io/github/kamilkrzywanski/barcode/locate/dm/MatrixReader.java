@@ -1,9 +1,9 @@
 package io.github.kamilkrzywanski.barcode.locate.dm;
 
-import com.google.zxing.common.BitMatrix;
 import io.github.kamilkrzywanski.barcode.BarcodeHit;
 import io.github.kamilkrzywanski.barcode.ImagePoint;
 import io.github.kamilkrzywanski.barcode.Symbology;
+import io.github.kamilkrzywanski.barcode.image.BlackMatrix;
 import io.github.kamilkrzywanski.barcode.image.PixelMap;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Bits;
 
@@ -23,7 +23,7 @@ public final class MatrixReader {
 
     /** @param black this attempt's black matrix. It is copied, so a later reader may still invert it. */
     public static List<BarcodeHit> read(
-            BitMatrix black,
+            BlackMatrix black,
             PixelMap toSource,
             String attempt,
             int rotationDegrees,
@@ -31,7 +31,7 @@ public final class MatrixReader {
             Set<Symbology> symbologies,
             boolean findAll
     ) {
-        if (!wants(symbologies) || black == null || black.getHeight() < 3 || black.getWidth() < 3) {
+        if (!wants(symbologies) || black == null || black.height() < 3 || black.width() < 3) {
             return List.of();
         }
         Bits bits = Bits.of(black);

@@ -1,12 +1,10 @@
 package io.github.kamilkrzywanski.barcode.decode;
 
-import com.google.zxing.BinaryBitmap;
-import com.google.zxing.NotFoundException;
-import com.google.zxing.common.BitArray;
 import io.github.kamilkrzywanski.barcode.EanAddOn;
 import io.github.kamilkrzywanski.barcode.Symbology;
 import io.github.kamilkrzywanski.barcode.decode.UpcEanDecoder.Kind;
 import io.github.kamilkrzywanski.barcode.decode.UpcEanDecoder.Span;
+import io.github.kamilkrzywanski.barcode.image.BinaryBitmap;
 
 import java.util.Set;
 
@@ -55,7 +53,7 @@ final class UpcEanScanner {
         int height = image.getHeight();
         int rowStep = Math.max(1, height >> 8);
         int middle = height / 2;
-        BitArray row = new BitArray(width);
+        boolean[] row = null;
         for (int step = 0; step < height; step++) {
             int away = (step + 1) / 2;
             boolean above = (step & 1) == 0;
@@ -66,11 +64,11 @@ final class UpcEanScanner {
             if (y == found.row()) {
                 continue;
             }
-            try {
-                row = image.getBlackRow(y, row);
-            } catch (NotFoundException ignored) {
+            boolean[] black = image.getBlackRow(y, row);
+            if (black == null) {
                 continue;
             }
+            row = black;
             for (Found again : new Found[]{
                     decode(row, y, false, symbologies, EanAddOn.IGNORE),
                     decode(reversed(row), y, true, symbologies, EanAddOn.IGNORE)}) {
@@ -87,7 +85,7 @@ final class UpcEanScanner {
         int height = image.getHeight();
         int rowStep = Math.max(1, height >> 8);
         int middle = height / 2;
-        BitArray row = new BitArray(width);
+        boolean[] row = null;
         for (int step = 0; step < height; step++) {
             int away = (step + 1) / 2;
             boolean above = (step & 1) == 0;
@@ -95,11 +93,11 @@ final class UpcEanScanner {
             if (y < 0 || y >= height) {
                 break;
             }
-            try {
-                row = image.getBlackRow(y, row);
-            } catch (NotFoundException ignored) {
+            boolean[] black = image.getBlackRow(y, row);
+            if (black == null) {
                 continue;
             }
+            row = black;
             Found forward = decode(row, y, false, symbologies, addOn);
             if (forward != null) {
                 return withSupplement(image, symbologies, addOn, forward);
@@ -122,16 +120,16 @@ final class UpcEanScanner {
             return found;
         }
         int height = image.getHeight();
-        BitArray row = new BitArray(image.getWidth());
+        boolean[] row = null;
         for (int y = 0; y < height; y++) {
             if (y == found.row()) {
                 continue;
             }
-            try {
-                row = image.getBlackRow(y, row);
-            } catch (NotFoundException ignored) {
+            boolean[] black = image.getBlackRow(y, row);
+            if (black == null) {
                 continue;
             }
+            row = black;
             for (Found again : new Found[]{
                     decode(row, y, false, symbologies, EanAddOn.REQUIRE),
                     decode(reversed(row), y, true, symbologies, EanAddOn.REQUIRE)}) {
@@ -143,8 +141,7 @@ final class UpcEanScanner {
         return found;
     }
 
-    private static Found decode(BitArray row, int y, boolean upsideDown, Set<Symbology> symbologies, EanAddOn addOn) {
-        boolean[] black = bits(row);
+    private static Found decode(boolean[] black, int y, boolean upsideDown, Set<Symbology> symbologies, EanAddOn addOn) {
         Span span = UpcEanDecoder.decodeSpan(black, addOn != EanAddOn.IGNORE, addOn == EanAddOn.REQUIRE);
         if (span == null) {
             return null;
@@ -185,21 +182,10 @@ final class UpcEanScanner {
         return new Found(symbology, text, left, right, y, upsideDown, span.addOn());
     }
 
-    private static boolean[] bits(BitArray row) {
-        boolean[] black = new boolean[row.getSize()];
+    private static boolean[] reversed(boolean[] black) {
+        boolean[] out = new boolean[black.length];
         for (int x = 0; x < black.length; x++) {
-            black[x] = row.get(x);
-        }
-        return black;
-    }
-
-    private static BitArray reversed(BitArray row) {
-        boolean[] black = bits(row);
-        BitArray out = new BitArray(black.length);
-        for (int x = 0; x < black.length; x++) {
-            if (black[black.length - 1 - x]) {
-                out.set(x);
-            }
+            out[x] = black[black.length - 1 - x];
         }
         return out;
     }

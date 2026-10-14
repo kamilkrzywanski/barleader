@@ -1,7 +1,6 @@
 package io.github.kamilkrzywanski.barcode.locate.dm;
 
-import com.google.zxing.common.BitArray;
-import com.google.zxing.common.BitMatrix;
+import io.github.kamilkrzywanski.barcode.image.BlackMatrix;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -135,27 +134,13 @@ final class DmGeometry {
             this.data = new boolean[width * height];
         }
 
-        /** A copy of {@code matrix}, unpacked 32 modules at a time. */
-        static Bits of(BitMatrix matrix) {
-            int width = matrix.getWidth();
-            int height = matrix.getHeight();
+        /** A copy of {@code matrix}, which other readers of the attempt share; {@link #flipAll} changes this one. */
+        static Bits of(BlackMatrix matrix) {
+            int width = matrix.width();
+            int height = matrix.height();
             Bits bits = new Bits(width, height);
-            BitArray row = new BitArray(width);
             for (int y = 0; y < height; y++) {
-                int[] words = matrix.getRow(y, row).getBitArray();
-                int base = y * width;
-                for (int word = 0, x0 = 0; x0 < width; word++, x0 += 32) {
-                    int value = words[word];
-                    if (value == 0) {
-                        continue;
-                    }
-                    int end = Math.min(32, width - x0);
-                    for (int bit = 0; bit < end; bit++) {
-                        if ((value & (1 << bit)) != 0) {
-                            bits.data[base + x0 + bit] = true;
-                        }
-                    }
-                }
+                matrix.copyRow(y, bits.data, y * width);
             }
             return bits;
         }
