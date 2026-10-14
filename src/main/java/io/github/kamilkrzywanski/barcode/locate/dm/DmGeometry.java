@@ -1,5 +1,8 @@
 package io.github.kamilkrzywanski.barcode.locate.dm;
 
+import com.google.zxing.common.BitArray;
+import com.google.zxing.common.BitMatrix;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -132,6 +135,31 @@ final class DmGeometry {
             this.data = new boolean[width * height];
         }
 
+        /** A copy of {@code matrix}, unpacked 32 modules at a time. */
+        static Bits of(BitMatrix matrix) {
+            int width = matrix.getWidth();
+            int height = matrix.getHeight();
+            Bits bits = new Bits(width, height);
+            BitArray row = new BitArray(width);
+            for (int y = 0; y < height; y++) {
+                int[] words = matrix.getRow(y, row).getBitArray();
+                int base = y * width;
+                for (int word = 0, x0 = 0; x0 < width; word++, x0 += 32) {
+                    int value = words[word];
+                    if (value == 0) {
+                        continue;
+                    }
+                    int end = Math.min(32, width - x0);
+                    for (int bit = 0; bit < end; bit++) {
+                        if ((value & (1 << bit)) != 0) {
+                            bits.data[base + x0 + bit] = true;
+                        }
+                    }
+                }
+            }
+            return bits;
+        }
+
         boolean isIn(double x, double y) {
             return x >= 0 && x < width && y >= 0 && y < height;
         }
@@ -161,10 +189,15 @@ final class DmGeometry {
 
         /** Black, white, or outside. Outside is neither. */
         int value(P p) {
-            if (!isIn(p)) {
+            return value(p.x, p.y);
+        }
+
+        /** {@link #value(P)} of the point (x, y), without building it. */
+        int value(double x, double y) {
+            if (!isIn(x, y)) {
                 return -1;
             }
-            return get(p) ? 1 : 0;
+            return get(P.trunc(x), P.trunc(y)) ? 1 : 0;
         }
     }
 

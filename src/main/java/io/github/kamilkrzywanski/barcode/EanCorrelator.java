@@ -34,9 +34,21 @@ final class EanCorrelator {
             "LGGLLG", "LGGGLL", "LGLGLG", "LGLGGL", "LGGLGL"
     };
 
+    /** The digit patterns as module masks: L and G for the left half, R for the right. */
+    private static final boolean[][] LEFT_MASKS = new boolean[20][];
+    private static final char[] LEFT_SETS = new char[20];
+    private static final boolean[][] RIGHT_MASKS = new boolean[10][];
+    private static final boolean[] START_GUARD = mask("101");
+    private static final boolean[] CENTER_GUARD = mask("01010");
+
     static {
         for (int digit = 0; digit < 10; digit++) {
             R[digit] = flip(L[digit]);
+            LEFT_MASKS[digit] = mask(L[digit]);
+            LEFT_SETS[digit] = 'L';
+            LEFT_MASKS[10 + digit] = mask(G[digit]);
+            LEFT_SETS[10 + digit] = 'G';
+            RIGHT_MASKS[digit] = mask(R[digit]);
         }
     }
 
@@ -107,10 +119,10 @@ final class EanCorrelator {
             }
             double step = Math.max(0.5, module * 0.2);
             for (double origin = 0; origin + width < signal.length; origin += step) {
-                if (corr(signal, origin, module, "101") < 0.25) {
+                if (corr(signal, origin, module, START_GUARD) < 0.25) {
                     continue;
                 }
-                if (corr(signal, origin + 45 * module, module, "01010") < 0.45) {
+                if (corr(signal, origin + 45 * module, module, CENTER_GUARD) < 0.45) {
                     continue;
                 }
                 Assembled left = assemble(signal, origin, module, true);
@@ -201,29 +213,30 @@ final class EanCorrelator {
     }
 
     private static Pick pick(int[] signal, double origin, double module, boolean left, double digitMin) {
-        int bestDigit = -1;
-        char bestSet = 'L';
-        double best = -1;
-        double second = -1;
-        String[] families = left ? new String[]{"L", "G"} : new String[]{"R"};
-        for (String family : families) {
-            for (int digit = 0; digit < 10; digit++) {
-                String bits = family.equals("L") ? L[digit] : family.equals("G") ? G[digit] : R[digit];
-                double score = corr(signal, origin, module, bits);
-                if (score > best) {
-                    second = best;
-                    best = score;
-                    bestDigit = digit;
-                    bestSet = family.charAt(0);
-                } else if (score > second) {
-                    second = score;
-                }
-            }
-        }
-        if (bestDigit < 0 || best < digitMin || best - second < 0.02) {
+        Window window = Window.sample(signal, origin, module, 7);
+        if (window == null) {
             return null;
         }
-        return new Pick(bestDigit, bestSet, best);
+        boolean[][] masks = left ? LEFT_MASKS : RIGHT_MASKS;
+        int bestIndex = -1;
+        double best = -1;
+        double second = -1;
+        for (int index = 0; index < masks.length; index++) {
+            double score = window.corr(masks[index]);
+            if (score > best) {
+                second = best;
+                best = score;
+                bestIndex = index;
+            } else if (score > second) {
+                second = score;
+            }
+        }
+        if (bestIndex < 0 || best < digitMin || best - second < 0.02) {
+            return null;
+        }
+        return left
+                ? new Pick(bestIndex % 10, LEFT_SETS[bestIndex], best)
+                : new Pick(bestIndex, 'R', best);
     }
 
     /** A few rows around the strongest horizontal edge. Averaging the whole crop mixes in the digits. */
@@ -282,38 +295,81 @@ final class EanCorrelator {
     }
 
     /** Pearson correlation of darkness with a bar mask. One means a perfect match. */
-    private static double corr(int[] signal, double origin, double module, String bits) {
-        int modules = bits.length();
-        int samples = Math.max(4, (int) Math.round(modules * module));
-        double sumS = 0;
-        double sumE = 0;
-        double sumSS = 0;
-        double sumEE = 0;
-        double sumSE = 0;
-        for (int i = 0; i < samples; i++) {
-            int ix = (int) Math.floor(origin + (i + 0.5) * modules * module / samples);
-            if (ix < 0 || ix >= signal.length) {
+    private static double corr(int[] signal, double origin, double module, boolean[] bits) {
+        Window window = Window.sample(signal, origin, module, bits.length);
+        return window == null ? -2 : window.corr(bits);
+    }
+
+    /**
+     * The darkness under one pattern position, summed per module. Darkness is an integer and
+     * the sums stay far below 2<sup>53</sup>, so any template is scored from these sums with
+     * exactly the doubles a per-sample loop would produce.
+     */
+    private static final class Window {
+        private final int samples;
+        private final long sumS;
+        private final long sumSS;
+        private final long[] moduleDark;
+        private final int[] moduleSamples;
+
+        private Window(int samples, long sumS, long sumSS, long[] moduleDark, int[] moduleSamples) {
+            this.samples = samples;
+            this.sumS = sumS;
+            this.sumSS = sumSS;
+            this.moduleDark = moduleDark;
+            this.moduleSamples = moduleSamples;
+        }
+
+        /** Null when a sample falls outside the signal. */
+        static Window sample(int[] signal, double origin, double module, int modules) {
+            int samples = Math.max(4, (int) Math.round(modules * module));
+            long sumS = 0;
+            long sumSS = 0;
+            long[] moduleDark = new long[modules];
+            int[] moduleSamples = new int[modules];
+            for (int i = 0; i < samples; i++) {
+                int ix = (int) Math.floor(origin + (i + 0.5) * modules * module / samples);
+                if (ix < 0 || ix >= signal.length) {
+                    return null;
+                }
+                int bit = (int) ((i + 0.5) * modules / samples);
+                if (bit >= modules) {
+                    bit = modules - 1;
+                }
+                int dark = 255 - signal[ix];
+                sumS += dark;
+                sumSS += (long) dark * dark;
+                moduleDark[bit] += dark;
+                moduleSamples[bit]++;
+            }
+            return new Window(samples, sumS, sumSS, moduleDark, moduleSamples);
+        }
+
+        double corr(boolean[] bits) {
+            long sumE = 0;
+            long sumSE = 0;
+            for (int bit = 0; bit < bits.length; bit++) {
+                if (bits[bit]) {
+                    sumE += moduleSamples[bit];
+                    sumSE += moduleDark[bit];
+                }
+            }
+            double num = (double) samples * sumSE - (double) sumS * sumE;
+            double left = (double) samples * sumSS - (double) sumS * sumS;
+            double right = (double) samples * sumE - (double) sumE * sumE;
+            if (left <= 1e-6 || right <= 1e-6) {
                 return -2;
             }
-            int bit = (int) ((i + 0.5) * modules / samples);
-            if (bit >= modules) {
-                bit = modules - 1;
-            }
-            double expected = bits.charAt(bit) == '1' ? 1.0 : 0.0;
-            double dark = 255 - signal[ix];
-            sumS += dark;
-            sumE += expected;
-            sumSS += dark * dark;
-            sumEE += expected * expected;
-            sumSE += dark * expected;
+            return num / Math.sqrt(left * right);
         }
-        double num = samples * sumSE - sumS * sumE;
-        double left = samples * sumSS - sumS * sumS;
-        double right = samples * sumEE - sumE * sumE;
-        if (left <= 1e-6 || right <= 1e-6) {
-            return -2;
+    }
+
+    private static boolean[] mask(String bits) {
+        boolean[] mask = new boolean[bits.length()];
+        for (int i = 0; i < mask.length; i++) {
+            mask[i] = bits.charAt(i) == '1';
         }
-        return num / Math.sqrt(left * right);
+        return mask;
     }
 
     private static int[] reverse(int[] signal) {

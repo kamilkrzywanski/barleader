@@ -89,11 +89,12 @@ final class Scan {
             }
             jobs.add(() -> readImage(
                     GrayImages.flattenIllumination(gray), PixelMap.IDENTITY, "illumination", 0, false, 0.74, false));
-            for (int angle : new int[]{90, 180, 270}) {
+            Set<Symbology> turned = rotationFormats();
+            for (int angle : turned.isEmpty() ? new int[0] : new int[]{90, 180, 270}) {
                 jobs.add(() -> {
                     Transformed rotated = Geometry.rotateOrthogonal(gray, angle);
-                    return readImage(
-                            rotated.image(), rotated.toSource(), "rotate-" + angle, angle, false, 0.80, options.findAll());
+                    return readImage(rotated.image(), rotated.toSource(), "rotate-" + angle, angle, false,
+                            turned, 0.80, options.findAll());
                 });
             }
             jobs.add(() -> readImage(
@@ -122,7 +123,8 @@ final class Scan {
         // and the Sauvola / quad work below is much more expensive.
         // The four rotations do not depend on each other. Results are still applied from
         // -15 upward, so a hit on an earlier angle still hides a later one.
-        if (!stop() && !symbologies.isEmpty()) {
+        Set<Symbology> tilted = rotationFormats();
+        if (!stop() && !tilted.isEmpty()) {
             List<Callable<List<BarcodeHit>>> angles = new ArrayList<>();
             for (double angle : new double[]{-15.0, 15.0, -30.0, 30.0}) {
                 if (!Geometry.rotationFits(gray.width, gray.height, angle)) {
@@ -131,8 +133,8 @@ final class Scan {
                 double degrees = angle;
                 angles.add(() -> {
                     Transformed rotated = Geometry.rotate(gray, degrees);
-                    return readImage(
-                            rotated.image(), rotated.toSource(), "rotate-" + degrees, rotated.degrees(), false, 0.72, false);
+                    return readImage(rotated.image(), rotated.toSource(), "rotate-" + degrees, rotated.degrees(), false,
+                            tilted, 0.72, false);
                 });
             }
             runAttempts(angles);
@@ -1414,11 +1416,40 @@ final class Scan {
             double confidence,
             boolean multi
     ) {
+        return readImage(image, toSource, attempt, degrees, globalBinarizer, symbologies, confidence, multi);
+    }
+
+    private List<BarcodeHit> readImage(
+            GrayU8 image,
+            PixelMap toSource,
+            String attempt,
+            int degrees,
+            boolean globalBinarizer,
+            Set<Symbology> formats,
+            double confidence,
+            boolean multi
+    ) {
         if (image.width < 2 || image.height < 2) {
             return null;
         }
-        return ZxingDecoder.read(
-                image, toSource, attempt, degrees, confidence, symbologies, globalBinarizer, multi);
+        if (formats.isEmpty()) {
+            return List.of();
+        }
+        return ZxingDecoder.read(image, toSource, attempt, degrees, confidence, formats, globalBinarizer, multi);
+    }
+
+    /**
+     * What a rotated copy of the image is decoded for. The QR, Micro QR, Aztec and Data Matrix
+     * detectors find a symbol at any angle, so a rotated copy only repeats their work: on the
+     * 430 Arte-Lab frames and the zxing-cpp samples they never read a symbol there that the
+     * upright image missed, and the one matrix read they did make was an Aztec inside a MaxiCode.
+     * zxing-cpp rotates for its linear readers only. PDF417 stays, because its rows are read
+     * along one axis.
+     */
+    private Set<Symbology> rotationFormats() {
+        EnumSet<Symbology> formats = EnumSet.copyOf(symbologies);
+        formats.removeAll(EnumSet.of(Symbology.QR_CODE, Symbology.MICRO_QR, Symbology.AZTEC, Symbology.DATA_MATRIX));
+        return formats;
     }
 
     /**

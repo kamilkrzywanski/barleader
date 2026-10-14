@@ -121,74 +121,50 @@ public final class GrayImages {
     /**
      * 3×3 median. The QR trace uses this only after local average missed, so salt-and-pepper
      * can be retried without changing finder thresholds. Edge pixels repeat the border.
-     * Interior pixels skip the clamp. The nine samples stay in the same order as a
-     * dy/dx scan, and the median is the middle value after the same insertion sort.
+     *
+     * <p>Each column of three is sorted once and shared by the three windows that contain it.
+     * The median of a window is then the median of the largest column minimum, the median of the
+     * column medians and the smallest column maximum, which is exactly the median of its nine
+     * values.
      */
     public static GrayU8 median3(GrayU8 gray) {
-        GrayU8 out = new GrayU8(gray.width, gray.height);
-        byte[] src = gray.data;
-        int base = gray.startIndex;
-        int stride = gray.stride;
         int width = gray.width;
         int height = gray.height;
+        GrayU8 out = new GrayU8(width, height);
+        byte[] src = gray.data;
         byte[] dst = out.data;
-        int[] window = new int[9];
+        int[] low = new int[width];
+        int[] middle = new int[width];
+        int[] high = new int[width];
         for (int y = 0; y < height; y++) {
-            int top = y == 0 ? base : base + (y - 1) * stride;
-            int mid = base + y * stride;
-            int bot = y == height - 1 ? mid : mid + stride;
+            int top = gray.startIndex + Math.max(0, y - 1) * gray.stride;
+            int mid = gray.startIndex + y * gray.stride;
+            int bot = gray.startIndex + Math.min(height - 1, y + 1) * gray.stride;
+            for (int x = 0; x < width; x++) {
+                int a = src[top + x] & 255;
+                int b = src[mid + x] & 255;
+                int c = src[bot + x] & 255;
+                int lo = Math.min(a, Math.min(b, c));
+                int hi = Math.max(a, Math.max(b, c));
+                low[x] = lo;
+                high[x] = hi;
+                middle[x] = a + b + c - lo - hi;
+            }
             int dest = out.startIndex + y * out.stride;
-            if (y == 0 || y == height - 1 || width < 3) {
-                for (int x = 0; x < width; x++) {
-                    dst[dest + x] = (byte) medianClamped(src, top, mid, bot, width, x, window);
-                }
-                continue;
+            for (int x = 0; x < width; x++) {
+                int left = x == 0 ? 0 : x - 1;
+                int right = x == width - 1 ? x : x + 1;
+                int maxLow = Math.max(low[left], Math.max(low[x], low[right]));
+                int midMiddle = median3(middle[left], middle[x], middle[right]);
+                int minHigh = Math.min(high[left], Math.min(high[x], high[right]));
+                dst[dest + x] = (byte) median3(maxLow, midMiddle, minHigh);
             }
-            dst[dest] = (byte) medianClamped(src, top, mid, bot, width, 0, window);
-            for (int x = 1; x < width - 1; x++) {
-                window[0] = src[top + x - 1] & 255;
-                window[1] = src[top + x] & 255;
-                window[2] = src[top + x + 1] & 255;
-                window[3] = src[mid + x - 1] & 255;
-                window[4] = src[mid + x] & 255;
-                window[5] = src[mid + x + 1] & 255;
-                window[6] = src[bot + x - 1] & 255;
-                window[7] = src[bot + x] & 255;
-                window[8] = src[bot + x + 1] & 255;
-                dst[dest + x] = (byte) median9(window);
-            }
-            dst[dest + width - 1] = (byte) medianClamped(src, top, mid, bot, width, width - 1, window);
         }
         return out;
     }
 
-    private static int medianClamped(byte[] src, int top, int mid, int bot, int width, int x, int[] window) {
-        int x0 = x == 0 ? 0 : x - 1;
-        int x2 = x == width - 1 ? x : x + 1;
-        window[0] = src[top + x0] & 255;
-        window[1] = src[top + x] & 255;
-        window[2] = src[top + x2] & 255;
-        window[3] = src[mid + x0] & 255;
-        window[4] = src[mid + x] & 255;
-        window[5] = src[mid + x2] & 255;
-        window[6] = src[bot + x0] & 255;
-        window[7] = src[bot + x] & 255;
-        window[8] = src[bot + x2] & 255;
-        return median9(window);
-    }
-
-    /** Middle of nine after insertion sort. {@code window} is overwritten. */
-    private static int median9(int[] window) {
-        for (int i = 1; i < 9; i++) {
-            int value = window[i];
-            int j = i - 1;
-            while (j >= 0 && window[j] > value) {
-                window[j + 1] = window[j];
-                j--;
-            }
-            window[j + 1] = value;
-        }
-        return window[4];
+    private static int median3(int a, int b, int c) {
+        return Math.max(Math.min(a, b), Math.min(Math.max(a, b), c));
     }
 
     public static GrayU8 invert(GrayU8 gray) {

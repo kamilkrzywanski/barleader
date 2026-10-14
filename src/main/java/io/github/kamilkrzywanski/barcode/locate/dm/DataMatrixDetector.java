@@ -814,22 +814,30 @@ public final class DataMatrixDetector {
             return a.x == b.x && a.y == b.y;
         }
 
+        /**
+         * The point arithmetic is written out on doubles, in the same operations and order as
+         * {@code P.add}, {@code P.mul} and {@code P.sub}, so the walk is the same and allocates
+         * nothing per probe.
+         */
         private Step traceStep(P edge, int maxStep, boolean goodDirection) {
-            P outward = P.main(edge);
+            boolean horizontal = Math.abs(edge.x) > Math.abs(edge.y);
+            double outX = horizontal ? edge.x : 0;
+            double outY = horizontal ? 0 : edge.y;
             int breadthLimit = maxStep == 1 ? 2 : (goodDirection ? 1 : 3);
             for (int breadth = 1; breadth <= breadthLimit; breadth++) {
                 for (int step = 1; step <= maxStep; step++) {
                     int lateral = 2 * (step / 4 + 1) * breadth;
                     for (int i = 0; i <= lateral; i++) {
                         double side = (i & 1) == 1 ? (i + 1) / 2.0 : -i / 2.0;
-                        P at = P.add(P.add(p, P.mul(d, step)), P.mul(outward, side));
-                        if (img.value(P.add(at, outward)) != 1) {
+                        double atX = (p.x + d.x * step) + outX * side;
+                        double atY = (p.y + d.y * step) + outY * side;
+                        if (img.value(atX + outX, atY + outY) != 1) {
                             continue;
                         }
                         int outwardSteps = Math.max(maxStep, 3);
-                        for (int j = 0; j < outwardSteps && img.isIn(at); j++) {
-                            if (img.value(at) == 0) {
-                                P next = P.centered(at);
+                        for (int j = 0; j < outwardSteps && img.isIn(atX, atY); j++) {
+                            if (img.value(atX, atY) == 0) {
+                                P next = new P(Math.floor(atX) + 0.5, Math.floor(atY) + 0.5);
                                 if (next.x == p.x && next.y == p.y) {
                                     return Step.CLOSED;
                                 }
@@ -847,9 +855,11 @@ public final class DataMatrixDetector {
                                 }
                                 return Step.FOUND;
                             }
-                            at = P.sub(at, outward);
-                            if (img.value(P.sub(at, d)) == 1) {
-                                at = P.sub(at, d);
+                            atX = atX - outX;
+                            atY = atY - outY;
+                            if (img.value(atX - d.x, atY - d.y) == 1) {
+                                atX = atX - d.x;
+                                atY = atY - d.y;
                             }
                         }
                         return Step.CLOSED;

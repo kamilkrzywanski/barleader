@@ -126,13 +126,7 @@ public final class ZxingDecoder {
         } catch (ReaderException ignored) {
             return List.of();
         }
-        boolean[][] bits = new boolean[matrix.getHeight()][matrix.getWidth()];
-        for (int y = 0; y < matrix.getHeight(); y++) {
-            for (int x = 0; x < matrix.getWidth(); x++) {
-                bits[y][x] = matrix.get(x, y);
-            }
-        }
-        return MatrixReader.read(bits, toSource, attempt, rotationDegrees, confidence, symbologies, findAll);
+        return MatrixReader.read(matrix, toSource, attempt, rotationDegrees, confidence, symbologies, findAll);
     }
 
     private static boolean wantsOwned(Set<Symbology> symbologies) {

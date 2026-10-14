@@ -1,5 +1,6 @@
 package io.github.kamilkrzywanski.barcode.locate.dm;
 
+import com.google.zxing.common.BitMatrix;
 import io.github.kamilkrzywanski.barcode.BarcodeHit;
 import io.github.kamilkrzywanski.barcode.ImagePoint;
 import io.github.kamilkrzywanski.barcode.Symbology;
@@ -20,11 +21,9 @@ public final class MatrixReader {
     private MatrixReader() {
     }
 
-    /**
-     * @param black row-major modules, {@code true} for black. Every row has the same width.
-     */
+    /** @param black this attempt's black matrix. It is copied, so a later reader may still invert it. */
     public static List<BarcodeHit> read(
-            boolean[][] black,
+            BitMatrix black,
             PixelMap toSource,
             String attempt,
             int rotationDegrees,
@@ -32,10 +31,10 @@ public final class MatrixReader {
             Set<Symbology> symbologies,
             boolean findAll
     ) {
-        if (!wants(symbologies) || black == null || black.length < 3 || black[0] == null || black[0].length < 3) {
+        if (!wants(symbologies) || black == null || black.getHeight() < 3 || black.getWidth() < 3) {
             return List.of();
         }
-        Bits bits = bits(black);
+        Bits bits = Bits.of(black);
         List<BarcodeHit> normal = decode(bits, toSource, attempt, rotationDegrees, confidence, symbologies);
         if (!findAll && !normal.isEmpty()) {
             return List.of(normal.get(0));
@@ -122,21 +121,5 @@ public final class MatrixReader {
                 ? orientationDegrees
                 : Math.floorMod(orientationDegrees + rotationDegrees, 360);
         hits.add(new BarcodeHit(text, symbology, mapped, orientation, confidence, attempt));
-    }
-
-    private static Bits bits(boolean[][] black) {
-        int height = black.length;
-        int width = black[0].length;
-        Bits bits = new Bits(width, height);
-        for (int y = 0; y < height; y++) {
-            boolean[] row = black[y];
-            int n = Math.min(width, row.length);
-            for (int x = 0; x < n; x++) {
-                if (row[x]) {
-                    bits.set(x, y);
-                }
-            }
-        }
-        return bits;
     }
 }
