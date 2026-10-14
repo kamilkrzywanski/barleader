@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Test;
 import io.github.kamilkrzywanski.barcode.BarcodeHit;
 import io.github.kamilkrzywanski.barcode.ImagePoint;
 import io.github.kamilkrzywanski.barcode.Symbology;
-import io.github.kamilkrzywanski.barcode.decode.ZxingDecoder;
+import io.github.kamilkrzywanski.barcode.decode.BitmapDecoder;
 import io.github.kamilkrzywanski.barcode.image.GrayImages;
 import io.github.kamilkrzywanski.barcode.image.PixelMap;
 import io.github.kamilkrzywanski.barcode.image.Samples;
@@ -44,7 +44,7 @@ class RegionLocalizerTest {
                     String attempt,
                     Set<Symbology> formats
             ) {
-                hits.addAll(ZxingDecoder.read(luma, toSource, attempt, 0, 0.76, formats, false, false));
+                hits.addAll(BitmapDecoder.read(luma, toSource, attempt, 0, 0.76, formats, false, false));
             }
         });
         assertTrue(

@@ -6,7 +6,6 @@
  */
 module io.github.kamilkrzywanski.barcode {
     requires transitive java.desktop;
-    requires com.google.zxing;
 
     exports io.github.kamilkrzywanski.barcode;
 }

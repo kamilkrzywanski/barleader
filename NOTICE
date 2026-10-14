@@ -45,6 +45,13 @@ Shift-JIS pairs 0x815C and 0x815F, and the user-area leads F0-F9, follow libzuec
 ISO/IEC 8859-10 and ISO/IEC 8859-14 are the standard repertoires; this JDK does not ship those charsets.
 zxing-cpp is derived from the ZXing project.
 
+This product also includes a Java port of parts of ZXing (https://github.com/zxing/zxing),
+version 3.5.4: the thresholds of core/src/main/java/com/google/zxing/common/GlobalHistogramBinarizer.java
+and HybridBinarizer.java, the Reed-Solomon decoder (common/reedsolomon/GenericGF.java,
+GenericGFPoly.java, ReedSolomonDecoder.java) and the PDF417 error correction
+(pdf417/decoder/ec/ErrorCorrection.java, ModulusGF.java, ModulusPoly.java).
+Copyright 2007 ZXing authors. Licensed under the Apache License, Version 2.0.
+
 Copyright 2006 Jeremias Maerki
 Copyright 2016 Huy Cuong Nguyen
 Copyright 2016 ZXing authors

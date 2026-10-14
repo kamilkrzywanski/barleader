@@ -28,7 +28,7 @@ import java.util.function.Supplier;
  * {@link BinaryBitmap} binarizes. A linear hit must repeat on a parallel strip. Matrix hits do not. Angled
  * bars can checksum as a short UPC-E on a single row, and that row is not a barcode.
  */
-public final class ZxingDecoder {
+public final class BitmapDecoder {
     private static final double MIN_LINEAR_SPAN_SQ = 30.0 * 30.0;
     /** Pixels between the row a scanner accepted and the confirming strip. */
     private static final int PARALLEL_SHIFT = 4;
@@ -37,7 +37,7 @@ public final class ZxingDecoder {
     /** Quiet zone added beyond the decoded endpoints. EAN needs more than ten modules. */
     private static final int PARALLEL_MARGIN = 40;
 
-    private ZxingDecoder() {
+    private BitmapDecoder() {
     }
 
     public static List<BarcodeHit> read(

@@ -74,7 +74,7 @@ class CodabarDecoderTest {
     void readsARenderedSymbolOnTheScanPath() {
         BitMatrix modules = new CodaBarWriter().encode("A123B", BarcodeFormat.CODABAR, 360, 140);
         EnumSet<Symbology> requested = EnumSet.of(Symbology.CODABAR);
-        List<BarcodeHit> hits = ZxingDecoder.read(
+        List<BarcodeHit> hits = BitmapDecoder.read(
                 ZxingLuminance.of(MatrixToImageWriter.toBufferedImage(modules)),
                 PixelMap.IDENTITY,
                 "original-hybrid",

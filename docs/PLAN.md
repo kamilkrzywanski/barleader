@@ -15,7 +15,8 @@ Kolejność:
 1. Detektory. Tu Javowy ZXing 3.5.4 zostaje w tyle, a BoofCV 1.5 nie ma Data Matrix. Pierwsze: Data Matrix (duże i nierówne symbole, wewnętrzne wzorce wyrównania), finder QR (wersja 1, okrągłe wzorce, wiele małych symboli na jednym obrazie), Aztec po wewnętrznych wzorcach czasowych, Micro QR.
 2. Binaryzacja. `LocalAverage` z symetryczną interpolacją progu oraz próby odpowiadające `tryInvert`, `tryRotate` (90/180/270) i `tryDownscale`. Obrót kodu 1D o kąt inny niż wielokrotność 90° zostaje warstwą przed silnikiem: zxing-cpp też czyta kod liniowy tylko wtedy, gdy cały symbol przecina poziomy albo pionowy wiersz pikseli.
 3. Dekodery bitów, symbologia po symbologii. Priorytet: QR Code, Data Matrix, Code 128, PDF417, EAN/UPC, Code 39. Dopóki dekoder danej symbologii nie przejdzie testu okrężnego i zbioru, jej odczyt zostaje przy Javowym ZXingu.
-4. Zejście rusztowania. BoofCV i przechodnie Trove (LGPL 2.1) schodzą, gdy progi, morfologia i detektory są nasze, a `mvn test` zostaje zielony. `zxing-core` przy tym zostaje: niesie binaryzator hybrydowy, Reed-Solomon, korekcję PDF417 i formaty spoza własnego zestawu.
+4. Zejście rusztowania. BoofCV i przechodnie Trove (LGPL 2.1) schodzą, gdy progi, morfologia i detektory są nasze, a `mvn test` zostaje zielony. `zxing-core` został wtedy jeszcze na binaryzatory, Reed-Solomon i korekcję PDF417; zszedł później (punkt 5).
+5. Zejście ZXing. Progi `GlobalHistogramBinarizer` i `HybridBinarizer` oraz Reed-Solomon (GF(2^n) i GF(929) dla PDF417) są przeniesione z ZXing 3.5.4 co do bitu, a `zxing-core` jest już tylko w testach (baseline i writery do obrazów syntetycznych). Binaryzer zwraca wiersz jako `boolean[]` i macierz jako jeden `boolean` na piksel, jak `BitMatrix` w zxing-cpp, więc odpadło rozpakowywanie `BitArray`/`BitMatrix` po 32 bity przy każdej próbie. Każdy krok dał zerowy diff Snapshot względem przebiegu sprzed zmian.
 
 Zapis kodów zostaje poza portem. Od zxing-cpp 3.0 domyślny writer stoi na C-owej bibliotece zint.
 
@@ -45,7 +46,7 @@ Priorytet symbologii: QR Code, Data Matrix, Code 128, PDF417, EAN/UPC, Code 39. 
 Zostaje Java 17+ i kod przeniesiony z zxing-cpp.
 
 - Java 17+ (bytecode tego modułu: `--release 17`; projekt kompiluje się JDK 21).
-- ZXing `core` 3.5.4 (Apache 2.0): binaryzatory, macierze bitów, Reed-Solomon, korekcja PDF417. `javase` tylko w testach: baseline i porównanie luminancji z `BufferedImageLuminanceSource`.
+- Brak zależności w runtime. ZXing `core` i `javase` 3.5.4 (Apache 2.0) tylko w testach: baseline, luminancja z `BufferedImageLuminanceSource` i writery do obrazów syntetycznych. Binaryzatory i Reed-Solomon są przeniesione z ZXing (pakiety `image` i `ecc`, zob. `NOTICE`).
 - `module-info`: moduł `io.github.kamilkrzywanski.barcode` eksportuje tylko pakiet API.
 - Java 2D: `BufferedImage` jako wejście publiczne.
 - JUnit 5 tylko w testach.
@@ -221,7 +222,7 @@ Zbiór produkcyjny (błysk, motion blur, folia, wiele etykiet na jednym zdjęciu
 ### Port D — zejście rusztowania
 
 - BoofCV, a z nim Trove, znika po Portach A i B.
-- `zxing-core` zostaje: binaryzatory, macierze bitów, Reed-Solomon, korekcja PDF417. `javase` zeszło do testów razem z `BufferedImageLuminanceSource`.
+- `zxing-core` zszedł do testów: binaryzatory i Reed-Solomon są przeniesione, a macierz bitów to `BlackMatrix`, jeden `boolean` na piksel.
 
 ## Tekst bez ECI
 
@@ -268,9 +269,10 @@ Rusztowanie faz 1–2 wygrywa z czystym ZXingiem na inwersji, perspektywie QR i 
 | Pakiet | Rola |
 | --- | --- |
 | `io.github.kamilkrzywanski.barcode` | API i harmonogram prób (`Scan`) |
-| `io.github.kamilkrzywanski.barcode.image` | Luminancja, obroty, skale, homografia |
+| `io.github.kamilkrzywanski.barcode.image` | Luminancja, obroty, skale, homografia, binaryzacja (`BinaryBitmap`, `BlackMatrix`) |
+| `io.github.kamilkrzywanski.barcode.ecc` | Reed-Solomon GF(2^n) i GF(929) z ZXing 3.5.4 |
 | `io.github.kamilkrzywanski.barcode.preprocess` | Progi i morfologia: Otsu, średnia lokalna, Gauss, Sauvola, erozja, dylacja, odszumienie |
-| `io.github.kamilkrzywanski.barcode.decode` | Odczyt bitów i deduplikacja. Priorytetowe symbologie i kody macierzowe są własne. ZXing zostaje przy binaryzatorze hybrydowym, Reed-Solomonie, korekcji PDF417 i formatach spoza zestawu |
+| `io.github.kamilkrzywanski.barcode.decode` | Odczyt bitów i deduplikacja. Wszystkie symbologie są własne; `BitmapDecoder` czyta je z jednej zbinaryzowanej próby |
 | `io.github.kamilkrzywanski.barcode.locate` | Findery QR, Micro QR, Aztec i Data Matrix oraz `blob-quad` |
 | `io.github.kamilkrzywanski.barcode.cli` | CLI: `java -jar barcode-pro.jar <plik> [--aggressive] [--all]` |
 

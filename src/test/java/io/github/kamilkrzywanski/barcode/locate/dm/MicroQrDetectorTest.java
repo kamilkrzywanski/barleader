@@ -2,7 +2,7 @@ package io.github.kamilkrzywanski.barcode.locate.dm;
 
 import io.github.kamilkrzywanski.barcode.BarcodeHit;
 import io.github.kamilkrzywanski.barcode.Symbology;
-import io.github.kamilkrzywanski.barcode.decode.ZxingDecoder;
+import io.github.kamilkrzywanski.barcode.decode.BitmapDecoder;
 import io.github.kamilkrzywanski.barcode.image.GrayImages;
 import io.github.kamilkrzywanski.barcode.image.PixelMap;
 import io.github.kamilkrzywanski.barcode.image.Samples;
@@ -147,7 +147,7 @@ class MicroQrDetectorTest {
     @Test
     void readsARenderedSymbolOnTheScanPath() {
         EnumSet<Symbology> requested = EnumSet.of(Symbology.MICRO_QR);
-        List<BarcodeHit> hits = ZxingDecoder.read(
+        List<BarcodeHit> hits = BitmapDecoder.read(
                 ZxingLuminance.of(flat()),
                 PixelMap.IDENTITY,
                 "original-hybrid",

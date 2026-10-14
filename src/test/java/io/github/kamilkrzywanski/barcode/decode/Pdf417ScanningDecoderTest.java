@@ -42,7 +42,7 @@ class Pdf417ScanningDecoderTest {
         hints.put(EncodeHintType.ERROR_CORRECTION, 4);
         BitMatrix modules = new PDF417Writer().encode("PDF417-PRO", BarcodeFormat.PDF_417, 420, 180, hints);
         EnumSet<Symbology> requested = EnumSet.of(Symbology.PDF_417);
-        List<BarcodeHit> hits = ZxingDecoder.read(
+        List<BarcodeHit> hits = BitmapDecoder.read(
                 ZxingLuminance.of(MatrixToImageWriter.toBufferedImage(modules)),
                 PixelMap.IDENTITY,
                 "original-hybrid",

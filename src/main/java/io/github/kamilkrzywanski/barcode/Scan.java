@@ -1,7 +1,7 @@
 package io.github.kamilkrzywanski.barcode;
 
 import io.github.kamilkrzywanski.barcode.decode.HitCollector;
-import io.github.kamilkrzywanski.barcode.decode.ZxingDecoder;
+import io.github.kamilkrzywanski.barcode.decode.BitmapDecoder;
 import io.github.kamilkrzywanski.barcode.image.Geometry;
 import io.github.kamilkrzywanski.barcode.image.GrayImages;
 import io.github.kamilkrzywanski.barcode.image.GrayLuminanceSource;
@@ -1461,7 +1461,7 @@ final class Scan {
         if (formats.isEmpty()) {
             return List.of();
         }
-        return ZxingDecoder.read(image, toSource, attempt, degrees, confidence, formats, globalBinarizer, multi, options.eanAddOn());
+        return BitmapDecoder.read(image, toSource, attempt, degrees, confidence, formats, globalBinarizer, multi, options.eanAddOn());
     }
 
     /**
@@ -1517,7 +1517,7 @@ final class Scan {
             return;
         }
         attempts++;
-        accept(ZxingDecoder.read(source, PixelMap.IDENTITY, attempt, 0, confidence, symbologies, global, multi, options.eanAddOn()));
+        accept(BitmapDecoder.read(source, PixelMap.IDENTITY, attempt, 0, confidence, symbologies, global, multi, options.eanAddOn()));
     }
 
     private void tryBinary(GrayU8 binary, String attempt, boolean matrixOnly, double confidence) {
@@ -1551,7 +1551,7 @@ final class Scan {
             return;
         }
         attempts++;
-        accept(ZxingDecoder.read(image, toSource, attempt, degrees, confidence, formats, globalBinarizer, multi, options.eanAddOn()));
+        accept(BitmapDecoder.read(image, toSource, attempt, degrees, confidence, formats, globalBinarizer, multi, options.eanAddOn()));
     }
 
     private void accept(List<BarcodeHit> found) {

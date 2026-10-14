@@ -133,7 +133,7 @@ class UpcEanDecoderTest {
 
     private static void assertRetail(BitMatrix modules, EnumSet<Symbology> requested, String text, Symbology symbology) {
         EnumSet<Symbology> before = EnumSet.copyOf(requested);
-        List<BarcodeHit> hits = ZxingDecoder.read(
+        List<BarcodeHit> hits = BitmapDecoder.read(
                 ZxingLuminance.of(MatrixToImageWriter.toBufferedImage(modules)),
                 PixelMap.IDENTITY,
                 "original-hybrid",

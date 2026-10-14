@@ -8,7 +8,7 @@ import com.google.zxing.aztec.encoder.Encoder;
 import com.google.zxing.common.BitMatrix;
 import io.github.kamilkrzywanski.barcode.BarcodeHit;
 import io.github.kamilkrzywanski.barcode.Symbology;
-import io.github.kamilkrzywanski.barcode.decode.ZxingDecoder;
+import io.github.kamilkrzywanski.barcode.decode.BitmapDecoder;
 import io.github.kamilkrzywanski.barcode.image.GrayImages;
 import io.github.kamilkrzywanski.barcode.image.PixelMap;
 import io.github.kamilkrzywanski.barcode.image.Samples;
@@ -39,7 +39,7 @@ class AztecDetectorTest {
     @Test
     void readsARenderedSymbolOnTheScanPath() {
         EnumSet<Symbology> requested = EnumSet.of(Symbology.AZTEC);
-        List<BarcodeHit> hits = ZxingDecoder.read(
+        List<BarcodeHit> hits = BitmapDecoder.read(
                 ZxingLuminance.of(symbol("AZTEC-PRO")),
                 PixelMap.IDENTITY,
                 "original-hybrid",

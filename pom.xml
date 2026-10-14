@@ -48,14 +48,13 @@
     </properties>
 
     <dependencies>
-        <!-- Hybrid and global-histogram binarizers, bit matrices, Reed-Solomon and PDF417 error correction. -->
+        <!-- No runtime dependency. The tests compare against plain ZXing and draw symbols with its writers. -->
         <dependency>
             <groupId>com.google.zxing</groupId>
             <artifactId>core</artifactId>
             <version>${zxing.version}</version>
+            <scope>test</scope>
         </dependency>
-
-        <!-- The tests compare against plain ZXing on BufferedImageLuminanceSource. -->
         <dependency>
             <groupId>com.google.zxing</groupId>
             <artifactId>javase</artifactId>
@@ -113,7 +112,7 @@
                     </archive>
                 </configuration>
             </plugin>
-            <!-- target/barcode-pro.jar: the command line with ZXing core inside, for java -jar. -->
+            <!-- target/barcode-pro.jar: the command line, for java -jar. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>

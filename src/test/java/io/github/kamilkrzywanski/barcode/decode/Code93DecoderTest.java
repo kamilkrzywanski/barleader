@@ -73,7 +73,7 @@ class Code93DecoderTest {
     void readsARenderedSymbolOnTheScanPath() {
         BitMatrix modules = new Code93Writer().encode("CODE93", BarcodeFormat.CODE_93, 420, 140);
         EnumSet<Symbology> requested = EnumSet.of(Symbology.CODE_93);
-        List<BarcodeHit> hits = ZxingDecoder.read(
+        List<BarcodeHit> hits = BitmapDecoder.read(
                 ZxingLuminance.of(MatrixToImageWriter.toBufferedImage(modules)),
                 PixelMap.IDENTITY,
                 "original-hybrid",

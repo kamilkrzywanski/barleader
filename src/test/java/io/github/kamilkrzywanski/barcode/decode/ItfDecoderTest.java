@@ -52,7 +52,7 @@ class ItfDecoderTest {
     void readsARenderedSymbolOnTheScanPath() {
         BitMatrix modules = new ITFWriter().encode("123456", BarcodeFormat.ITF, 360, 140);
         EnumSet<Symbology> requested = EnumSet.of(Symbology.ITF);
-        List<BarcodeHit> hits = ZxingDecoder.read(
+        List<BarcodeHit> hits = BitmapDecoder.read(
                 ZxingLuminance.of(MatrixToImageWriter.toBufferedImage(modules)),
                 PixelMap.IDENTITY,
                 "original-hybrid",

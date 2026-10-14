@@ -172,7 +172,7 @@ class Code39DecoderTest {
     void readsARenderedSymbolOnTheScanPath() {
         BitMatrix modules = new Code39Writer().encode("CODE39", BarcodeFormat.CODE_39, 420, 140);
         EnumSet<Symbology> requested = EnumSet.of(Symbology.CODE_39);
-        List<BarcodeHit> hits = ZxingDecoder.read(
+        List<BarcodeHit> hits = BitmapDecoder.read(
                 ZxingLuminance.of(MatrixToImageWriter.toBufferedImage(modules)),
                 PixelMap.IDENTITY,
                 "original-hybrid",

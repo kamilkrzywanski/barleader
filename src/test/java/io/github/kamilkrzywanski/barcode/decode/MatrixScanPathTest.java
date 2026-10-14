@@ -37,7 +37,7 @@ class MatrixScanPathTest {
         BitMatrix modules = new QRCodeWriter().encode("QR-INVERT", BarcodeFormat.QR_CODE, 240, 240);
         BufferedImage image = invert(MatrixToImageWriter.toBufferedImage(modules));
         EnumSet<Symbology> requested = EnumSet.of(Symbology.QR_CODE);
-        List<BarcodeHit> hits = ZxingDecoder.read(
+        List<BarcodeHit> hits = BitmapDecoder.read(
                 ZxingLuminance.of(image),
                 PixelMap.IDENTITY,
                 "original-hybrid",
@@ -73,7 +73,7 @@ class MatrixScanPathTest {
 
     private static void assertMatrix(BitMatrix modules, Symbology symbology, String text) throws Exception {
         EnumSet<Symbology> requested = EnumSet.of(symbology);
-        List<BarcodeHit> hits = ZxingDecoder.read(
+        List<BarcodeHit> hits = BitmapDecoder.read(
                 ZxingLuminance.of(MatrixToImageWriter.toBufferedImage(modules)),
                 PixelMap.IDENTITY,
                 "original-hybrid",

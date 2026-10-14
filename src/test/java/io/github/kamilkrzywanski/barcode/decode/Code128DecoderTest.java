@@ -169,7 +169,7 @@ class Code128DecoderTest {
     void readsARenderedSymbolOnTheScanPath() throws Exception {
         BitMatrix modules = new Code128Writer().encode("CODE-128", BarcodeFormat.CODE_128, 460, 140);
         EnumSet<Symbology> requested = EnumSet.of(Symbology.CODE_128);
-        List<BarcodeHit> hits = ZxingDecoder.read(
+        List<BarcodeHit> hits = BitmapDecoder.read(
                 ZxingLuminance.of(MatrixToImageWriter.toBufferedImage(modules)),
                 PixelMap.IDENTITY,
                 "original-hybrid",
