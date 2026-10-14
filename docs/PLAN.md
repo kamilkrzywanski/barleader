@@ -2,7 +2,7 @@
 
 Czysto javowa biblioteka do odczytu kodów kreskowych. Algorytmy odczytu przenosimy z [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp) 3.1.1 (Apache 2.0) do zwykłego bytecode Javy. Biblioteka C++ nie jest zależnością: brak JNI, brak natywnego OpenCV, brak zint i innych binariów platformowych.
 
-Dokument jest planem i kontraktem implementacji. Zapis z pierwszej wersji, że silnikiem na stałe zostaje Javowy ZXing, a własny dekoder bitów leży poza zakresem, był błędny. BoofCV zeszło z buildu razem z przechodnim Trove: progi, morfologia i detektory są własne. ZXing `core` i `javase` zostają przy binaryzatorze hybrydowym obrazu oryginalnego, Reed-Solomonie, korekcji PDF417 i formatach spoza własnego zestawu. Dalszy kawałek tego rusztowania schodzi, gdy zamiennik czyta ten sam zbiór i nie dokłada fałszywych trafień.
+Dokument jest planem i kontraktem implementacji. Zapis z pierwszej wersji, że silnikiem na stałe zostaje Javowy ZXing, a własny dekoder bitów leży poza zakresem, był błędny. BoofCV zeszło z buildu razem z przechodnim Trove: progi, morfologia i detektory są własne. Z ZXinga zostaje sam `core`: binaryzatory hybrydowy i globalny, `BitMatrix`/`BitArray`, Reed-Solomon i korekcja PDF417. Każda symbologia z `Symbology` ma własny dekoder, więc `MultiFormatReader` nie jest już wołany. `javase` jest tylko w testach (baseline). Dalszy kawałek tego rusztowania schodzi, gdy zamiennik czyta ten sam zbiór i nie dokłada fałszywych trafień.
 
 Na trudnych obrazach biblioteka ma być wyraźnie lepsza od standardowego wywołania Javowego ZXinga. Dorównanie bibliotekom komercyjnym (Dynamsoft, Aspose) na brudnych zdjęciach produkcyjnych nie jest gwarantowanym wynikiem portu: na opublikowanych zbiorach zdjęć sam zxing-cpp zostaje poniżej tych SDK. Czas działania binarki C++ nie jest kryterium. W Javie zostaje algorytm, bez SIMD i bez ręcznego zarządzania pamięcią.
 
@@ -45,7 +45,8 @@ Priorytet symbologii: QR Code, Data Matrix, Code 128, PDF417, EAN/UPC, Code 39. 
 Zostaje Java 17+ i kod przeniesiony z zxing-cpp.
 
 - Java 17+ (bytecode tego modułu: `--release 17`; projekt kompiluje się JDK 21).
-- ZXing `core` i `javase` 3.5.4 (Apache 2.0). Zostają przy binaryzatorze hybrydowym obrazu oryginalnego (`BufferedImageLuminanceSource`), Reed-Solomonie, korekcji PDF417 i formatach spoza własnego zestawu.
+- ZXing `core` 3.5.4 (Apache 2.0): binaryzatory, macierze bitów, Reed-Solomon, korekcja PDF417. `javase` tylko w testach: baseline i porównanie luminancji z `BufferedImageLuminanceSource`.
+- `module-info`: moduł `io.github.kamilkrzywanski.barcode` eksportuje tylko pakiet API.
 - Java 2D: `BufferedImage` jako wejście publiczne.
 - JUnit 5 tylko w testach.
 
@@ -85,11 +86,13 @@ Kolejność jest celowa. Czysty kod kończy się na pierwszej próbie, kosztowo 
 
 Pakiet publiczny: `io.github.kamilkrzywanski.barcode`.
 
-- `BarcodeReader` — bezstanowe wejście. `read` można wołać z wielu wątków na tym samym obiekcie (każde wywołanie ma własny stan dekodera).
+- `BarcodeReader` — bezstanowe wejście. `read` można wołać z wielu wątków na tym samym obiekcie (każde wywołanie ma własny stan dekodera). `new BarcodeReader()` liczy niezależne próby równolegle na współdzielonej puli wątków-demonów (procesory − 1). `new BarcodeReader(executor)` używa puli użytkownika. `BarcodeReader.sequential()` liczy wszystko w wątku wołającym i staje na pierwszym trafieniu. Wątek wołający sam dokańcza każdą próbę, której pula jeszcze nie zaczęła, więc wywołanie z wątku tej samej puli się nie zakleszcza. Wszystkie trzy dają te same trafienia, gdy budżet czasu nie przerwie odczytu.
+- `read(byte[] luminance, width, height, options)` i wariant z `offset` i `rowStride` — 8-bitowa luminancja, np. płaszczyzna Y z kamery. Tablica jest kopiowana. Obie pierwsze próby i drabina czytają te same bajty.
 - `ReadOptions.fast()` — domyślne. Mało prób, budżet 2,5 s, 40 prób.
 - `ReadOptions.aggressive()` — pełny harmonogram, budżet 8 s, 100 prób.
 - `findAll(boolean)` — po pierwszym trafieniu nie przerywa. Domyślnie `false`.
-- `symbologies(...)` — podzbiór. Domyślnie priorytetowa lista plus Aztec i Micro QR.
+- `symbologies(...)` — podzbiór. Domyślnie priorytetowa lista plus Aztec i Micro QR. Code 93, ITF, Codabar oraz `DATABAR`, `DATABAR_LIMITED` i `DATABAR_EXPANDED` są tylko na życzenie. DataBar nie ma pozycji: trafienie nie ma narożników.
+- `timeBudgetMillis(Long.MAX_VALUE)` — brak limitu czasu. Wtedy odczyt zatrzymuje tylko budżet prób i wynik nie zależy od szybkości ani obciążenia maszyny. Testy `-Partelab` tak czytają.
 - `BarcodeHit` — jeden odczyt.
 - `Symbology`, `DecodeMode`, `ImagePoint`.
 
@@ -122,13 +125,13 @@ Obrazy testowe są syntetyczne i deterministyczne (uszkodzenia rysowane w Javie 
 
 ### FAST
 
-1. Oryginał, `HybridBinarizer` na `BufferedImageLuminanceSource` (luminancja ZXinga). Próba `original-hybrid`. Własne dekodery macierzowe i priorytetowe liniowe czytają tę bitmapę. Biały symbol macierzowy na czarnym to `flipAll` tej samej bitmapy, nadal pod tą nazwą próby.
+1. Oryginał, `HybridBinarizer` na luminancji ZXinga: `(306 R + 601 G + 117 B + 512) >> 10`, piksel w pełni przezroczysty jako biały, surowe próbki obrazu `BYTE_GRAY`. Te bajty są równe `BufferedImageLuminanceSource` (`GrayConversionTest`), a liczą się w tym samym przebiegu co szarość drabiny. Próba `original-hybrid`. Własne dekodery macierzowe i priorytetowe liniowe czytają tę bitmapę. Biały symbol macierzowy na czarnym to `flipAll` tej samej bitmapy, nadal pod tą nazwą próby.
 2. Ten sam obraz, `GlobalHistogramBinarizer` (`original-global`).
 3. Odwrócona luminancja (`255 − wartość`), potem `HybridBinarizer` (`inverted-luma`). `flipAll` odwraca już zbinearyzowaną macierz i nie czyta białego Code 128 na czarnym tle. Ten kod wygrywa tutaj.
 4. Biały margines 4 px (`pad-4`). Przesuwa fazę bloków 8×8 HybridBinarizera.
 5. Rozciągnięcie kontrastu (percentyle 1%–99%), tylko gdy obraz się zmienia.
 6. Lokalna normalizacja oświetlenia (średnia pudełkowa).
-7. Obroty ortogonalne 90°, 180°, 270° (przepisanie pikseli, bez interpolacji).
+7. Obroty ortogonalne 90°, 180°, 270° (przepisanie pikseli, bez interpolacji). Tylko symbologie liniowe i PDF417: findery QR, Micro QR, Aztec i Data Matrix nie zależą od kąta, a na 1225 obrazach z Arte-Lab i próbek zxing-cpp nie przeczytały na obrocie nic, czego nie wziął obraz prosty. Jedyny odczyt macierzowy na obrocie był fałszywym Aztekiem w MaxiCode. To samo dotyczy obrotów ±15° i ±30° w AGGRESSIVE.
 8. Próg adaptacyjny średniej lokalnej i Otsu. Obraz binarny wraca do luminancji i idzie przez `GlobalHistogramBinarizer`.
 9. Skala 2×, najbliższy sąsiad, gdy krótszy bok ≤ 900 px i wynik mieści się w 1 600 000 pikseli. To jest limit skali. Obrót ±15° i ±30° ma osobny limit i go nie podnosi.
 10. Własne findery: `qr-trace`, `mqr-trace`, `aztec-trace`, `dm-trace`. W `qr-trace`, gdy LocalAverage nic nie zwróci, ten sam finder dostaje medianę 3×3 i czyta jeszcze raz, pod tą samą nazwą próby. Środek okna mediany liczy się bez powtarzania piksela brzegowego; wynik jest ten sam co sortowanie okna z zaciskiem. Aztec o wymiarze co najmniej 35 jest próbkowany z lokalnej siatki wewnątrz `aztec-trace`. FAST tu wraca.
@@ -216,7 +219,24 @@ Zbiór produkcyjny (błysk, motion blur, folia, wiele etykiet na jednym zdjęciu
 ### Port D — zejście rusztowania
 
 - BoofCV, a z nim Trove, znika po Portach A i B.
-- `zxing-core` i `javase` zostają. Niosą binaryzator hybrydowy obrazu oryginalnego, Reed-Solomon, korekcję PDF417 i formaty spoza własnego zestawu. Sam port dekoderów ich nie usuwa.
+- `zxing-core` zostaje: binaryzatory, macierze bitów, Reed-Solomon, korekcja PDF417. `javase` zeszło do testów razem z `BufferedImageLuminanceSource`.
+
+## Tekst bez ECI
+
+Bajty, których nie obejmuje żaden ECI, idą przez `TextDecoder.guessEci`, czyli `GuessTextEncoding` z `Content.cpp` zxing-cpp 3.1.1: najpierw poprawny UTF-8 ze znakiem wielobajtowym (albo BOM), potem Shift_JIS, a przy remisie ISO-8859-1. Tak czytają QR i Micro QR; oficjalny test `SimpleSJIS` daje katakanę. Data Matrix, Aztec i PDF417 używają `guessUtf8OrLatin1`: UTF-8, gdy bajty są poprawnym UTF-8, w innym razie ISO-8859-1. zxing-cpp zgaduje tam też Shift_JIS, przez co krótki tekst Latin-1 jak `25°C` albo `£5` wychodzi katakaną, a te standardy domyślnie są ISO-8859-1. MaxiCode zostaje przy ISO-8859-1, jak `defaultCharset` w zxing-cpp. Przed tą zmianą QR z UTF-8 bez ECI (np. `Zażółć gęślą jaźń`) wychodził jako mojibake; czyta to `TextEncodingTest`.
+
+## Pomiar zmian
+
+Zmiana w drabinie albo w dekoderze idzie z migawką przed i po:
+
+```
+mvn -q -Psnapshot test-compile exec:java -Dexec.args="target/snapshot-po.tsv"
+diff target/snapshot-przed.tsv target/snapshot-po.tsv
+```
+
+`Snapshot` czyta wszystkie 1225 obrazów (Arte-Lab, próbki zxing-cpp w `datasets/` i w `src/test/resources`) w FAST, AGGRESSIVE i FAST z `findAll`, bez budżetu czasu. Wynik nie ma czasów, więc dwa przebiegi tego samego kodu dają te same bajty na każdej maszynie, a `diff` pokazuje każdy odczyt, któremu zmienił się tekst, symbologia, próba, orientacja, pewność albo narożniki. Zmiana czysto wydajnościowa ma dać pusty `diff`.
+
+2026-10-14: przeniesienie pakietów, usunięcie martwej ścieżki `MultiFormatReader`, jedna konwersja obrazu zamiast trzech, leniwe dekodery w próbie, `Fanout`, szybsza mediana 3×3, korelator EAN na sumach całkowitych i `Bits` prosto z `BitMatrix` dały pusty `diff` (3675 odczytów). Na 70 zdjęciach Arte-Lab (50 z Dataset2, 20 z Dataset1) czas CPU spadł z 90,7 s do 61,1 s w FAST i ze 197 s do 141 s w AGGRESSIVE, przy tych samych trafieniach; pomiar na obciążonej maszynie, dwie rundy na przemian. Przepisany `traceStep` detektora Data Matrix (bez alokacji `P` na próbkę) też dał pusty `diff`. Zgadywanie kodowania naprawiło 4 obrazy (`microqrcode-1/M3-Binary`, `M4-Binary`, `qrcode-2/10`, `qrcode-2/30`), a pominięcie detektorów macierzowych na obrotach usunęło fałszywy AZTEC `083` z `maxicode-1/mode5-sequence2of3` i nic więcej nie zmieniło.
 
 ## Oczekiwania
 

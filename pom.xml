@@ -172,9 +172,30 @@
                     <plugin>
                         <groupId>org.codehaus.mojo</groupId>
                         <artifactId>exec-maven-plugin</artifactId>
-                        <version>3.5.0</version>
+                        <version>3.6.3</version>
                         <configuration>
                             <mainClass>io.github.kamilkrzywanski.barcode.eval.ArteLabReport</mainClass>
+                            <classpathScope>test</classpathScope>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <!--
+            mvn -q -Psnapshot test-compile exec:java -Dexec.args="target/snapshot.tsv"
+            Every hit on the Arte-Lab photos and the zxing-cpp samples, without timings. Diff two runs
+            to see which reads a change moved.
+        -->
+        <profile>
+            <id>snapshot</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.6.3</version>
+                        <configuration>
+                            <mainClass>io.github.kamilkrzywanski.barcode.eval.Snapshot</mainClass>
                             <classpathScope>test</classpathScope>
                         </configuration>
                     </plugin>
