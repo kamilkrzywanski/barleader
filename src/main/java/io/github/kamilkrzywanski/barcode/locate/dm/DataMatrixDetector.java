@@ -10,7 +10,6 @@ import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Versions;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Warp;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -201,18 +200,20 @@ public final class DataMatrixDetector {
                 ? new P[]{new P(-1, 0), new P(1, 0), new P(0, -1), new P(0, 1)}
                 : new P[]{new P(-1, 0)};
         Line[] lines = {new Line(), new Line(), new Line(), new Line()};
+        // zxing-cpp clears the history for every direction. Each entry carries the number of the
+        // direction that wrote it instead, so an entry of an earlier direction reads as unvisited.
         byte[] history = tryHarder ? new byte[image.width * image.height] : null;
+        int direction = 0;
         P center = new P(image.width / 2.0, image.height / 2.0);
         for (P dir : dirs) {
-            if (history != null) {
-                Arrays.fill(history, (byte) 0);
-            }
+            direction++;
             P start = P.centered(P.add(P.sub(center, P.mul(center, dir)), P.mul(dir, MIN_SYMBOL_PIXELS / 2.0)));
             for (int i = 1; ; i++) {
                 Tracer tracer = new Tracer(image, start, dir);
                 double scalar = (i / 2) * (double) MIN_SYMBOL_PIXELS * ((i & 1) == 1 ? -1 : 1);
                 tracer.p = P.add(tracer.p, P.mul(tracer.right(), scalar));
                 tracer.history = history;
+                tracer.direction = direction;
                 if (!image.isIn(tracer.p)) {
                     break;
                 }
@@ -632,7 +633,9 @@ public final class DataMatrixDetector {
         final Bits img;
         P p;
         P d;
+        /** Pixels passed in this scan direction: the direction number times four, plus the state. */
         byte[] history;
+        int direction;
         int state;
 
         Tracer(Bits image, P origin, P direction) {
@@ -645,6 +648,7 @@ public final class DataMatrixDetector {
             Tracer copy = new Tracer(img, p, d);
             copy.d = d.copy();
             copy.history = history;
+            copy.direction = direction;
             copy.state = state;
             return copy;
         }
@@ -828,7 +832,10 @@ public final class DataMatrixDetector {
             for (int breadth = 1; breadth <= breadthLimit; breadth++) {
                 for (int step = 1; step <= maxStep; step++) {
                     int lateral = 2 * (step / 4 + 1) * breadth;
-                    for (int i = 0; i <= lateral; i++) {
+                    // A probe that passes the outward test always returns, so the probes a narrower
+                    // breadth already made all failed and give the same answer again: skip them.
+                    int first = breadth == 1 ? 0 : 2 * (step / 4 + 1) * (breadth - 1) + 1;
+                    for (int i = first; i <= lateral; i++) {
                         double side = (i & 1) == 1 ? (i + 1) / 2.0 : -i / 2.0;
                         double atX = (p.x + d.x * step) + outX * side;
                         double atY = (p.y + d.y * step) + outY * side;
@@ -848,10 +855,12 @@ public final class DataMatrixDetector {
                                     int hy = P.trunc(p.y);
                                     if (hx >= 0 && hy >= 0 && hx < img.width && hy < img.height) {
                                         int index = hy * img.width + hx;
-                                        if (history[index] == state) {
+                                        int stamp = history[index] & 0xFF;
+                                        int seen = (stamp >>> 2) == direction ? stamp & 3 : 0;
+                                        if (seen == state) {
                                             return Step.CLOSED;
                                         }
-                                        history[index] = (byte) state;
+                                        history[index] = (byte) (direction << 2 | state);
                                     }
                                 }
                                 return Step.FOUND;

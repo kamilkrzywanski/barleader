@@ -92,19 +92,20 @@ final class Scan {
         // A hit on the two buffered attempts used to still build every later image and
         // then throw the decode away. Those images are independent, so a miss runs them
         // together and keeps the earliest hit in this same order.
-        if (!stop() && !symbologies.isEmpty()) {
+        Set<Symbology> variants = variantFormats();
+        if (!stop() && !variants.isEmpty()) {
             List<Callable<List<BarcodeHit>>> jobs = new ArrayList<>();
-            jobs.add(() -> readImage(GrayImages.invert(gray), PixelMap.IDENTITY, "inverted-luma", 0, false, 0.86, false));
+            jobs.add(() -> readImage(GrayImages.invert(gray), PixelMap.IDENTITY, "inverted-luma", 0, false, variants, 0.86, false));
             jobs.add(() -> {
                 Transformed shifted = Geometry.pad(gray, 4);
-                return readImage(shifted.image(), shifted.toSource(), "pad-4", 0, false, 0.82, false);
+                return readImage(shifted.image(), shifted.toSource(), "pad-4", 0, false, variants, 0.82, false);
             });
             GrayU8 stretched = GrayImages.stretch(gray);
             if (stretched != gray) {
-                jobs.add(() -> readImage(stretched, PixelMap.IDENTITY, "contrast-stretch", 0, false, 0.74, false));
+                jobs.add(() -> readImage(stretched, PixelMap.IDENTITY, "contrast-stretch", 0, false, variants, 0.74, false));
             }
             jobs.add(() -> readImage(
-                    GrayImages.flattenIllumination(gray), PixelMap.IDENTITY, "illumination", 0, false, 0.74, false));
+                    GrayImages.flattenIllumination(gray), PixelMap.IDENTITY, "illumination", 0, false, variants, 0.74, false));
             Set<Symbology> turned = rotationFormats();
             for (int angle : turned.isEmpty() ? new int[0] : new int[]{90, 180, 270}) {
                 jobs.add(() -> {
@@ -115,14 +116,14 @@ final class Scan {
             }
             jobs.add(() -> readImage(
                     GrayImages.binaryToLuma(Thresholds.mean(gray)),
-                    PixelMap.IDENTITY, "adaptive-mean", 0, true, 0.68, false));
+                    PixelMap.IDENTITY, "adaptive-mean", 0, true, variants, 0.68, false));
             jobs.add(() -> readImage(
                     GrayImages.binaryToLuma(Thresholds.otsu(gray)),
-                    PixelMap.IDENTITY, "otsu", 0, true, 0.68, false));
+                    PixelMap.IDENTITY, "otsu", 0, true, variants, 0.68, false));
             if (Math.min(gray.width, gray.height) <= 900 && Geometry.withinPixelBudget(gray.width, gray.height, 2.0)) {
                 jobs.add(() -> {
                     Transformed scaled = Geometry.scale(gray, 2.0);
-                    return readImage(scaled.image(), scaled.toSource(), "scale-2", 0, false, 0.80, false);
+                    return readImage(scaled.image(), scaled.toSource(), "scale-2", 0, false, variants, 0.80, false);
                 });
             }
             runAttempts(jobs);
@@ -1462,6 +1463,23 @@ final class Scan {
             return List.of();
         }
         return ZxingDecoder.read(image, toSource, attempt, degrees, confidence, formats, globalBinarizer, multi, options.eanAddOn());
+    }
+
+    /**
+     * What the variants of the fast ladder after the two original attempts are decoded for. The
+     * Data Matrix detector traces every edge of an image in four directions and both polarities,
+     * and on a photo of a linear code that was most of the fast mode's CPU. Without findAll, the
+     * variants never read a Data Matrix on the 1225 sample images that the original attempts and
+     * {@code dm-trace} with zxing-cpp's own binarizer did not. With findAll they still look for
+     * one, because there a variant can add a second symbol.
+     */
+    private Set<Symbology> variantFormats() {
+        if (options.findAll() || !symbologies.contains(Symbology.DATA_MATRIX)) {
+            return symbologies;
+        }
+        EnumSet<Symbology> formats = EnumSet.copyOf(symbologies);
+        formats.remove(Symbology.DATA_MATRIX);
+        return formats;
     }
 
     /**

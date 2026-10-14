@@ -104,7 +104,7 @@ When they are asked for, the opt-in symbologies read all of their samples: 245 o
 
 The aggressive ladder was tuned on these photos, so treat 378 as what the ladder can reach on this kind of image, not as a measurement on unseen data.
 
-**Speed.** A clean symbol is read on the first attempt in a few milliseconds. On 70 Arte-Lab photos (1152×864 to 2976×2232 pixels, most of them hard), fast mode took 0.21 s per photo and 0.69 s of CPU spread over the cores of a 12-thread laptop. On the same photos aggressive mode used 2.3 times the CPU of fast mode. Numbers depend on the machine; the relative cost of the modes does not.
+**Speed.** A clean symbol is read on the first attempt in a few milliseconds. On 70 Arte-Lab photos (1152×864 to 2976×2232 pixels, most of them hard), fast mode took 0.12 s per photo and 0.32 s of CPU spread over the cores of a 12-thread laptop; aggressive mode took 0.41 s and 1.5 s of CPU. Numbers depend on the machine; the relative cost of the modes does not.
 
 **Robustness.** 1,500 random, degenerate (from 1×1 pixel to 3 megapixels) and damaged images in every mode raise no exception.
 
