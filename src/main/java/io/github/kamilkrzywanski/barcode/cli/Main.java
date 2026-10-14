@@ -15,12 +15,14 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Locale;
 
 /**
- * Reads the barcodes in image files and prints one line per symbol.
+ * Reads the barcodes in image files and prints one line per symbol, or with {@code qr} as the first
+ * argument writes a QR Code ({@link QrCommand}).
  *
  * <pre>
  * java -jar barcode-pro.jar [options] image...
@@ -46,6 +48,9 @@ public final class Main {
     }
 
     static int run(String[] args, PrintStream out, PrintStream err) {
+        if (args.length > 0 && args[0].equals("qr")) {
+            return QrCommand.run(Arrays.copyOfRange(args, 1, args.length), out, err);
+        }
         boolean aggressive = false;
         boolean findAll = false;
         boolean json = false;
@@ -127,6 +132,7 @@ public final class Main {
     private static void usage(PrintStream stream) {
         stream.println("Usage: java -jar barcode-pro.jar [--aggressive] [--all] [--formats=QR_CODE,EAN_13,...]"
                 + " [--addon=read|require] [--json] image...");
+        QrCommand.usage(stream);
     }
 
     private static String tsv(Path file, BarcodeHit hit) {

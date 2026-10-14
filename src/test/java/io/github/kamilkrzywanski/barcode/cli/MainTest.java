@@ -6,6 +6,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -47,6 +48,26 @@ class MainTest {
         Run read = run("--addon=read", "--json", image);
         assertTrue(read.out.contains("\"addOn\":\""), read.out);
         assertEquals(2, run("--addon=maybe", image).status);
+    }
+
+    @Test
+    void writesAQrCodeThatReadsBack() throws Exception {
+        Path png = Files.createTempFile("barcode-pro-qr", ".png");
+        try {
+            Run write = run("qr", "--level=Q", "--module=4", "--out=" + png, "Zażółć gęślą jaźń");
+            assertEquals(0, write.status, write.err);
+            Run read = run(png.toString());
+            assertEquals(0, read.status, read.err);
+            assertEquals("Zażółć gęślą jaźń", read.out.strip().split("\t")[2]);
+        } finally {
+            Files.deleteIfExists(png);
+        }
+        Run svg = run("qr", "--", "-dash first");
+        assertEquals(0, svg.status, svg.err);
+        assertTrue(svg.out.startsWith("<svg "), svg.out);
+        assertEquals(2, run("qr").status);
+        assertEquals(2, run("qr", "--level=X", "text").status);
+        assertEquals(2, run("qr", "--version=1", "x".repeat(200)).status);
     }
 
     @Test

@@ -147,9 +147,13 @@ The text is one segment in the most compact mode that holds all of it: numeric, 
 mvn -DskipTests package
 java -jar target/barcode-pro.jar label.jpg
 java -jar target/barcode-pro.jar --aggressive --all --formats=QR_CODE,EAN_13 --addon=read --json scans/*.png
+java -jar target/barcode-pro.jar qr --level=Q --module=8 --out=qr.png "https://example.com"
+java -jar target/barcode-pro.jar qr "Zażółć gęślą jaźń" > qr.svg
 ```
 
 Plain output is one tab-separated line per symbol: file, symbology, text, attempt, orientation, corners and the EAN/UPC supplement (`-` when there is none). Tabs and line breaks in the text are escaped. `--json` prints one JSON object per symbol. The exit code is 0 when every image had a symbol, 1 when one had none, and 2 for wrong usage or an unreadable file.
+
+`qr` writes a QR Code instead: an image in the format of the `--out` extension, or SVG, also on standard output when there is no `--out`. `--level`, `--version`, `--mask`, `--charset` and `--gs1` are the `QrOptions`, `--module` the pixels a module and `--quiet` the quiet zone in modules.
 
 ## Building
 
