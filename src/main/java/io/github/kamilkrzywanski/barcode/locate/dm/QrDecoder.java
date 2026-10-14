@@ -1,5 +1,6 @@
 package io.github.kamilkrzywanski.barcode.locate.dm;
 
+import java.io.ByteArrayOutputStream;
 import com.google.zxing.common.reedsolomon.GenericGF;
 import com.google.zxing.common.reedsolomon.ReedSolomonDecoder;
 import com.google.zxing.common.reedsolomon.ReedSolomonException;
@@ -16,7 +17,7 @@ import java.util.List;
  *
  * <p>The version is the sampled matrix size, the same as {@code ReadVersion}.
  * Model 1 and rMQR are not decoded. A checksum or format failure returns null.
- * Byte mode with no ECI is ISO-8859-1: {@code GuessTextEncoding} is not ported.
+ * Byte mode with no ECI in the whole symbol is read in the character set {@code GuessTextEncoding} picks.
  */
 final class QrDecoder {
     private static final int FORMAT_INFO_MASK_MODEL2 = 0x5412;
@@ -677,24 +678,50 @@ final class QrDecoder {
         String render() {
             StringBuilder text = new StringBuilder();
             int fallback = hasEci ? ECI_LATIN1 : ECI_UNKNOWN;
+            // Content::guessEncoding: without any ECI, the bytes of every block of unknown
+            // encoding together pick one character set for all of those blocks.
+            int guessed = hasEci ? ECI_LATIN1 : TextDecoder.guessEci(unknownBytes(fallback));
             if (segments.isEmpty()) {
-                write(text, fallback, 0, bytes.size());
+                write(text, fallback, guessed, 0, bytes.size());
             } else {
                 if (segments.get(0)[1] != 0) {
-                    write(text, fallback, 0, segments.get(0)[1]);
+                    write(text, fallback, guessed, 0, segments.get(0)[1]);
                 }
                 for (int i = 0; i < segments.size(); i++) {
                     int start = segments.get(i)[1];
                     int end = i + 1 == segments.size() ? bytes.size() : segments.get(i + 1)[1];
                     if (start != end) {
-                        write(text, segments.get(i)[0], start, end);
+                        write(text, segments.get(i)[0], guessed, start, end);
                     }
                 }
             }
             return text.toString();
         }
 
-        private void write(StringBuilder text, int eci, int start, int end) {
+        private byte[] unknownBytes(int fallback) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            int first = segments.isEmpty() ? bytes.size() : segments.get(0)[1];
+            if (fallback == ECI_UNKNOWN) {
+                for (int i = 0; i < first; i++) {
+                    out.write(bytes.get(i));
+                }
+            }
+            for (int i = 0; i < segments.size(); i++) {
+                if (segments.get(i)[0] != ECI_UNKNOWN) {
+                    continue;
+                }
+                int end = i + 1 == segments.size() ? bytes.size() : segments.get(i + 1)[1];
+                for (int j = segments.get(i)[1]; j < end; j++) {
+                    out.write(bytes.get(j));
+                }
+            }
+            return out.toByteArray();
+        }
+
+        private void write(StringBuilder text, int eci, int guessed, int start, int end) {
+            if (eci == ECI_UNKNOWN) {
+                eci = guessed;
+            }
             byte[] raw = new byte[end - start];
             for (int i = start; i < end; i++) {
                 raw[i - start] = (byte) (int) bytes.get(i);

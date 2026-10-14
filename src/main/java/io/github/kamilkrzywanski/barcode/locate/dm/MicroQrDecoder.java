@@ -6,7 +6,10 @@ import com.google.zxing.common.reedsolomon.ReedSolomonException;
 import io.github.kamilkrzywanski.barcode.decode.TextDecoder;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Bits;
 
-import java.nio.charset.StandardCharsets;
+import java.io.ByteArrayOutputStream;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * Micro QR bit decoder ported from zxing-cpp 3.1.1 {@code QRDecoder.cpp},
@@ -243,13 +246,14 @@ final class MicroQrDecoder {
     }
 
     /**
-     * Byte mode is ISO-8859-1. The official fixtures are ASCII, which matches
-     * zxing-cpp's encoding guess. The full {@code GuessTextEncoding} heuristic
-     * is not in this slice.
+     * Micro QR has no ECI, so byte mode is read in the character set {@code GuessTextEncoding}
+     * picks from all byte segments together, as {@code Content::guessEncoding} does.
      */
     private static String decodeStream(byte[] data, int version) {
         BitReader bits = new BitReader(data);
         StringBuilder text = new StringBuilder();
+        List<int[]> byteOffsets = new ArrayList<>();
+        ByteArrayOutputStream byteData = new ByteArrayOutputStream();
         int modeBits = version - 1;
         int terminator = version * 2 + 1;
         try {
@@ -262,7 +266,7 @@ final class MicroQrDecoder {
                 boolean ok = switch (mode) {
                     case 0 -> numeric(bits, count, text);
                     case 1 -> alphanumeric(bits, count, text);
-                    case 2 -> bytes(bits, count, text);
+                    case 2 -> bytes(bits, count, text.length(), byteOffsets, byteData);
                     case 3 -> kanji(bits, count, text);
                     default -> false;
                 };
@@ -272,6 +276,16 @@ final class MicroQrDecoder {
             }
         } catch (IllegalArgumentException | ArrayIndexOutOfBoundsException truncated) {
             return null;
+        }
+        if (!byteOffsets.isEmpty()) {
+            byte[] all = byteData.toByteArray();
+            int eci = TextDecoder.guessEci(all);
+            // Back to front, so an insert does not move the offsets still to come.
+            for (int i = byteOffsets.size() - 1; i >= 0; i--) {
+                int[] segment = byteOffsets.get(i);
+                byte[] raw = Arrays.copyOfRange(all, segment[1], segment[1] + segment[2]);
+                text.insert(segment[0], TextDecoder.decodeOrLatin1(raw, eci));
+            }
         }
         if (text.isEmpty()) {
             return null;
@@ -342,12 +356,12 @@ final class MicroQrDecoder {
         return true;
     }
 
-    private static boolean bytes(BitReader bits, int count, StringBuilder text) {
-        byte[] raw = new byte[count];
+    /** Records the segment's bytes and where its text goes. They are decoded once all segments are read. */
+    private static boolean bytes(BitReader bits, int count, int textOffset, List<int[]> offsets, ByteArrayOutputStream data) {
+        offsets.add(new int[]{textOffset, data.size(), count});
         for (int i = 0; i < count; i++) {
-            raw[i] = (byte) bits.read(8);
+            data.write(bits.read(8));
         }
-        text.append(new String(raw, StandardCharsets.ISO_8859_1));
         return true;
     }
 

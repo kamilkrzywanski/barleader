@@ -109,13 +109,16 @@ class QrDecoderTest {
         assertTrue(found.stream().anyMatch(hit -> "VERSION-TEN-QR".equals(hit.text())), found.toString());
     }
 
-    /** Locked to zxing-cpp {@code QRDecodedBitStreamParserTest}. Byte mode without an ECI stays ISO-8859-1. */
+    /**
+     * Locked to zxing-cpp {@code QRDecodedBitStreamParserTest}. Byte mode without an ECI goes
+     * through {@code GuessTextEncoding}: F1 F2 F3 is ISO-8859-1, A1 A2 A3 D0 is half-width
+     * katakana ({@code SimpleSJIS}), and an ECI turns the guess off.
+     */
     @Test
     void readsTheOfficialBitStreamFixtures() {
         assertEquals("\u00f1\u00f2\u00f3", QrDecoder.decodeStream(pack(
                 0x04, 4, 0x03, 8, 0xF1, 8, 0xF2, 8, 0xF3, 8), 1));
-        // cpp GuessTextEncoding would read this as halfwidth katakana. That guess is not ported.
-        assertEquals("\u00a1\u00a2\u00a3\u00d0", QrDecoder.decodeStream(pack(
+        assertEquals("\uff61\uff62\uff63\uff90", QrDecoder.decodeStream(pack(
                 0x04, 4, 0x04, 8, 0xA1, 8, 0xA2, 8, 0xA3, 8, 0xD0, 8), 1));
         assertEquals("\u00ed\u00f3\u00fa", QrDecoder.decodeStream(pack(
                 0x07, 4, 0x02, 8, 0x04, 4, 0x03, 8, 0xA1, 8, 0xA2, 8, 0xA3, 8), 1));

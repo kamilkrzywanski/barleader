@@ -18,7 +18,8 @@ import java.util.List;
  * <p>{@code decode} is the axis-aligned pure path. {@code decodeCodewords} is the
  * shared correction and parser used by the photo scanner. The scan ladder reads PDF417
  * with {@link Pdf417ScanningDecoder}, so a clean symbol still keeps an {@code original-*}
- * attempt. Bytes with no ECI are ISO-8859-1: {@code GuessTextEncoding} is not ported.
+ * attempt. Without any ECI the bytes are UTF-8 when they are valid UTF-8, else ISO-8859-1
+ * ({@link TextDecoder#guessUtf8OrLatin1}).
  * Modulus-929 correction uses the same field as {@code GFp(929, 3)}.
  */
 final class Pdf417Decoder {
@@ -814,7 +815,7 @@ final class Pdf417Decoder {
     }
 
     /**
-     * ISO-8859-1 until an ECI. The first ECI keeps bytes already written in Latin-1,
+     * A guessed character set without any ECI, ISO-8859-1 before the first one. The first ECI keeps bytes already written in Latin-1,
      * matching {@code Content::ForEachECIBlock} when {@code hasECI} is set.
      */
     private static final class Out {
@@ -860,7 +861,7 @@ final class Pdf417Decoder {
                 raw[i] = bytes.get(i).byteValue();
             }
             if (!hasEci) {
-                return new String(raw, StandardCharsets.ISO_8859_1);
+                return TextDecoder.decodeOrLatin1(raw, TextDecoder.guessUtf8OrLatin1(raw));
             }
             StringBuilder builder = new StringBuilder();
             if (marks.get(0) > 0) {

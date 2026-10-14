@@ -13,11 +13,10 @@ import java.util.List;
  * Aztec bit decoder ported from zxing-cpp 3.1.1 {@code AZDecoder.cpp}.
  *
  * <p>The sampled grid is corrected with the same GF(2^n) fields Java uses for Aztec data,
- * then read as the ISO/IEC 24778 high-level stream. With no ECI the bytes are ISO-8859-1;
- * guessing a charset is not ported. A structured-append header is removed from the text and
- * is not returned as metadata. A leading FNC1 is removed; an AIM indicator letter or digit
- * pair is kept. FLG(7) is ignored. Rune symbols stay in {@link AztecDetector}. The scan
- * ladder still reads Aztec through ZXing, so a clean symbol keeps an {@code original-*} attempt.
+ * then read as the ISO/IEC 24778 high-level stream. With no ECI the bytes are UTF-8 when they
+ * are valid UTF-8, else ISO-8859-1. A structured-append header is removed from the
+ * text and is not returned as metadata. A leading FNC1 is removed; an AIM indicator letter or digit
+ * pair is kept. FLG(7) is ignored. Rune symbols stay in {@link AztecDetector}.
  */
 final class AztecDecoder {
     private enum Table {
@@ -379,7 +378,11 @@ final class AztecDecoder {
                 return null;
             }
             if (!hasEci) {
-                return decode(0, bytes.size(), 3);
+                byte[] all = new byte[bytes.size()];
+                for (int i = 0; i < all.length; i++) {
+                    all[i] = (byte) (int) bytes.get(i);
+                }
+                return TextDecoder.decodeOrLatin1(all, TextDecoder.guessUtf8OrLatin1(all));
             }
             StringBuilder text = new StringBuilder();
             int first = encodings.isEmpty() ? bytes.size() : encodings.get(0)[1];

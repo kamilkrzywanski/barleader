@@ -11,8 +11,8 @@ import java.nio.charset.StandardCharsets;
  * ECI bytes to text, from zxing-cpp 3.1.1 {@code TextDecoder.cpp}.
  *
  * <p>The two libzueci flags used there are always on: a single-byte gap is copied
- * through, and Shift-JIS keeps U+005C and U+007E. {@code GuessTextEncoding} is not
- * used. An ECI number that is not a character set returns null. ECI -1 is binary.
+ * through, and Shift-JIS keeps U+005C and U+007E. Bytes that no ECI covers go through
+ * {@link #guessEci(byte[])}, the {@code GuessTextEncoding} of zxing-cpp. An ECI number that is not a character set returns null. ECI -1 is binary.
  * Shift-JIS pairs {@code 81 5C} and {@code 81 5F}, and the user-area leads
  * {@code F0}..{@code F9}, follow libzueci rather than the JDK. ISO/IEC 8859-10 and
  * ISO/IEC 8859-14 are tables because this JDK has no charset for them. ECI 31 uses
@@ -121,6 +121,161 @@ public final class TextDecoder {
      * {@link #decode}, except an ECI this class does not know is read as ISO-8859-1.
      * That is the decoder policy. ECI -1 stays binary, which has the same repertoire.
      */
+    /** ECI 3, ISO-8859-1. */
+    public static final int ECI_ISO_8859_1 = 3;
+    /** ECI 20, Shift_JIS. */
+    public static final int ECI_SHIFT_JIS = 20;
+    /** ECI 26, UTF-8. */
+    public static final int ECI_UTF_8 = 26;
+
+    /**
+     * {@code GuessTextEncoding} of zxing-cpp 3.1.1 ({@code Content.cpp}): the character set of
+     * bytes a symbol stores without any ECI. Valid UTF-8 with at least one multi-byte character,
+     * or a BOM, is UTF-8. Valid Shift_JIS with three katakana or three double-byte characters in a
+     * row is Shift_JIS. When both ISO-8859-1 and Shift_JIS fit, two katakana in the whole text,
+     * or at least a tenth of the bytes in the Latin-1 symbol range, tip it to Shift_JIS. Otherwise
+     * the first of ISO-8859-1, Shift_JIS and UTF-8 that fits wins, and ISO-8859-1 when none does.
+     * A control character other than CR and LF rules Shift_JIS out.
+     *
+     * @return {@link #ECI_UTF_8}, {@link #ECI_SHIFT_JIS} or {@link #ECI_ISO_8859_1}
+     */
+    public static int guessEci(byte[] bytes) {
+        return guessEci(bytes, true);
+    }
+
+    /**
+     * {@link #guessEci(byte[])} without Shift_JIS: UTF-8 when the bytes are valid UTF-8 with a
+     * multi-byte character or a BOM, else ISO-8859-1. Data Matrix, Aztec and PDF417 use this.
+     * zxing-cpp guesses Shift_JIS for them too, which reads a short Latin-1 text such as
+     * {@code "25°C"} or {@code "£5"} as half-width katakana. Their standards default to
+     * ISO-8859-1 and a Japanese text there comes with an ECI.
+     */
+    public static int guessUtf8OrLatin1(byte[] bytes) {
+        return guessEci(bytes, false);
+    }
+
+    private static int guessEci(byte[] bytes, boolean shiftJis) {
+        int length = bytes.length;
+        if (length == 0) {
+            return ECI_ISO_8859_1;
+        }
+        boolean canBeIso88591 = true;
+        boolean canBeShiftJis = shiftJis;
+        boolean canBeUtf8 = isValidUtf8(bytes);
+        int utf8BytesLeft = 0;
+        int utfMultiByteChars = 0;
+        int sjisBytesLeft = 0;
+        int sjisKatakanaChars = 0;
+        int sjisCurKatakanaWordLength = 0;
+        int sjisCurDoubleBytesWordLength = 0;
+        int sjisMaxKatakanaWordLength = 0;
+        int sjisMaxDoubleBytesWordLength = 0;
+        int isoHighOther = 0;
+        boolean utf8Bom = length > 3
+                && (bytes[0] & 0xFF) == 0xEF
+                && (bytes[1] & 0xFF) == 0xBB
+                && (bytes[2] & 0xFF) == 0xBF;
+        for (int i = 0; i < length && (canBeIso88591 || canBeShiftJis || canBeUtf8); i++) {
+            int value = bytes[i] & 0xFF;
+            if (canBeUtf8) {
+                if (utf8BytesLeft > 0) {
+                    if ((value & 0x80) == 0) {
+                        canBeUtf8 = false;
+                    } else {
+                        utf8BytesLeft--;
+                    }
+                } else if ((value & 0x80) != 0) {
+                    if ((value & 0x40) == 0) {
+                        canBeUtf8 = false;
+                    } else if ((value & 0x20) == 0) {
+                        utf8BytesLeft = 1;
+                        utfMultiByteChars++;
+                    } else if ((value & 0x10) == 0) {
+                        utf8BytesLeft = 2;
+                        utfMultiByteChars++;
+                    } else if ((value & 0x08) == 0) {
+                        utf8BytesLeft = 3;
+                        utfMultiByteChars++;
+                    } else {
+                        canBeUtf8 = false;
+                    }
+                }
+            }
+            if (canBeIso88591) {
+                if (value > 0x7F && value < 0xA0) {
+                    canBeIso88591 = false;
+                } else if (value > 0x9F && (value < 0xC0 || value == 0xD7 || value == 0xF7)) {
+                    isoHighOther++;
+                }
+            }
+            if (canBeShiftJis) {
+                if (sjisBytesLeft > 0) {
+                    if (value < 0x40 || value == 0x7F || value > 0xFC) {
+                        canBeShiftJis = false;
+                    } else {
+                        sjisBytesLeft--;
+                    }
+                } else if (value == 0x80 || value == 0xA0 || value > 0xEF
+                        || (value < 0x20 && value != 0x0A && value != 0x0D)) {
+                    canBeShiftJis = false;
+                } else if (value > 0xA0 && value < 0xE0) {
+                    sjisKatakanaChars++;
+                    sjisCurDoubleBytesWordLength = 0;
+                    sjisCurKatakanaWordLength++;
+                    sjisMaxKatakanaWordLength = Math.max(sjisMaxKatakanaWordLength, sjisCurKatakanaWordLength);
+                } else if (value > 0x7F) {
+                    sjisBytesLeft++;
+                    sjisCurKatakanaWordLength = 0;
+                    sjisCurDoubleBytesWordLength++;
+                    sjisMaxDoubleBytesWordLength = Math.max(sjisMaxDoubleBytesWordLength, sjisCurDoubleBytesWordLength);
+                } else {
+                    sjisCurKatakanaWordLength = 0;
+                    sjisCurDoubleBytesWordLength = 0;
+                }
+            }
+        }
+        if (canBeUtf8 && utf8BytesLeft > 0) {
+            canBeUtf8 = false;
+        }
+        if (canBeShiftJis && sjisBytesLeft > 0) {
+            canBeShiftJis = false;
+        }
+        if (canBeUtf8 && (utf8Bom || utfMultiByteChars > 0)) {
+            return ECI_UTF_8;
+        }
+        if (canBeShiftJis && (sjisMaxKatakanaWordLength >= 3 || sjisMaxDoubleBytesWordLength >= 3)) {
+            return ECI_SHIFT_JIS;
+        }
+        if (canBeIso88591 && canBeShiftJis) {
+            return (sjisMaxKatakanaWordLength == 2 && sjisKatakanaChars == 2) || isoHighOther * 10 >= length
+                    ? ECI_SHIFT_JIS
+                    : ECI_ISO_8859_1;
+        }
+        if (canBeIso88591) {
+            return ECI_ISO_8859_1;
+        }
+        if (canBeShiftJis) {
+            return ECI_SHIFT_JIS;
+        }
+        if (canBeUtf8) {
+            return ECI_UTF_8;
+        }
+        return ECI_ISO_8859_1;
+    }
+
+    /** {@code IsValidUtf8}: well formed, no overlong form, no surrogate, nothing above U+10FFFF. */
+    private static boolean isValidUtf8(byte[] bytes) {
+        try {
+            StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes));
+            return true;
+        } catch (CharacterCodingException invalid) {
+            return false;
+        }
+    }
+
     public static String decodeOrLatin1(byte[] raw, int eci) {
         if (raw == null) {
             return null;

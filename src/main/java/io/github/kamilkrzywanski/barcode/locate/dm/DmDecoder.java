@@ -17,8 +17,9 @@ import java.util.List;
  * The ISO 144×144 deinterleave is tried first; version 24 retries once with the
  * zxing-cpp fix for issue 259. A checksum or format failure returns null, including
  * a codeword stream that only partly parses. The unlatch codeword 254 as the final
- * codeword is not an error. No ECI means ISO-8859-1: {@code GuessTextEncoding} is
- * not ported. The AIM modifier for GS1 and DMRE is not part of the returned text.
+ * codeword is not an error. Without any ECI the bytes are read in UTF-8 when they are
+ * valid UTF-8, else ISO-8859-1 ({@link TextDecoder#guessUtf8OrLatin1}). The AIM modifier for
+ * GS1 and DMRE is not part of the returned text.
  */
 final class DmDecoder {
     private static final String C40_BASIC = "*** 0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -762,7 +763,12 @@ final class DmDecoder {
         String render() {
             StringBuilder text = new StringBuilder();
             if (segments.isEmpty()) {
-                write(text, ECI_LATIN1, 0, bytes.size());
+                // No ECI anywhere: all the bytes are UTF-8 when they are valid UTF-8, else ISO-8859-1.
+                byte[] all = new byte[bytes.size()];
+                for (int i = 0; i < all.length; i++) {
+                    all[i] = (byte) (int) bytes.get(i);
+                }
+                write(text, TextDecoder.guessUtf8OrLatin1(all), 0, bytes.size());
             } else {
                 if (segments.get(0)[1] != 0) {
                     write(text, ECI_LATIN1, 0, segments.get(0)[1]);

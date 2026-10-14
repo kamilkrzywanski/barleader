@@ -36,7 +36,8 @@ core/src/oned/ODDataBarCommon.h), the Aztec detector
 core/src/maxicode/MCBitMatrixParser.cpp), the Telepen row decoder
 (core/src/oned/ODTelepenReader.cpp), the DX Film Edge reader
 (core/src/oned/ODDXFilmEdgeReader.cpp), the ECI byte-to-text conversion
-(core/src/TextDecoder.cpp), the geometry those files use, the matrix binarizer in core/src/HybridBinarizer.cpp,
+(core/src/TextDecoder.cpp), the guess of the character set of text without an ECI
+(GuessTextEncoding in core/src/Content.cpp), the geometry those files use, the matrix binarizer in core/src/HybridBinarizer.cpp,
 the scanline histogram in core/src/GlobalHistogramBinarizer.cpp,
 and the luminance pyramid in core/src/ReadBarcode.cpp.
 Shift-JIS pairs 0x815C and 0x815F, and the user-area leads F0-F9, follow libzueci
