@@ -1,6 +1,6 @@
 # Expected texts from the zxing-cpp samples are compared byte for byte, and some of them end
-# lines with CRLF. Nothing under these trees gets line endings converted, whatever core.autocrlf says.
+# lines with CRLF. Nothing under this tree gets line endings converted, whatever core.autocrlf says;
+# the datasets submodule keeps the same rule in its own .gitattributes.
 src/test/resources/** -text
-datasets/** -text
 # Shell scripts stay LF, also on Windows.
 *.sh text eol=lf
