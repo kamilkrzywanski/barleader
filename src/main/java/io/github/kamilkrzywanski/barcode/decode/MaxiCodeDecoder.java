@@ -1,7 +1,6 @@
 package io.github.kamilkrzywanski.barcode.decode;
 
-import io.github.kamilkrzywanski.barcode.ecc.GenericGF;
-import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonDecoder;
+import io.github.kamilkrzywanski.barcode.ecc.ReedSolomon;
 import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonException;
 
 import java.nio.charset.StandardCharsets;
@@ -34,7 +33,6 @@ final class MaxiCodeDecoder {
     private static final int SHI0 = 0x100;
     private static final char GS = 0x1D;
     private static final char RS = 0x1E;
-    private static final ReedSolomonDecoder REED_SOLOMON = new ReedSolomonDecoder(GenericGF.MAXICODE_FIELD_64);
 
     /** Set A through E. Control values sit at {@code 0x100} and above, matching {@code CHARSETS}. */
     private static final int[][] SETS = {
@@ -254,7 +252,7 @@ final class MaxiCodeDecoder {
             }
         }
         try {
-            REED_SOLOMON.decode(words, ecCodewords / divisor);
+            ReedSolomon.correct(ReedSolomon.MAXICODE, words, ecCodewords / divisor);
         } catch (ReedSolomonException failed) {
             return false;
         }

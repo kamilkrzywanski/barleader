@@ -174,7 +174,7 @@ This needs JDK 17 or later and Maven 3.9. CI builds on JDK 17, 21 and 25: [.gith
 | --- | --- |
 | `io.github.kamilkrzywanski.barcode` | The API: `BarcodeReader`, `ReadOptions`, `BarcodeHit`, `Symbology`, and `QrCode`, `QrOptions`, `QrErrorCorrection` for writing. Also the attempt ladder (`Scan`) and the tilted-band finder. |
 | `….image` | Luminance, rotations, scales, homographies, and the binarizers. |
-| `….ecc` | Reed-Solomon decoding and encoding, and the PDF417 error correction. |
+| `….ecc` | Reed-Solomon: decoding with errors and erasures as zxing-cpp's librscpp does it, and ZXing's encoder. |
 | `….qr` | The QR Code encoder and the version table the reader shares. |
 | `….preprocess` | Thresholds and morphology: Otsu, local mean, Gaussian, Sauvola, erosion, dilation. |
 | `….decode` | Linear readers, PDF417, MaxiCode, DataBar, text decoding. |

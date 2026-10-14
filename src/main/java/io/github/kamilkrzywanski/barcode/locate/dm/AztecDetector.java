@@ -2,8 +2,7 @@ package io.github.kamilkrzywanski.barcode.locate.dm;
 
 import io.github.kamilkrzywanski.barcode.ImagePoint;
 import io.github.kamilkrzywanski.barcode.decode.Decoded;
-import io.github.kamilkrzywanski.barcode.ecc.GenericGF;
-import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonDecoder;
+import io.github.kamilkrzywanski.barcode.ecc.ReedSolomon;
 import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonException;
 import io.github.kamilkrzywanski.barcode.image.GrayU8;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Bits;
@@ -608,9 +607,8 @@ public final class AztecDetector {
             bits >>= 4;
         }
         int[] original = nibbles.clone();
-        ReedSolomonDecoder reedSolomon = new ReedSolomonDecoder(GenericGF.AZTEC_PARAM);
         try {
-            reedSolomon.decode(nibbles, words - dataWords);
+            ReedSolomon.correct(ReedSolomon.AZTEC_4, nibbles, words - dataWords);
         } catch (ReedSolomonException failed) {
             if (!compact) {
                 return -1;
@@ -620,7 +618,7 @@ public final class AztecDetector {
                 nibbles[i] ^= 0b1010;
             }
             try {
-                reedSolomon.decode(nibbles, words - dataWords);
+                ReedSolomon.correct(ReedSolomon.AZTEC_4, nibbles, words - dataWords);
             } catch (ReedSolomonException again) {
                 return -1;
             }

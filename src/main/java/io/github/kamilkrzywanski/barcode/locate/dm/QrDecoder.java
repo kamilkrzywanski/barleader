@@ -2,8 +2,7 @@ package io.github.kamilkrzywanski.barcode.locate.dm;
 
 import io.github.kamilkrzywanski.barcode.decode.Decoded;
 import io.github.kamilkrzywanski.barcode.decode.TextDecoder;
-import io.github.kamilkrzywanski.barcode.ecc.GenericGF;
-import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonDecoder;
+import io.github.kamilkrzywanski.barcode.ecc.ReedSolomon;
 import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonException;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Bits;
 
@@ -442,12 +441,11 @@ final class QrDecoder {
         if (offset != raw.length) {
             return null;
         }
-        ReedSolomonDecoder reedSolomon = new ReedSolomonDecoder(GenericGF.QR_CODE_FIELD_256);
         byte[] data = new byte[dataBytes(level)];
         int written = 0;
         for (int block = 0; block < blocks; block++) {
             try {
-                reedSolomon.decode(words[block], words[block].length - numData[block]);
+                ReedSolomon.correct(ReedSolomon.QR_CODE, words[block], words[block].length - numData[block]);
             } catch (ReedSolomonException failed) {
                 return null;
             }

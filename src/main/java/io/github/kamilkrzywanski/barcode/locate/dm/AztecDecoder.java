@@ -2,8 +2,7 @@ package io.github.kamilkrzywanski.barcode.locate.dm;
 
 import io.github.kamilkrzywanski.barcode.decode.Decoded;
 import io.github.kamilkrzywanski.barcode.decode.TextDecoder;
-import io.github.kamilkrzywanski.barcode.ecc.GenericGF;
-import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonDecoder;
+import io.github.kamilkrzywanski.barcode.ecc.ReedSolomon;
 import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonException;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Bits;
 
@@ -139,19 +138,19 @@ final class AztecDecoder {
 
     private static boolean[] correctBits(boolean[] raw, int layers, int dataBlocks) {
         int wordSize;
-        GenericGF field;
+        ReedSolomon.Field field;
         if (layers <= 2) {
             wordSize = 6;
-            field = GenericGF.AZTEC_DATA_6;
+            field = ReedSolomon.AZTEC_6;
         } else if (layers <= 8) {
             wordSize = 8;
-            field = GenericGF.AZTEC_DATA_8;
+            field = ReedSolomon.AZTEC_8;
         } else if (layers <= 22) {
             wordSize = 10;
-            field = GenericGF.AZTEC_DATA_10;
+            field = ReedSolomon.AZTEC_10;
         } else {
             wordSize = 12;
-            field = GenericGF.AZTEC_DATA_12;
+            field = ReedSolomon.AZTEC_12;
         }
         int words = raw.length / wordSize;
         if (words < dataBlocks) {
@@ -164,7 +163,7 @@ final class AztecDecoder {
             offset += wordSize;
         }
         try {
-            new ReedSolomonDecoder(field).decode(data, words - dataBlocks);
+            ReedSolomon.correct(field, data, words - dataBlocks);
         } catch (ReedSolomonException failed) {
             return null;
         }

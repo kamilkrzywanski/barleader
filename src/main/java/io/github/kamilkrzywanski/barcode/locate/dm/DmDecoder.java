@@ -2,8 +2,7 @@ package io.github.kamilkrzywanski.barcode.locate.dm;
 
 import io.github.kamilkrzywanski.barcode.decode.Decoded;
 import io.github.kamilkrzywanski.barcode.decode.TextDecoder;
-import io.github.kamilkrzywanski.barcode.ecc.GenericGF;
-import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonDecoder;
+import io.github.kamilkrzywanski.barcode.ecc.ReedSolomon;
 import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonException;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Bits;
 
@@ -122,7 +121,6 @@ final class DmDecoder {
             return null;
         }
         boolean fix259 = false;
-        ReedSolomonDecoder reedSolomon = new ReedSolomonDecoder(GenericGF.DATA_MATRIX_FIELD_256);
         while (true) {
             Split split = split(raw, version, fix259);
             if (split == null) {
@@ -131,7 +129,7 @@ final class DmDecoder {
             boolean corrected = true;
             for (int block = 0; block < split.words.length; block++) {
                 try {
-                    reedSolomon.decode(split.words[block], split.words[block].length - split.dataCount[block]);
+                    ReedSolomon.correct(ReedSolomon.DATA_MATRIX, split.words[block], split.words[block].length - split.dataCount[block]);
                 } catch (ReedSolomonException failed) {
                     corrected = false;
                     break;

@@ -1,10 +1,7 @@
 package io.github.kamilkrzywanski.barcode.decode;
 
-import com.google.zxing.ChecksumException;
-import com.google.zxing.common.reedsolomon.GenericGF;
-import com.google.zxing.common.reedsolomon.ReedSolomonDecoder;
-import com.google.zxing.common.reedsolomon.ReedSolomonException;
-import com.google.zxing.pdf417.decoder.ec.ErrorCorrection;
+import io.github.kamilkrzywanski.barcode.ecc.ReedSolomon;
+import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonException;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -14,20 +11,19 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
  * Official Reed-Solomon vectors from zxing-cpp 3.1.1. Random corruption is omitted:
- * {@code std::uniform_int_distribution} is not portable. PDF417 uses the modulus-929
- * corrector the PDF417 decoders call. The GF(2^n) cases use the same fields as the
- * QR, Data Matrix, and Aztec decoders.
+ * {@code std::uniform_int_distribution} is not portable. They run through {@link ReedSolomon},
+ * the port of zxing-cpp's librscpp, with the fields the PDF417, QR, Data Matrix and Aztec
+ * decoders use.
  */
 class RsParityTest {
     @Test
     void correctsTheOfficialPdf417Vector() throws Exception {
-        ErrorCorrection correction = new ErrorCorrection();
         int ecc = PDF417_WITH_EC.length - PDF417_DATA.length;
         assertArrayEquals(PDF417_DATA, Arrays.copyOf(PDF417_WITH_EC, PDF417_DATA.length));
         int[] clean = PDF417_WITH_EC.clone();
         try {
-            correction.decode(clean, ecc, new int[0]);
-        } catch (ChecksumException failed) {
+            ReedSolomon.correct(ReedSolomon.PDF417, clean, ecc);
+        } catch (ReedSolomonException failed) {
             throw new AssertionError("clean codeword is not a ZXing PDF417 codeword", failed);
         }
         assertArrayEquals(PDF417_WITH_EC, clean);
@@ -36,8 +32,8 @@ class RsParityTest {
             int[] received = PDF417_WITH_EC.clone();
             received[i] = 0;
             try {
-                correction.decode(received, ecc, new int[]{i});
-            } catch (ChecksumException failed) {
+                ReedSolomon.correct(ReedSolomon.PDF417, received, ecc, new int[]{i});
+            } catch (ReedSolomonException failed) {
                 throw new AssertionError("erasure " + i, failed);
             }
             assertArrayEquals(PDF417_WITH_EC, received, "erasure " + i);
@@ -47,8 +43,8 @@ class RsParityTest {
         both[5] = 0;
         both[10] = 0;
         try {
-            correction.decode(both, ecc, new int[]{5});
-        } catch (ChecksumException failed) {
+            ReedSolomon.correct(ReedSolomon.PDF417, both, ecc, new int[]{5});
+        } catch (ReedSolomonException failed) {
             throw new AssertionError("erasure 5 and error 10", failed);
         }
         assertArrayEquals(PDF417_WITH_EC, both);
@@ -64,8 +60,8 @@ class RsParityTest {
             located[located.length - 1] = i;
             erasures = located;
             try {
-                correction.decode(received, ecc, erasures);
-            } catch (ChecksumException failed) {
+                ReedSolomon.correct(ReedSolomon.PDF417, received, ecc, erasures);
+            } catch (ReedSolomonException failed) {
                 throw new AssertionError("errata " + i + " fill " + fill, failed);
             }
             assertArrayEquals(PDF417_WITH_EC, received, "errata " + i);
@@ -75,8 +71,8 @@ class RsParityTest {
             int[] received = PDF417_WITH_EC.clone();
             received[i] = received[i] == 0 ? 1 : 0;
             try {
-                correction.decode(received, ecc, null);
-            } catch (ChecksumException failed) {
+                ReedSolomon.correct(ReedSolomon.PDF417, received, ecc, null);
+            } catch (ReedSolomonException failed) {
                 throw new AssertionError("error " + i, failed);
             }
             assertArrayEquals(PDF417_WITH_EC, received, "error " + i);
@@ -92,13 +88,13 @@ class RsParityTest {
             received[i] = received[i] == 0 ? 1 : 0;
         }
         int[] broken = received;
-        assertThrows(ChecksumException.class, () -> new ErrorCorrection().decode(broken, ecc, null));
+        assertThrows(ReedSolomonException.class, () -> ReedSolomon.correct(ReedSolomon.PDF417, broken, ecc));
     }
 
     @Test
     void correctsTheOfficialGfVectors() throws Exception {
-        correct(GenericGF.DATA_MATRIX_FIELD_256, new int[]{142, 164, 186}, new int[]{114, 25, 5, 88, 102});
-        correct(GenericGF.DATA_MATRIX_FIELD_256,
+        correct(ReedSolomon.DATA_MATRIX, new int[]{142, 164, 186}, new int[]{114, 25, 5, 88, 102});
+        correct(ReedSolomon.DATA_MATRIX,
                 new int[]{
                         0x69, 0x75, 0x75, 0x71, 0x3B, 0x30, 0x30, 0x64,
                         0x70, 0x65, 0x66, 0x2F, 0x68, 0x70, 0x70, 0x68,
@@ -111,13 +107,13 @@ class RsParityTest {
                         0xF0, 0x1C, 0xF1, 0xD0, 0x6D, 0x00, 0x98, 0xDA,
                         0x80, 0x88, 0xBE, 0xFF, 0xB7, 0xFA, 0xA9, 0x95
                 });
-        correct(GenericGF.QR_CODE_FIELD_256,
+        correct(ReedSolomon.QR_CODE,
                 new int[]{
                         0x10, 0x20, 0x0C, 0x56, 0x61, 0x80, 0xEC, 0x11,
                         0xEC, 0x11, 0xEC, 0x11, 0xEC, 0x11, 0xEC, 0x11
                 },
                 new int[]{0xA5, 0x24, 0xD4, 0xC1, 0xED, 0x36, 0xC7, 0x87, 0x2C, 0x55});
-        correct(GenericGF.QR_CODE_FIELD_256,
+        correct(ReedSolomon.QR_CODE,
                 new int[]{
                         0x72, 0x67, 0x2F, 0x77, 0x69, 0x6B, 0x69, 0x2F,
                         0x4D, 0x61, 0x69, 0x6E, 0x5F, 0x50, 0x61, 0x67,
@@ -129,13 +125,13 @@ class RsParityTest {
                         0x73, 0x40, 0x0B, 0xB5, 0x5A, 0xB8, 0x8B, 0x2E,
                         0x08, 0x62
                 });
-        correct(GenericGF.AZTEC_PARAM, new int[]{0x5, 0x6}, new int[]{0x3, 0x2, 0xB, 0xB, 0x7});
-        correct(GenericGF.AZTEC_PARAM, new int[]{0x0, 0x0, 0x0, 0x9}, new int[]{0xA, 0xD, 0x8, 0x6, 0x5, 0x6});
-        correct(GenericGF.AZTEC_PARAM, new int[]{0x2, 0x8, 0x8, 0x7}, new int[]{0xE, 0xC, 0xA, 0x9, 0x6, 0x8});
-        correct(GenericGF.AZTEC_DATA_6,
+        correct(ReedSolomon.AZTEC_4, new int[]{0x5, 0x6}, new int[]{0x3, 0x2, 0xB, 0xB, 0x7});
+        correct(ReedSolomon.AZTEC_4, new int[]{0x0, 0x0, 0x0, 0x9}, new int[]{0xA, 0xD, 0x8, 0x6, 0x5, 0x6});
+        correct(ReedSolomon.AZTEC_4, new int[]{0x2, 0x8, 0x8, 0x7}, new int[]{0xE, 0xC, 0xA, 0x9, 0x6, 0x8});
+        correct(ReedSolomon.AZTEC_6,
                 new int[]{0x9, 0x32, 0x1, 0x29, 0x2F, 0x2, 0x27, 0x25, 0x1, 0x1B},
                 new int[]{0x2C, 0x2, 0xD, 0xD, 0xA, 0x16, 0x28, 0x9, 0x22, 0xA, 0x14});
-        correct(GenericGF.AZTEC_DATA_8,
+        correct(ReedSolomon.AZTEC_8,
                 new int[]{
                         0xE0, 0x86, 0x42, 0x98, 0xE8, 0x4A, 0x96, 0xC6,
                         0xB9, 0xF0, 0x8C, 0xA7, 0x4A, 0xDA, 0xF8, 0xCE,
@@ -163,7 +159,7 @@ class RsParityTest {
             for (int i = 0; i < errors; i++) {
                 received[i] = 0;
             }
-            new ReedSolomonDecoder(GenericGF.DATA_MATRIX_FIELD_256).decode(received, 5);
+            ReedSolomon.correct(ReedSolomon.DATA_MATRIX, received, 5);
             assertArrayEquals(dm, received, "errors " + errors);
         }
         int[] tooMany = dm.clone();
@@ -171,7 +167,7 @@ class RsParityTest {
         tooMany[1] = 0;
         tooMany[2] = 0;
         assertThrows(ReedSolomonException.class,
-                () -> new ReedSolomonDecoder(GenericGF.DATA_MATRIX_FIELD_256).decode(tooMany, 5));
+                () -> ReedSolomon.correct(ReedSolomon.DATA_MATRIX, tooMany, 5));
     }
 
 
@@ -181,7 +177,7 @@ class RsParityTest {
      */
     @Test
     void correctsTheOfficialAztec10And12Codewords() throws Exception {
-        correct(GenericGF.AZTEC_DATA_10, new int[] {
+        correct(ReedSolomon.AZTEC_10, new int[] {
                 0x15C, 0x1E1, 0x2D5, 0x2E, 0x48, 0x1E2, 0x37, 0xCD, 0x2E, 0x56,
                 0x26A, 0x281, 0x1C2, 0x1A6, 0x296, 0x45, 0x41, 0xAA, 0x95, 0x2CE,
                 0x3, 0x38F, 0x2CD, 0x1A2, 0x36, 0x1AD, 0x4E, 0x90, 0x271, 0xD3,
@@ -231,7 +227,7 @@ class RsParityTest {
                 0x306, 0x3A5, 0x352, 0x351, 0x275, 0xED, 0x45, 0x229, 0xBF, 0x5D,
                 0x253, 0x1BE, 0x2E, 0x35A, 0xE4, 0x2E9, 0x17A, 0x166, 0x3C, 0x7,
         });
-        correct(GenericGF.AZTEC_DATA_12, new int[] {
+        correct(ReedSolomon.AZTEC_12, new int[] {
                 0x571, 0xE1B, 0x542, 0xE12, 0x1E2, 0xDC, 0xCD0, 0xB85, 0x69A, 0xA81,
                 0x709, 0xA6A, 0x584, 0x510, 0x4AA, 0x256, 0xCE0, 0xF8, 0xFB3, 0x5A2,
                 0xD9, 0xAD1, 0x389, 0x9C, 0x4D3, 0xB8, 0xD5B, 0x503, 0x2B2, 0xA81,
@@ -409,13 +405,13 @@ class RsParityTest {
      */
     @Test
     void correctsTheOfficialQrEncoderParity() throws Exception {
-        correct(GenericGF.QR_CODE_FIELD_256,
+        correct(ReedSolomon.QR_CODE,
                 new int[] {32, 65, 205, 69, 41, 220, 46, 128, 236},
                 new int[] {42, 159, 74, 221, 244, 169, 239, 150, 138, 70, 237, 85, 224, 96, 74, 219, 61});
-        correct(GenericGF.QR_CODE_FIELD_256,
+        correct(ReedSolomon.QR_CODE,
                 new int[] {67, 70, 22, 38, 54, 70, 86, 102, 118, 134, 150, 166, 182, 198, 214},
                 new int[] {175, 80, 155, 64, 178, 45, 214, 233, 65, 209, 12, 155, 117, 31, 140, 214, 27, 187});
-        correct(GenericGF.QR_CODE_FIELD_256,
+        correct(ReedSolomon.QR_CODE,
                 new int[] {32, 49, 205, 69, 42, 20, 0, 236, 17},
                 new int[] {0, 3, 130, 179, 194, 0, 55, 211, 110, 79, 98, 72, 170, 96, 211, 137, 213});
     }
@@ -427,28 +423,27 @@ class RsParityTest {
      */
     @Test
     void correctsEveryValueInTheOfficialZeroWord() throws Exception {
-        ReedSolomonDecoder decoder = new ReedSolomonDecoder(GenericGF.DATA_MATRIX_FIELD_256);
         int[] word = {0, 0, 0};
         int[] clean = {0, 0, 0};
         for (int value = 0; value < 256; value++) {
             word[0] = value;
-            decoder.decode(word, 2);
+            ReedSolomon.correct(ReedSolomon.DATA_MATRIX, word, 2);
             assertArrayEquals(clean, word, "value " + value);
         }
     }
 
     /** One changed symbol, then the unchanged word. Both have to come back as the official codeword. */
-    private static void correct(GenericGF field, int[] data, int[] parity) throws Exception {
+    private static void correct(ReedSolomon.Field field, int[] data, int[] parity) throws Exception {
         int[] clean = new int[data.length + parity.length];
         System.arraycopy(data, 0, clean, 0, data.length);
         System.arraycopy(parity, 0, clean, data.length, parity.length);
         int[] received = clean.clone();
-        new ReedSolomonDecoder(field).decode(received, parity.length);
+        ReedSolomon.correct(field, received, parity.length);
         assertArrayEquals(clean, received);
 
         received = clean.clone();
-        received[0] = (received[0] + 1) % field.getSize();
-        new ReedSolomonDecoder(field).decode(received, parity.length);
+        received[0] = (received[0] + 1) % field.size();
+        ReedSolomon.correct(field, received, parity.length);
         assertArrayEquals(clean, received);
     }
 

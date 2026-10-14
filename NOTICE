@@ -39,7 +39,8 @@ core/src/maxicode/MCBitMatrixParser.cpp), the Telepen row decoder
 (core/src/TextDecoder.cpp), the guess of the character set of text without an ECI
 (GuessTextEncoding in core/src/Content.cpp), the geometry those files use, the matrix binarizer in core/src/HybridBinarizer.cpp,
 the scanline histogram in core/src/GlobalHistogramBinarizer.cpp,
-and the luminance pyramid in core/src/ReadBarcode.cpp.
+the luminance pyramid in core/src/ReadBarcode.cpp, and the Reed-Solomon decoder with erasures of
+core/src/librscpp (decode.h, field.h, poly.h) with its fields in core/src/ReedSolomon.cpp.
 Shift-JIS pairs 0x815C and 0x815F, and the user-area leads F0-F9, follow libzueci
 (BSD-3-Clause, Copyright 2022 gitlost), which zxing-cpp embeds.
 ISO/IEC 8859-10 and ISO/IEC 8859-14 are the standard repertoires; this JDK does not ship those charsets.
@@ -47,9 +48,8 @@ zxing-cpp is derived from the ZXing project.
 
 This product also includes a Java port of parts of ZXing (https://github.com/zxing/zxing),
 version 3.5.4: the thresholds of core/src/main/java/com/google/zxing/common/GlobalHistogramBinarizer.java
-and HybridBinarizer.java, the Reed-Solomon decoder (common/reedsolomon/GenericGF.java,
-GenericGFPoly.java, ReedSolomonDecoder.java) and the PDF417 error correction
-(pdf417/decoder/ec/ErrorCorrection.java, ModulusGF.java, ModulusPoly.java), and the QR Code
+and HybridBinarizer.java, the Galois fields of the Reed-Solomon encoder
+(common/reedsolomon/GenericGF.java, GenericGFPoly.java), and the QR Code
 encoder (qrcode/encoder/Encoder.java, MatrixUtil.java, MaskUtil.java, ByteMatrix.java,
 BlockPair.java, MinimalEncoder.java, qrcode/decoder/Mode.java and Version.java,
 common/reedsolomon/ReedSolomonEncoder.java, common/ECIEncoderSet.java, and the part of

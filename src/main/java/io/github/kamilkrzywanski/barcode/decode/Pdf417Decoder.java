@@ -1,7 +1,7 @@
 package io.github.kamilkrzywanski.barcode.decode;
 
 import io.github.kamilkrzywanski.barcode.decode.OneDRow.View;
-import io.github.kamilkrzywanski.barcode.ecc.Pdf417ErrorCorrection;
+import io.github.kamilkrzywanski.barcode.ecc.ReedSolomon;
 import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonException;
 
 import java.math.BigInteger;
@@ -30,8 +30,6 @@ final class Pdf417Decoder {
     private static final int MIN_SIDE = 3 * START_SUM;
     private static final int UNKNOWN = -1;
     private static final int CONFLICT = -2;
-    private static final Pdf417ErrorCorrection CORRECTION = new Pdf417ErrorCorrection();
-    private static final int MAX_ERRORS = 3;
     private static final int MAX_EC_CODEWORDS = 512;
 
     private static final int TEXT_LATCH = 900;
@@ -279,7 +277,7 @@ final class Pdf417Decoder {
             erasureIndex[i] = erasures.get(i);
         }
         try {
-            CORRECTION.decode(codewords, numEc, erasureIndex);
+            ReedSolomon.correct(ReedSolomon.PDF417, codewords, numEc, erasureIndex);
         } catch (ReedSolomonException failed) {
             return null;
         }
@@ -351,11 +349,12 @@ final class Pdf417Decoder {
         if (codewords.length == 0) {
             return null;
         }
-        // CorrectErrors. A damaged row indicator can give level 9, 1024 EC codewords, past the field.
-        if (erasures.length > numEc / 2 + MAX_ERRORS || numEc < 0 || numEc > MAX_EC_CODEWORDS) {
+        // ReedSolomonDecode: two error correction codewords have to stay to find or detect an error.
+        // A damaged row indicator can also give level 9, 1024 codewords, more than any symbol has.
+        if (erasures.length > numEc - 2 || numEc > MAX_EC_CODEWORDS) {
             throw new ReedSolomonException("PDF417 error correction failed");
         }
-        CORRECTION.decode(codewords, numEc, erasures);
+        ReedSolomon.correct(ReedSolomon.PDF417, codewords, numEc, erasures);
         if (!verifyCount(codewords, numEc)) {
             return null;
         }

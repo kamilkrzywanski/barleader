@@ -18,6 +18,7 @@ Kolejność:
 4. Zejście rusztowania. BoofCV i przechodnie Trove (LGPL 2.1) schodzą, gdy progi, morfologia i detektory są nasze, a `mvn test` zostaje zielony. `zxing-core` został wtedy jeszcze na binaryzatory, Reed-Solomon i korekcję PDF417; zszedł później (punkt 5).
 5. Zejście ZXing. Progi `GlobalHistogramBinarizer` i `HybridBinarizer` oraz Reed-Solomon (GF(2^n) i GF(929) dla PDF417) są przeniesione z ZXing 3.5.4 co do bitu, a `zxing-core` jest już tylko w testach (baseline i writery do obrazów syntetycznych). Binaryzer zwraca wiersz jako `boolean[]` i macierz jako jeden `boolean` na piksel, jak `BitMatrix` w zxing-cpp, więc odpadło rozpakowywanie `BitArray`/`BitMatrix` po 32 bity przy każdej próbie. Każdy krok dał zerowy diff Snapshot względem przebiegu sprzed zmian.
 6. Zapis QR. `QrCode.encode` (publiczne API obok `BarcodeReader`) to port enkodera ZXing 3.5.4 w pakiecie `qr`: jeden segment w najzwięźlejszym trybie, ECI dla zestawu znaków innego niż ISO-8859-1 (domyślnie UTF-8 z ECI 26, gdy tekst nie mieści się w ISO-8859-1), FNC1 dla GS1, najmniejsza wersja i maska z najmniejszą karą, a do tego obraz i SVG z czteromodułową strefą ciszy. Testy porównują każdy moduł z `Encoder` ZXinga dla tych samych wyborów i czytają wynik oboma czytnikami. Tabela wersji `qr.QrVersion` jest wspólna z detektorem QR.
+7. Reed-Solomon z wymazaniami. Wszystkie dekodery (QR, Micro QR, Data Matrix, Aztec, MaxiCode, PDF417) korygują przez port `librscpp` z zxing-cpp 3.1.1: syndromy, lokator wymazań, algorytm Sugiyamy, wzór Forneya i ponowne sprawdzenie syndromów po korekcji. ZXing liczył lokator wymazań, ale go nie używał, więc PDF417 z brakującymi słowami kodowymi naprawiał najwyżej numEC/2 z nich; teraz 2t + e ≤ numEC, jak w zxing-cpp, z limitem e ≤ numEC − 2. Końcowe sprawdzenie syndromów odrzuca błędne korekcje, które ZXing przyjmował: na `aztec-1/rune-64.png` znikł fałszywy drugi odczyt „192”.
 
 Zapis kodów zostaje poza portem. Od zxing-cpp 3.0 domyślny writer stoi na C-owej bibliotece zint.
 
@@ -271,7 +272,7 @@ Rusztowanie faz 1–2 wygrywa z czystym ZXingiem na inwersji, perspektywie QR i 
 | --- | --- |
 | `io.github.kamilkrzywanski.barcode` | API i harmonogram prób (`Scan`) |
 | `io.github.kamilkrzywanski.barcode.image` | Luminancja, obroty, skale, homografia, binaryzacja (`BinaryBitmap`, `BlackMatrix`) |
-| `io.github.kamilkrzywanski.barcode.ecc` | Reed-Solomon GF(2^n) i GF(929) z ZXing 3.5.4 |
+| `io.github.kamilkrzywanski.barcode.ecc` | Reed-Solomon: dekoder z wymazaniami z librscpp (zxing-cpp 3.1.1), enkoder z ZXing 3.5.4 |
 | `io.github.kamilkrzywanski.barcode.preprocess` | Progi i morfologia: Otsu, średnia lokalna, Gauss, Sauvola, erozja, dylacja, odszumienie |
 | `io.github.kamilkrzywanski.barcode.decode` | Odczyt bitów i deduplikacja. Wszystkie symbologie są własne; `BitmapDecoder` czyta je z jednej zbinaryzowanej próby |
 | `io.github.kamilkrzywanski.barcode.locate` | Findery QR, Micro QR, Aztec i Data Matrix oraz `blob-quad` |

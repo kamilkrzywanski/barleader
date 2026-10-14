@@ -2,8 +2,7 @@ package io.github.kamilkrzywanski.barcode.locate.dm;
 
 import io.github.kamilkrzywanski.barcode.decode.Decoded;
 import io.github.kamilkrzywanski.barcode.decode.TextDecoder;
-import io.github.kamilkrzywanski.barcode.ecc.GenericGF;
-import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonDecoder;
+import io.github.kamilkrzywanski.barcode.ecc.ReedSolomon;
 import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonException;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Bits;
 
@@ -96,7 +95,7 @@ final class MicroQrDecoder {
             return null;
         }
         try {
-            new ReedSolomonDecoder(GenericGF.QR_CODE_FIELD_256).decode(codewords, ecWords);
+            ReedSolomon.correct(ReedSolomon.QR_CODE, codewords, ecWords);
         } catch (ReedSolomonException failed) {
             return null;
         }
