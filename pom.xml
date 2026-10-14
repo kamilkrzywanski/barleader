@@ -75,7 +75,7 @@
                         <artifactId>exec-maven-plugin</artifactId>
                         <version>3.5.0</version>
                         <configuration>
-                            <mainClass>org.krzywanski.barcode.eval.ArteLabReport</mainClass>
+                            <mainClass>io.github.kamilkrzywanski.barcode.eval.ArteLabReport</mainClass>
                             <classpathScope>test</classpathScope>
                         </configuration>
                     </plugin>

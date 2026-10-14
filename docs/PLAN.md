@@ -83,7 +83,7 @@ Kolejność jest celowa. Czysty kod kończy się na pierwszej próbie, kosztowo 
 
 ## API
 
-Pakiet publiczny: `org.krzywanski.barcode`.
+Pakiet publiczny: `io.github.kamilkrzywanski.barcode`.
 
 - `BarcodeReader` — bezstanowe wejście. `read` można wołać z wielu wątków na tym samym obiekcie (każde wywołanie ma własny stan dekodera).
 - `ReadOptions.fast()` — domyślne. Mało prób, budżet 2,5 s, 40 prób.
@@ -226,12 +226,12 @@ Rusztowanie faz 1–2 wygrywa z czystym ZXingiem na inwersji, perspektywie QR i 
 
 | Pakiet | Rola |
 | --- | --- |
-| `org.krzywanski.barcode` | API i harmonogram prób (`Scan`) |
-| `org.krzywanski.barcode.image` | Luminancja, obroty, skale, homografia |
-| `org.krzywanski.barcode.preprocess` | Progi i morfologia: Otsu, średnia lokalna, Gauss, Sauvola, erozja, dylacja, odszumienie |
-| `org.krzywanski.barcode.decode` | Odczyt bitów i deduplikacja. Priorytetowe symbologie i kody macierzowe są własne. ZXing zostaje przy binaryzatorze hybrydowym, Reed-Solomonie, korekcji PDF417 i formatach spoza zestawu |
-| `org.krzywanski.barcode.locate` | Findery QR, Micro QR, Aztec i Data Matrix oraz `blob-quad` |
-| `org.krzywanski.Main` | CLI: `Main <plik> [--aggressive] [--all]` |
+| `io.github.kamilkrzywanski.barcode` | API i harmonogram prób (`Scan`) |
+| `io.github.kamilkrzywanski.barcode.image` | Luminancja, obroty, skale, homografia |
+| `io.github.kamilkrzywanski.barcode.preprocess` | Progi i morfologia: Otsu, średnia lokalna, Gauss, Sauvola, erozja, dylacja, odszumienie |
+| `io.github.kamilkrzywanski.barcode.decode` | Odczyt bitów i deduplikacja. Priorytetowe symbologie i kody macierzowe są własne. ZXing zostaje przy binaryzatorze hybrydowym, Reed-Solomonie, korekcji PDF417 i formatach spoza zestawu |
+| `io.github.kamilkrzywanski.barcode.locate` | Findery QR, Micro QR, Aztec i Data Matrix oraz `blob-quad` |
+| `io.github.kamilkrzywanski.barcode.cli` | CLI: `Main <plik> [--aggressive] [--all]` |
 
 Testy w `src/test/java` generują zbiór i porównują go z baseline.
 
