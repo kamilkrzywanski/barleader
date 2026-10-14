@@ -236,7 +236,7 @@ mvn -q -Psnapshot test-compile exec:java -Dexec.args="target/snapshot-po.tsv"
 diff target/snapshot-przed.tsv target/snapshot-po.tsv
 ```
 
-`Snapshot` czyta wszystkie 1225 obrazów (Arte-Lab, próbki zxing-cpp w `datasets/` i w `src/test/resources`) zwykłym ZXingiem (`zxing`) oraz w FAST, AGGRESSIVE i FAST z `findAll`, bez budżetu czasu. Wynik nie ma czasów, więc dwa przebiegi tego samego kodu dają te same bajty na każdej maszynie, a `diff` pokazuje każdy odczyt, któremu zmienił się tekst, symbologia, próba, orientacja, pewność albo narożniki. Zmiana czysto wydajnościowa ma dać pusty `diff`. Obok TSV powstaje `<plik>.summary.md`: dla każdego zbioru i folderu liczba obrazów przeczytanych zgodnie z etykietą, liczba przeczytanych błędnie, odczyty na obrazach bez kodu, a dla QR znanych tylko z narożników liczba znalezionych kodów.
+`Snapshot` czyta wszystkie 1225 obrazów (Arte-Lab i próbki zxing-cpp w submodule `datasets/` oraz próbki w `src/test/resources`) zwykłym ZXingiem (`zxing`) oraz w FAST, AGGRESSIVE i FAST z `findAll`, bez budżetu czasu. Wynik nie ma czasów, więc dwa przebiegi tego samego kodu dają te same bajty na każdej maszynie, a `diff` pokazuje każdy odczyt, któremu zmienił się tekst, symbologia, próba, orientacja, pewność albo narożniki. Zmiana czysto wydajnościowa ma dać pusty `diff`. Obok TSV powstaje `<plik>.summary.md`: dla każdego zbioru i folderu liczba obrazów przeczytanych zgodnie z etykietą, liczba przeczytanych błędnie, odczyty na obrazach bez kodu, a dla QR znanych tylko z narożników liczba znalezionych kodów.
 
 Zbiory spoza repozytorium pobiera `scripts/fetch-datasets.sh` (domyślnie do `~/.cache/barcode-pro/datasets`, sprawdza SHA-256, rozpakowuje). Żadne nie wymaga konta:
 
@@ -328,7 +328,7 @@ Stres (moduł 1 px, rozmycie 5×5, łagodny gradient) czytają też baseline i F
 
 ## Arte-Lab
 
-Zbiór Medium Barcode 1D leży w `datasets/artelab-medium-barcode-1d/` (Dataset1 z autofokusem, Dataset2 bez, po 215 JPEG-ów). Pliki nie wchodzą do `Samples.all()` ani na classpath testów. `mvn test` sprawdza tylko obecność i etykiety oraz kilka zamrożonych fałszywych odczytów.
+Zbiór Medium Barcode 1D leży w `datasets/artelab-medium-barcode-1d/` (Dataset1 z autofokusem, Dataset2 bez, po 215 JPEG-ów). `datasets/` to submoduł z repozytorium [barcode-pro-datasets](https://github.com/kamilkrzywanski/barcode-pro-datasets) (`git submodule update --init datasets`), żeby historia projektu nie wlokła 224 MB zdjęć. Pliki nie wchodzą do `Samples.all()` ani na classpath testów. `mvn test` nie potrzebuje submodułu: osiem zdjęć zamrożonych fałszywych odczytów jest skopiowanych do `src/test/resources/artelab`, a obecność i etykiety całego zbioru sprawdza `ArteLabCorpusTest` w profilu `artelab`.
 
 Nazwany zestaw, którego tekst jest kontraktem, odpala się osobno:
 

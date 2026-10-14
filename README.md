@@ -74,7 +74,7 @@ A clean symbol is read on the first attempt in either mode, so `aggressive()` on
 
 ## Accuracy
 
-All numbers come from this repository and can be repeated with the commands in [docs/PLAN.md](docs/PLAN.md). "ZXing" is the call most Java code makes: `MultiFormatReader` with `HybridBinarizer`, `BufferedImageLuminanceSource` and `TRY_HARDER`.
+All numbers come from this repository and its `datasets` submodule, [barcode-pro-datasets](https://github.com/kamilkrzywanski/barcode-pro-datasets) (`git submodule update --init datasets`), and can be repeated with the commands in [docs/PLAN.md](docs/PLAN.md). "ZXing" is the call most Java code makes: `MultiFormatReader` with `HybridBinarizer`, `BufferedImageLuminanceSource` and `TRY_HARDER`.
 
 **zxing-cpp 3.1.1 sample images.** The 464 labelled images of the zxing-cpp test suite that ImageIO can open and whose symbology both libraries read by default:
 
@@ -145,7 +145,7 @@ This needs JDK 17 or later and Maven 3.9. CI builds on JDK 17, 21 and 25: [.gith
 
 ## Measuring
 
-`mvn -q -Psnapshot test-compile exec:java -Dexec.args="target/snapshot.tsv"` reads every image of the sets in the repository with plain ZXing and in each mode, without a time budget, and writes every read plus a scored summary (`target/snapshot.tsv.summary.md`). Two runs of the same code give the same bytes, so a `diff` between runs before and after a change lists exactly the reads it moved. `scripts/fetch-datasets.sh` downloads more public sets that need no account (KAIST DEAL, the ZXing test images, BoofCV QR v3) to `~/.cache/barcode-pro/datasets`, checking their SHA-256, and unpacks BarBeR from `BARBER_ZIP=<archive>` (it needs an account, so it is not downloaded); `--external <that dir>` adds them to the run.
+`mvn -q -Psnapshot test-compile exec:java -Dexec.args="target/snapshot.tsv"` reads every image of the sets in the repository and its `datasets` submodule with plain ZXing and in each mode, without a time budget, and writes every read plus a scored summary (`target/snapshot.tsv.summary.md`). Two runs of the same code give the same bytes, so a `diff` between runs before and after a change lists exactly the reads it moved. `scripts/fetch-datasets.sh` downloads more public sets that need no account (KAIST DEAL, the ZXing test images, BoofCV QR v3) to `~/.cache/barcode-pro/datasets`, checking their SHA-256, and unpacks BarBeR from `BARBER_ZIP=<archive>` (it needs an account, so it is not downloaded); `--external <that dir>` adds them to the run.
 
 ## Packages
 
@@ -166,4 +166,4 @@ This needs JDK 17 or later and Maven 3.9. CI builds on JDK 17, 21 and 25: [.gith
 
 ## License
 
-Apache License 2.0, see [LICENSE](LICENSE). The ported zxing-cpp code keeps its authors' copyright, see [NOTICE](NOTICE). The Arte-Lab photos in `datasets/` are CC BY 3.0 and the zxing-cpp samples Apache 2.0.
+Apache License 2.0, see [LICENSE](LICENSE). The ported zxing-cpp code keeps its authors' copyright, see [NOTICE](NOTICE). The Arte-Lab photos in the `datasets` submodule and the eight of them in `src/test/resources/artelab` are CC BY 3.0, and the zxing-cpp samples Apache 2.0.

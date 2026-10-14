@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
+import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -17,9 +18,20 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * frames. Three blurry Dataset2 shots used to come back as a PDF417 run of
  * {@code A}, and {@code Foto(573).jpg} used to come back as a short Data Matrix.
  * The printed Data Matrix symbols in Dataset1 are a different case and stay.
+ *
+ * <p>The eight photographs are copied under {@code src/test/resources/artelab} with the
+ * Arte-Lab readme (CC BY 3.0), so this runs without the {@code datasets} submodule.
  */
 class ArteLabFalsePositiveTest {
-    private static final Path ROOT = Path.of("datasets", "artelab-medium-barcode-1d");
+    private static final Path ROOT = root();
+
+    private static Path root() {
+        try {
+            return Path.of(ArteLabFalsePositiveTest.class.getResource("/artelab").toURI());
+        } catch (URISyntaxException exception) {
+            throw new IllegalStateException(exception);
+        }
+    }
 
     @Test
     void blurryEanFramesDoNotInventPdf417OrDataMatrix() throws IOException {

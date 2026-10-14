@@ -131,7 +131,10 @@ public final class Snapshot {
         for (String root : ROOTS) {
             Path dir = Path.of(root);
             for (Path file : images(dir)) {
-                sources.add(new Source(file, file.toString().replace('\\', '/')));
+                // Copies of datasets/ photos kept for the unit tests.
+                if (!file.startsWith(Path.of("src", "test", "resources", "artelab"))) {
+                    sources.add(new Source(file, file.toString().replace('\\', '/')));
+                }
             }
         }
         if (external != null) {

@@ -1,5 +1,6 @@
 package io.github.kamilkrzywanski.barcode;
 
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -21,14 +22,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Each JPEG has a sibling text file. 427 of those files are the 13-digit ground
  * truth. Three files in the upstream archive are empty.
  *
- * <p>The photographs live under {@code datasets/artelab-medium-barcode-1d/},
- * not on the test classpath, so a normal {@code mvn test} does not copy 216 MB
- * into {@code target/}. They are not part of {@code Samples.all()} and this
+ * <p>The photographs live under {@code datasets/artelab-medium-barcode-1d/}, the
+ * {@code datasets} submodule ({@code git submodule update --init datasets}), not on
+ * the test classpath, so this runs under {@code mvn -Partelab test} only. They are not part of {@code Samples.all()} and this
  * test does not decode them. A full read of all 430 frames is
  * {@code io.github.kamilkrzywanski.barcode.eval.ArteLabReport}, not this test. A miss there
  * is not a contract failure of the 22-sample suite. The named frames that are
  * pinned run under {@code mvn -Partelab test}.
  */
+@Tag("artelab")
 class ArteLabCorpusTest {
     /** Empty {@code .jpg.txt} files shipped in the upstream archive. */
     private static final Set<String> UNLABELED = Set.of(
