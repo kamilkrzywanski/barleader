@@ -60,7 +60,8 @@ public final class QrCode {
         } else if (!charset.newEncoder().canEncode(text)) {
             throw new IllegalArgumentException("The text cannot be encoded in " + charset.name());
         }
-        return new QrCode(QrEncoder.encode(text, options.errorCorrection(), charset, options.gs1(), options.version(), options.mask()));
+        return new QrCode(QrEncoder.encode(text, options.errorCorrection(), charset, options.gs1(), options.version(), options.mask(),
+                options.compact()));
     }
 
     /**

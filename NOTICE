@@ -51,8 +51,9 @@ and HybridBinarizer.java, the Reed-Solomon decoder (common/reedsolomon/GenericGF
 GenericGFPoly.java, ReedSolomonDecoder.java) and the PDF417 error correction
 (pdf417/decoder/ec/ErrorCorrection.java, ModulusGF.java, ModulusPoly.java), and the QR Code
 encoder (qrcode/encoder/Encoder.java, MatrixUtil.java, MaskUtil.java, ByteMatrix.java,
-BlockPair.java, qrcode/decoder/Mode.java and Version.java, common/reedsolomon/ReedSolomonEncoder.java,
-and the part of common/BitArray.java and common/CharacterSetECI.java it uses).
+BlockPair.java, MinimalEncoder.java, qrcode/decoder/Mode.java and Version.java,
+common/reedsolomon/ReedSolomonEncoder.java, common/ECIEncoderSet.java, and the part of
+common/BitArray.java and common/CharacterSetECI.java it uses).
 Copyright 2007 ZXing authors. Licensed under the Apache License, Version 2.0.
 
 Copyright 2006 Jeremias Maerki

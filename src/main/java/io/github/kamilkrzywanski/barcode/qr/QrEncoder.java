@@ -69,12 +69,18 @@ public final class QrEncoder {
         }
     }
 
+    /** The ECI a character set of this name is announced with, or -1 when the table has none. */
+    static int eciValue(String charsetName) {
+        Integer value = ECI.get(charsetName);
+        return value == null ? -1 : value;
+    }
+
     /** One encoded symbol. {@code modules[y][x]} is true for a dark module. */
     public record Encoded(boolean[][] modules, int version, QrErrorCorrection level, int mask) {
     }
 
     /**
-     * Encodes {@code content}.
+     * Encodes {@code content} in one segment.
      *
      * @param charset       the byte mode encoding, null for ISO-8859-1 without an ECI
      * @param gs1           announces GS1 data with FNC1 in first position
@@ -83,22 +89,42 @@ public final class QrEncoder {
      * @throws IllegalArgumentException when the data does not fit the version, or any version
      */
     public static Encoded encode(String content, QrErrorCorrection level, Charset charset, boolean gs1, int versionNumber, int mask) {
+        return encode(content, level, charset, gs1, versionNumber, mask, false);
+    }
+
+    /**
+     * As {@link #encode(String, QrErrorCorrection, Charset, boolean, int, int)}; {@code compact} splits
+     * the text into the segments, modes and character sets that make the fewest bits, as ZXing's
+     * {@code QR_COMPACT} does, with {@code charset} preferred for every character it can encode.
+     */
+    public static Encoded encode(String content, QrErrorCorrection level, Charset charset, boolean gs1, int versionNumber, int mask,
+                                 boolean compact) {
+        // ZXing's minimal encoder fails on empty text; one empty byte segment is as small as it gets.
+        if (compact && !content.isEmpty()) {
+            QrVersion fixed = null;
+            if (versionNumber != 0) {
+                fixed = QrVersion.of(versionNumber);
+                if (fixed == null) {
+                    throw new IllegalArgumentException("QR Code versions are 1 to 40, not " + versionNumber);
+                }
+            }
+            Charset priority = charset == null || charset.equals(StandardCharsets.ISO_8859_1) ? null : charset;
+            MinimalEncoder.ResultList segments = MinimalEncoder.encode(content, fixed, priority, gs1, level);
+            BitBuffer bits = new BitBuffer();
+            segments.getBits(bits);
+            return layout(bits, segments.getVersion(), level, mask);
+        }
         Charset encoding = charset == null ? StandardCharsets.ISO_8859_1 : charset;
         QrMode mode = chooseMode(content, encoding);
         BitBuffer headerBits = new BitBuffer();
         if (mode == QrMode.BYTE && charset != null) {
-            Integer eci = ECI.get(charset.name());
-            if (eci != null) {
+            int eci = eciValue(charset.name());
+            if (eci >= 0) {
                 appendEci(eci, headerBits);
             }
         }
         BitBuffer dataBits = new BitBuffer();
-        switch (mode) {
-            case NUMERIC -> appendNumericBytes(content, dataBits);
-            case ALPHANUMERIC -> appendAlphanumericBytes(content, dataBits);
-            case KANJI -> appendKanjiBytes(content, dataBits);
-            default -> append8BitBytes(content.getBytes(encoding), dataBits);
-        }
+        appendBytes(content, mode, dataBits, encoding);
         int numLetters = mode == QrMode.BYTE ? dataBits.getSizeInBytes() : content.length();
         return finish(mode, headerBits, dataBits, numLetters, level, gs1, versionNumber, mask);
     }
@@ -132,7 +158,11 @@ public final class QrEncoder {
         headerAndDataBits.appendBitArray(headerBits);
         appendLengthInfo(numLetters, version, mode, headerAndDataBits);
         headerAndDataBits.appendBitArray(dataBits);
+        return layout(headerAndDataBits, version, level, mask);
+    }
 
+    /** Terminates and pads the bits, adds the error correction, and places them with the mask. */
+    private static Encoded layout(BitBuffer headerAndDataBits, QrVersion version, QrErrorCorrection level, int mask) {
         QrVersion.EcBlocks ecBlocks = version.ecBlocks(level);
         int numDataBytes = version.totalCodewords() - ecBlocks.totalEcCodewords();
         terminateBits(numDataBytes, headerAndDataBits);
@@ -218,7 +248,7 @@ public final class QrEncoder {
         return QrMode.BYTE;
     }
 
-    private static boolean isOnlyDoubleByteKanji(String content) {
+    static boolean isOnlyDoubleByteKanji(String content) {
         byte[] bytes = content.getBytes(SHIFT_JIS);
         int length = bytes.length;
         if (length % 2 != 0) {
@@ -397,6 +427,17 @@ public final class QrEncoder {
             throw new IllegalArgumentException(numLetters + " is bigger than " + ((1 << numBits) - 1));
         }
         bits.appendBits(numLetters, numBits);
+    }
+
+    /** {@code content} in {@code mode}; byte mode in {@code encoding}. */
+    static void appendBytes(String content, QrMode mode, BitBuffer bits, Charset encoding) {
+        switch (mode) {
+            case NUMERIC -> appendNumericBytes(content, bits);
+            case ALPHANUMERIC -> appendAlphanumericBytes(content, bits);
+            case BYTE -> append8BitBytes(content.getBytes(encoding), bits);
+            case KANJI -> appendKanjiBytes(content, bits);
+            default -> throw new IllegalArgumentException("Invalid mode: " + mode);
+        }
     }
 
     /** Three digits in ten bits, then two in seven or one in four. */

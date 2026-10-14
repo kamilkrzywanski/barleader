@@ -25,6 +25,7 @@ import java.util.Locale;
  *   --mask=N            a fixed mask, 0 to 7
  *   --charset=NAME      the character set of the text, announced with its ECI
  *   --gs1               GS1 element strings, with FNC1 in first position
+ *   --compact           segments in several modes and character sets, for a smaller symbol
  *   --out=FILE          an image in the format of its extension, or .svg; SVG on standard output without it
  *   --                  the next argument is the text, even when it starts with a dash
  * </pre>
@@ -70,6 +71,8 @@ final class QrCommand {
                     options = options.charset(Charset.forName(value(arg)));
                 } else if (arg.equals("--gs1")) {
                     options = options.gs1(true);
+                } else if (arg.equals("--compact")) {
+                    options = options.compact(true);
                 } else if (arg.startsWith("--out=")) {
                     output = Path.of(value(arg));
                 } else {
@@ -119,6 +122,6 @@ final class QrCommand {
 
     static void usage(PrintStream stream) {
         stream.println("Usage: java -jar barcode-pro.jar qr [--level=L|M|Q|H] [--module=8] [--quiet=4] [--version=N]"
-                + " [--mask=N] [--charset=NAME] [--gs1] [--out=file.png|file.svg] [--] text");
+                + " [--mask=N] [--charset=NAME] [--gs1] [--compact] [--out=file.png|file.svg] [--] text");
     }
 }

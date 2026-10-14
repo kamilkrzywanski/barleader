@@ -131,9 +131,10 @@ QrCode label = QrCode.encode("Zażółć gęślą jaźń", QrOptions.defaults()
         .version(5)                                               // fixed size; default: the smallest that fits
         .mask(-1));                                               // default: the lowest penalty
 QrCode binary = QrCode.encode(bytes, QrOptions.defaults());       // byte mode, no ECI
+QrCode small = QrCode.encode("ORDER 12345678901234 for café", QrOptions.defaults().compact(true));
 ```
 
-The text is one segment in the most compact mode that holds all of it: numeric, alphanumeric, byte, or Kanji with `charset(Shift_JIS)`. Text that fits ISO-8859-1, the character set QR Code assumes, is written in it without an ECI; any other text is UTF-8 announced with ECI 26, so a reader does not have to guess. `charset(...)` sets it, announced with its ECI, and `gs1(true)` marks GS1 element strings. `isDark(x, y)` and `size()` give the modules for drawing them yourself. The encoder is a port of ZXing's, and for the same choices every module is the one ZXing writes; the tests check that, and that both readers read the result back.
+The text is one segment in the most compact mode that holds all of it: numeric, alphanumeric, byte, or Kanji with `charset(Shift_JIS)`. Text that fits ISO-8859-1, the character set QR Code assumes, is written in it without an ECI; any other text is UTF-8 announced with ECI 26, so a reader does not have to guess. `charset(...)` sets it, announced with its ECI, and `gs1(true)` marks GS1 element strings. `compact(true)` instead splits the text into segments of different modes and character sets for the fewest bits, as ZXing's `QR_COMPACT` does: smaller symbols for mixed text, which every reader then has to decode segment by segment. `isDark(x, y)` and `size()` give the modules for drawing them yourself. The encoder is a port of ZXing's, and for the same choices every module is the one ZXing writes; the tests check that, and that both readers read the result back.
 
 ## What it does not read yet
 
@@ -153,7 +154,7 @@ java -jar target/barcode-pro.jar qr "Zażółć gęślą jaźń" > qr.svg
 
 Plain output is one tab-separated line per symbol: file, symbology, text, attempt, orientation, corners and the EAN/UPC supplement (`-` when there is none). Tabs and line breaks in the text are escaped. `--json` prints one JSON object per symbol. The exit code is 0 when every image had a symbol, 1 when one had none, and 2 for wrong usage or an unreadable file.
 
-`qr` writes a QR Code instead: an image in the format of the `--out` extension, or SVG, also on standard output when there is no `--out`. `--level`, `--version`, `--mask`, `--charset` and `--gs1` are the `QrOptions`, `--module` the pixels a module and `--quiet` the quiet zone in modules.
+`qr` writes a QR Code instead: an image in the format of the `--out` extension, or SVG, also on standard output when there is no `--out`. `--level`, `--version`, `--mask`, `--charset`, `--gs1` and `--compact` are the `QrOptions`, `--module` the pixels a module and `--quiet` the quiet zone in modules.
 
 ## Building
 

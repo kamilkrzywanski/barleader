@@ -49,6 +49,9 @@ class QrCodeTest {
         if (options.mask() >= 0) {
             hints.put(EncodeHintType.QR_MASK_PATTERN, options.mask());
         }
+        if (options.compact()) {
+            hints.put(EncodeHintType.QR_COMPACT, true);
+        }
         ByteMatrix matrix = Encoder.encode(text, ErrorCorrectionLevel.valueOf(options.errorCorrection().name()), hints).getMatrix();
         boolean[][] modules = new boolean[matrix.getHeight()][matrix.getWidth()];
         for (int y = 0; y < matrix.getHeight(); y++) {
@@ -133,6 +136,43 @@ class QrCodeTest {
                 }
                 assertArrayEquals(zxing(text, options, new boolean[1]), modules(qr), text);
             }
+        }
+    }
+
+    @Test
+    void compactSegmentsMatchZxingAndMakeSmallerSymbols() throws Exception {
+        int smaller = 0;
+        List<String> texts = new ArrayList<>(samples());
+        texts.addAll(List.of("ABC123abc", "0123456789012345678901234567890123456789 order #42 for café", "PL Zażółć 1234567890123",
+                "日本語 and English 2026", "MIXED: AB12 cd34 EF56 gh78 90 90 90 90 90 90 90 90"));
+        for (String text : texts) {
+            for (QrErrorCorrection level : QrErrorCorrection.values()) {
+                QrOptions options = QrOptions.defaults().errorCorrection(level).compact(true);
+                QrCode qr;
+                try {
+                    qr = QrCode.encode(text, options);
+                } catch (IllegalArgumentException tooBig) {
+                    continue;
+                }
+                if (!text.isEmpty()) {
+                    assertArrayEquals(zxing(text, options, new boolean[1]), modules(qr), text + " at " + level);
+                }
+                QrCode plain = QrCode.encode(text, QrOptions.defaults().errorCorrection(level));
+                assertTrue(qr.version() <= plain.version(), text);
+                smaller += qr.version() < plain.version() ? 1 : 0;
+            }
+        }
+        assertTrue(smaller > 0);
+    }
+
+    @Test
+    void theReaderReadsCompactSymbols() {
+        BarcodeReader reader = BarcodeReader.sequential();
+        for (String text : List.of("ABC123abc", "PL Zażółć 1234567890123", "日本語 and English 2026", "0123456789 order #42 for café")) {
+            QrCode qr = QrCode.encode(text, QrOptions.defaults().compact(true));
+            List<BarcodeHit> hits = reader.read(qr.toImage(4), ReadOptions.fast());
+            assertEquals(1, hits.size(), text);
+            assertEquals(text, hits.get(0).text());
         }
     }
 
