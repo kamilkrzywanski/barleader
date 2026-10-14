@@ -10,7 +10,6 @@ import com.google.zxing.common.HybridBinarizer;
 import io.github.kamilkrzywanski.barcode.BarcodeHit;
 import io.github.kamilkrzywanski.barcode.BarcodeReader;
 import io.github.kamilkrzywanski.barcode.ReadOptions;
-import io.github.kamilkrzywanski.barcode.Symbology;
 import io.github.kamilkrzywanski.barcode.eval.ArteLabScoring.Frame;
 import io.github.kamilkrzywanski.barcode.eval.ArteLabScoring.Kind;
 import io.github.kamilkrzywanski.barcode.eval.ArteLabScoring.Tally;
@@ -219,8 +218,8 @@ public final class ArteLabReport {
             if (result.getText() == null || result.getText().isBlank()) {
                 return new Timed("", millis);
             }
-            Symbology symbology = Symbology.fromZxing(result.getBarcodeFormat());
-            String name = symbology == null ? result.getBarcodeFormat().name() : symbology.name();
+            // ZXing format names are the Symbology names for every format both sides know.
+            String name = result.getBarcodeFormat().name();
             return new Timed(
                     ArteLabScoring.cell(name, "zxing-baseline", -1, result.getText()),
                     result.getText(),

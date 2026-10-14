@@ -20,17 +20,20 @@
     </properties>
 
     <dependencies>
+        <!-- Hybrid and global-histogram binarizers, bit matrices, Reed-Solomon and PDF417 error correction. -->
         <dependency>
             <groupId>com.google.zxing</groupId>
             <artifactId>core</artifactId>
             <version>${zxing.version}</version>
         </dependency>
+
+        <!-- The tests compare against plain ZXing on BufferedImageLuminanceSource. -->
         <dependency>
             <groupId>com.google.zxing</groupId>
             <artifactId>javase</artifactId>
             <version>${zxing.version}</version>
+            <scope>test</scope>
         </dependency>
-
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>

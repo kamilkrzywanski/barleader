@@ -1,29 +1,24 @@
 package io.github.kamilkrzywanski.barcode;
 
-import com.google.zxing.BarcodeFormat;
-
 import java.util.EnumSet;
 import java.util.Set;
 
-/**
- * Symbologies this library will search for. The ZXing format is an implementation detail:
- * Micro QR has no ZXing format. The ported reader decodes it.
- */
+/** Symbologies this library can search for. */
 public enum Symbology {
-    QR_CODE(BarcodeFormat.QR_CODE, false),
-    MICRO_QR(null, false),
-    DATA_MATRIX(BarcodeFormat.DATA_MATRIX, false),
-    AZTEC(BarcodeFormat.AZTEC, false),
-    PDF_417(BarcodeFormat.PDF_417, false),
-    CODE_128(BarcodeFormat.CODE_128, true),
-    CODE_39(BarcodeFormat.CODE_39, true),
-    CODE_93(BarcodeFormat.CODE_93, true),
-    EAN_13(BarcodeFormat.EAN_13, true),
-    EAN_8(BarcodeFormat.EAN_8, true),
-    UPC_A(BarcodeFormat.UPC_A, true),
-    UPC_E(BarcodeFormat.UPC_E, true),
-    ITF(BarcodeFormat.ITF, true),
-    CODABAR(BarcodeFormat.CODABAR, true);
+    QR_CODE(false),
+    MICRO_QR(false),
+    DATA_MATRIX(false),
+    AZTEC(false),
+    PDF_417(false),
+    CODE_128(true),
+    CODE_39(true),
+    CODE_93(true),
+    EAN_13(true),
+    EAN_8(true),
+    UPC_A(true),
+    UPC_E(true),
+    ITF(true),
+    CODABAR(true);
 
     private static final EnumSet<Symbology> DEFAULTS = EnumSet.of(
             QR_CODE,
@@ -39,17 +34,16 @@ public enum Symbology {
             UPC_E
     );
 
-    private final BarcodeFormat zxing;
     private final boolean linear;
 
-    Symbology(BarcodeFormat zxing, boolean linear) {
-        this.zxing = zxing;
+    Symbology(boolean linear) {
         this.linear = linear;
     }
 
     /**
-     * Priority set from the spec: QR, Data Matrix, Code 128, PDF417, EAN/UPC, Code 39,
-     * plus Aztec and Micro QR.
+     * The set {@link ReadOptions} starts with: QR, Micro QR, Data Matrix, Aztec, PDF417,
+     * Code 128, Code 39, EAN-13, EAN-8, UPC-A and UPC-E. Code 93, ITF and Codabar are read
+     * only when asked for, because short random bars match them more easily.
      */
     public static Set<Symbology> defaults() {
         return EnumSet.copyOf(DEFAULTS);
@@ -63,18 +57,5 @@ public enum Symbology {
     /** QR, Micro QR, Data Matrix, Aztec, and PDF417. */
     public boolean twoDimensional() {
         return !linear;
-    }
-
-    public BarcodeFormat zxing() {
-        return zxing;
-    }
-
-    public static Symbology fromZxing(BarcodeFormat format) {
-        for (Symbology symbology : values()) {
-            if (symbology.zxing == format) {
-                return symbology;
-            }
-        }
-        return null;
     }
 }

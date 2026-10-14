@@ -1,11 +1,11 @@
 package io.github.kamilkrzywanski.barcode;
 
 import com.google.zxing.LuminanceSource;
-import com.google.zxing.client.j2se.BufferedImageLuminanceSource;
 import io.github.kamilkrzywanski.barcode.decode.HitCollector;
 import io.github.kamilkrzywanski.barcode.decode.ZxingDecoder;
 import io.github.kamilkrzywanski.barcode.image.Geometry;
 import io.github.kamilkrzywanski.barcode.image.GrayImages;
+import io.github.kamilkrzywanski.barcode.image.GrayLuminanceSource;
 import io.github.kamilkrzywanski.barcode.image.GrayU8;
 import io.github.kamilkrzywanski.barcode.image.PixelMap;
 import io.github.kamilkrzywanski.barcode.image.Transformed;
@@ -64,10 +64,13 @@ final class Scan {
         if (image.getWidth() < 2 || image.getHeight() < 2) {
             return List.of();
         }
-        GrayU8 gray = GrayImages.from(image);
+        GrayImages.Converted converted = GrayImages.convert(image, true);
+        GrayU8 gray = converted.gray();
 
-        tryBuffered(image, false, "original-hybrid", 0.92, options.findAll());
-        tryBuffered(image, true, "original-global", 0.84, false);
+        // The first two attempts read ZXing's own luminance of the image, the rest of the ladder reads gray.
+        LuminanceSource original = new GrayLuminanceSource(converted.zxing());
+        tryOriginal(original, false, "original-hybrid", 0.92, options.findAll());
+        tryOriginal(original, true, "original-global", 0.84, false);
         // A hit on the two buffered attempts used to still build every later image and
         // then throw the decode away. Those images are independent, so a miss runs them
         // together and keeps the earliest hit in this same order.
@@ -1458,12 +1461,11 @@ final class Scan {
         }
     }
 
-    private void tryBuffered(BufferedImage image, boolean global, String attempt, double confidence, boolean multi) {
+    private void tryOriginal(LuminanceSource source, boolean global, String attempt, double confidence, boolean multi) {
         if (stop()) {
             return;
         }
         attempts++;
-        LuminanceSource source = new BufferedImageLuminanceSource(image);
         accept(ZxingDecoder.read(source, PixelMap.IDENTITY, attempt, 0, confidence, symbologies, global, multi));
     }
 

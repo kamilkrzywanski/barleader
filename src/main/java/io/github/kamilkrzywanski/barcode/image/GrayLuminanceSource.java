@@ -1,6 +1,5 @@
 package io.github.kamilkrzywanski.barcode.image;
 
-import io.github.kamilkrzywanski.barcode.image.GrayU8;
 import com.google.zxing.LuminanceSource;
 
 /**
@@ -13,8 +12,9 @@ public final class GrayLuminanceSource extends LuminanceSource {
     private final int left;
     private final int top;
 
+    /** Shares the pixels of a packed image and copies any other. ZXing only reads them. */
     public GrayLuminanceSource(GrayU8 image) {
-        this(copy(image), image.width, 0, 0, image.width, image.height);
+        this(packed(image) ? image.data : copy(image), image.width, 0, 0, image.width, image.height);
     }
 
     private GrayLuminanceSource(byte[] luminances, int dataWidth, int left, int top, int width, int height) {
@@ -84,6 +84,10 @@ public final class GrayLuminanceSource extends LuminanceSource {
             }
         }
         return new GrayLuminanceSource(rotated, newWidth, 0, 0, newWidth, width);
+    }
+
+    private static boolean packed(GrayU8 image) {
+        return image.stride == image.width && image.startIndex == 0 && image.data.length == image.width * image.height;
     }
 
     private static byte[] copy(GrayU8 image) {

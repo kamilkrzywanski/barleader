@@ -7,25 +7,55 @@ public final class GrayImages {
     private GrayImages() {
     }
 
+    /**
+     * The gray the scan ladder works on: {@code (77 R + 150 G + 29 B + 128) >> 8} of what
+     * {@link BufferedImage#getRGB} returns. Alpha is ignored.
+     */
     public static GrayU8 from(BufferedImage image) {
+        return convert(image, false).gray();
+    }
+
+    /**
+     * Both grays of {@link #convert(BufferedImage, boolean)}, from one pass over the image.
+     *
+     * @param gray  {@link #from(BufferedImage)}
+     * @param zxing the bytes ZXing's {@code BufferedImageLuminanceSource} holds for the same image,
+     *              or {@code null} when not asked for
+     */
+    public record Converted(GrayU8 gray, GrayU8 zxing) {
+    }
+
+    /**
+     * {@link #from(BufferedImage)}, and with {@code withZxing} also the luminance ZXing's
+     * {@code BufferedImageLuminanceSource} would build: {@code (306 R + 601 G + 117 B + 512) >> 10},
+     * a fully transparent pixel as white, and the raw samples of an 8-bit gray image.
+     */
+    public static Converted convert(BufferedImage image, boolean withZxing) {
         int width = image.getWidth();
         int height = image.getHeight();
-        GrayU8 out = new GrayU8(width, height);
-        int[] rgb = image.getRGB(0, 0, width, height, new int[width * height], 0, width);
-        if (packed(out)) {
-            byte[] dest = out.data;
-            for (int i = 0; i < rgb.length; i++) {
-                dest[i] = (byte) luma(rgb[i]);
-            }
-            return out;
-        }
-        for (int y = 0; y < height; y++) {
-            int row = y * width;
+        GrayU8 gray = new GrayU8(width, height);
+        GrayU8 zxing = withZxing ? new GrayU8(width, height) : null;
+        RgbRows rows = new RgbRows(image);
+        boolean rawGray = withZxing && rows.isByteGray();
+        int[] argb = new int[width];
+        byte[] raw = rawGray ? new byte[width] : null;
+        byte[] out = gray.data;
+        byte[] zout = withZxing ? zxing.data : null;
+        for (int y = 0, row = 0; y < height; y++, row += width) {
+            rows.read(y, argb);
             for (int x = 0; x < width; x++) {
-                out.set(x, y, luma(rgb[row + x]));
+                out[row + x] = (byte) luma(argb[x]);
+            }
+            if (rawGray) {
+                rows.readGray(y, raw);
+                System.arraycopy(raw, 0, zout, row, width);
+            } else if (withZxing) {
+                for (int x = 0; x < width; x++) {
+                    zout[row + x] = (byte) zxingLuma(argb[x]);
+                }
             }
         }
-        return out;
+        return new Converted(gray, zxing);
     }
 
     /** Stretches the 1st–99th percentile range to 0..255. Returns {@code gray} when contrast is already tiny. */
@@ -218,14 +248,17 @@ public final class GrayImages {
         return Math.min(value, 255);
     }
 
+    private static int zxingLuma(int argb) {
+        if ((argb & 0xFF000000) == 0) {
+            return 0xFF;
+        }
+        return (306 * ((argb >> 16) & 0xFF) + 601 * ((argb >> 8) & 0xFF) + 117 * (argb & 0xFF) + 0x200) >> 10;
+    }
+
     private static int luma(int rgb) {
         int r = (rgb >>> 16) & 0xFF;
         int g = (rgb >>> 8) & 0xFF;
         int b = rgb & 0xFF;
         return (r * 77 + g * 150 + b * 29 + 128) >> 8;
-    }
-
-    private static boolean packed(GrayU8 image) {
-        return image.stride == image.width && image.startIndex == 0;
     }
 }
