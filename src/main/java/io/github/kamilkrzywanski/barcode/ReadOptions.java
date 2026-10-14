@@ -7,10 +7,15 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Immutable options for one read. {@link #fast()} matches the default ladder.
- * {@link #aggressive()} turns on the extra variants and raises the budgets.
- * {@link #mode(DecodeMode)} changes only the ladder; it does not rewrite budgets
- * already set on this instance.
+ * Immutable options for one read. {@link #fast()} is the default ladder with a 2.5 s, 40-attempt
+ * budget. {@link #aggressive()} adds the expensive variants and raises the budget to 8 s and 100
+ * attempts. {@link #mode(DecodeMode)} changes only the ladder; it does not rewrite budgets already
+ * set on this instance.
+ *
+ * <p>The time budget makes the result depend on how fast the machine is and how busy it is: a read
+ * that runs out of time returns what it found so far. Pass {@code Long.MAX_VALUE} to
+ * {@link #timeBudgetMillis(long)} for a read that only the attempt budget stops, which returns the
+ * same hits on every machine.
  */
 public final class ReadOptions {
     public static final int FAST_ATTEMPTS = 40;
@@ -65,18 +70,31 @@ public final class ReadOptions {
         return new ReadOptions(mode, findAll, symbologies, maxAttempts, timeBudgetMillis);
     }
 
+    /**
+     * With {@code true} the ladder does not stop at the first hit and returns every distinct symbol
+     * it finds. This costs the whole ladder on every image.
+     */
     public ReadOptions findAll(boolean findAll) {
         return new ReadOptions(mode, findAll, symbologies, maxAttempts, timeBudgetMillis);
     }
 
+    /** The most image variants one read decodes, at least 1. */
     public ReadOptions maxAttempts(int maxAttempts) {
         return new ReadOptions(mode, findAll, symbologies, maxAttempts, timeBudgetMillis);
     }
 
+    /**
+     * Wall-clock budget of one read, at least 1 ms. A single decoder call is not interrupted, so
+     * a read can end somewhat later. {@code Long.MAX_VALUE} means no time limit.
+     */
     public ReadOptions timeBudgetMillis(long timeBudgetMillis) {
         return new ReadOptions(mode, findAll, symbologies, maxAttempts, timeBudgetMillis);
     }
 
+    /**
+     * The symbologies to look for, replacing {@link Symbology#defaults()}. Fewer symbologies make a
+     * read faster: without any 2D symbology the matrix detectors do not run at all.
+     */
     public ReadOptions symbologies(Symbology... symbologies) {
         if (symbologies == null || symbologies.length == 0) {
             throw new IllegalArgumentException("symbologies must not be empty");

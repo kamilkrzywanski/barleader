@@ -22,10 +22,6 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 
 /**
  * Ordered attempts from the spec. Cheap ZXing calls run first so a clean symbol
@@ -36,7 +32,10 @@ final class Scan {
     private final Set<Symbology> symbologies;
     private final HitCollector hits = new HitCollector();
     private final RegionLocalizer localizer = new RegionLocalizer();
-    private final long deadlineNanos;
+    private final Fanout fanout;
+    private final long startNanos;
+    /** {@code Long.MAX_VALUE} when the read has no time budget. */
+    private final long budgetNanos;
     private int attempts;
     /** Crops from the band search, reused by the late unsharp that sits in the gaussian slot. */
     private List<LinearBand.Crop> bandCrops = List.of();
@@ -54,10 +53,13 @@ final class Scan {
      */
     private static final long BAND_EXTRA_PIXELS = 1_000_000L;
 
-    Scan(ReadOptions options) {
+    Scan(ReadOptions options, Fanout fanout) {
         this.options = options;
         this.symbologies = options.symbologies();
-        this.deadlineNanos = System.nanoTime() + options.timeBudgetMillis() * 1_000_000L;
+        this.fanout = fanout;
+        this.startNanos = System.nanoTime();
+        long millis = options.timeBudgetMillis();
+        this.budgetNanos = millis >= Long.MAX_VALUE / 1_000_000L ? Long.MAX_VALUE : millis * 1_000_000L;
     }
 
     List<BarcodeHit> run(BufferedImage image) {
@@ -230,7 +232,7 @@ final class Scan {
         }
         boolean extra = gray.width * (long) gray.height <= BAND_EXTRA_PIXELS;
         int index = 0;
-        List<LinearBand.Crop> crops = LinearBand.find(gray);
+        List<LinearBand.Crop> crops = LinearBand.find(gray, fanout);
         bandCrops = crops;
         for (LinearBand.Crop crop : crops) {
             if (stop()) {
@@ -1423,42 +1425,17 @@ final class Scan {
      * Runs every job, then counts results in submission order. A hit, the attempt cap,
      * or the deadline discards the jobs that follow, including ones already running.
      */
+    /**
+     * Independent attempts, accepted in list order. A hit, the attempt cap or the deadline stops
+     * the rest from being accepted. An attempt that could not run (too small an image) is not counted.
+     */
     private void runAttempts(List<Callable<List<BarcodeHit>>> jobs) {
-        if (jobs.isEmpty()) {
-            return;
-        }
-        List<Future<List<BarcodeHit>>> futures = new ArrayList<>(jobs.size());
-        for (Callable<List<BarcodeHit>> job : jobs) {
-            futures.add(AttemptPool.EXECUTOR.submit(job));
-        }
-        try {
-            for (Future<List<BarcodeHit>> future : futures) {
-                if (stop()) {
-                    break;
-                }
-                List<BarcodeHit> found = future.get();
-                if (found == null) {
-                    continue;
-                }
+        fanout.inOrder(jobs, this::stop, found -> {
+            if (found != null) {
                 attempts++;
                 accept(found);
             }
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-        } catch (ExecutionException exception) {
-            Throwable cause = exception.getCause() == null ? exception : exception.getCause();
-            if (cause instanceof RuntimeException runtime) {
-                throw runtime;
-            }
-            if (cause instanceof Error error) {
-                throw error;
-            }
-            throw new IllegalStateException(cause);
-        } finally {
-            for (Future<List<BarcodeHit>> future : futures) {
-                future.cancel(false);
-            }
-        }
+        });
     }
 
     private void tryOriginal(LuminanceSource source, boolean global, String attempt, double confidence, boolean multi) {
@@ -1529,22 +1506,6 @@ final class Scan {
         if (attempts >= options.maxAttempts()) {
             return true;
         }
-        return System.nanoTime() >= deadlineNanos;
-    }
-
-    /**
-     * Not the common pool: a caller that already parallelizes frames must not deadlock
-     * on a nested join. Daemon threads so the pool does not keep the JVM up.
-     * Separate from the linear-band pool, because a band search can run while a
-     * cancelled attempt is still finishing.
-     */
-    private static final class AttemptPool {
-        static final ExecutorService EXECUTOR = Executors.newFixedThreadPool(
-                Math.max(1, Runtime.getRuntime().availableProcessors() - 1),
-                runnable -> {
-                    Thread thread = new Thread(runnable, "scan-attempt");
-                    thread.setDaemon(true);
-                    return thread;
-                });
+        return budgetNanos != Long.MAX_VALUE && System.nanoTime() - startNanos >= budgetNanos;
     }
 }

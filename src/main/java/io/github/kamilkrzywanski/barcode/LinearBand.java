@@ -9,11 +9,6 @@ import io.github.kamilkrzywanski.barcode.image.Transformed;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 
 /**
  * Aggressive-only locator for one linear symbol that is not horizontal in the frame.
@@ -33,7 +28,7 @@ final class LinearBand {
     private LinearBand() {
     }
 
-    static List<Crop> find(GrayU8 gray) {
+    static List<Crop> find(GrayU8 gray, Fanout fanout) {
         int factor = Math.max(1, Math.max(gray.width, gray.height) / 420);
         if (gray.width / factor < 1 || gray.height / factor < 1) {
             return List.of();
@@ -62,7 +57,7 @@ final class LinearBand {
                 pitchBands[index] = top(runs, true);
             });
         }
-        runAll(tasks);
+        fanout.runAll(tasks);
         double[] angles = new double[64];
         int[] densityScores = new int[64];
         int[] pitchScores = new int[64];
@@ -83,8 +78,8 @@ final class LinearBand {
         }
         int winner = indexOfMax(densityScores, count);
         int pitchWinner = indexOfMax(pitchScores, count);
-        double bestAngle = refine(view, angles[winner], false);
-        double pitchAngle = refine(view, angles[pitchWinner], true);
+        double bestAngle = refine(view, angles[winner], false, fanout);
+        double pitchAngle = refine(view, angles[pitchWinner], true, fanout);
         int second = -1;
         for (int i = 0; i < count; i++) {
             if (densityScores[i] < 0 || angleDistance(angles[i], bestAngle) < 12.0) {
@@ -168,7 +163,7 @@ final class LinearBand {
         return winner;
     }
 
-    private static double refine(GrayU8 view, double angle, boolean pitch) {
+    private static double refine(GrayU8 view, double angle, boolean pitch, Fanout fanout) {
         int rounded = (int) Math.round(angle);
         int offsets = 9;
         int[] scores = new int[offsets];
@@ -182,7 +177,7 @@ final class LinearBand {
                 scores[index] = band == null ? -1 : active(band, pitch);
             });
         }
-        runAll(tasks);
+        fanout.runAll(tasks);
         // A complete miss keeps the unrounded angle. A tie keeps the lower offset.
         double bestAngle = angle;
         int bestScore = -1;
@@ -193,34 +188,6 @@ final class LinearBand {
             }
         }
         return bestAngle;
-    }
-
-    private static void runAll(List<Runnable> tasks) {
-        List<Callable<Void>> callables = new ArrayList<>(tasks.size());
-        for (Runnable task : tasks) {
-            callables.add(() -> {
-                task.run();
-                return null;
-            });
-        }
-        try {
-            List<Future<Void>> futures = AnglePool.EXECUTOR.invokeAll(callables);
-            for (Future<Void> future : futures) {
-                future.get();
-            }
-        } catch (InterruptedException exception) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("linear band search interrupted", exception);
-        } catch (ExecutionException exception) {
-            Throwable cause = exception.getCause() == null ? exception : exception.getCause();
-            if (cause instanceof RuntimeException runtime) {
-                throw runtime;
-            }
-            if (cause instanceof Error error) {
-                throw error;
-            }
-            throw new IllegalStateException(cause);
-        }
     }
 
     private static int active(Band band, boolean pitch) {
@@ -741,23 +708,6 @@ final class LinearBand {
 
         int degrees() {
             return degrees;
-        }
-    }
-
-    /**
-     * Not the common pool: a caller that already parallelizes frames must not deadlock
-     * on a nested join. Daemon threads so the pool does not keep the JVM up.
-     */
-    private static final class AnglePool {
-        static final ExecutorService EXECUTOR = Executors.newFixedThreadPool(
-                Math.max(1, Runtime.getRuntime().availableProcessors() - 1),
-                runnable -> {
-                    Thread thread = new Thread(runnable, "linear-band-angle");
-                    thread.setDaemon(true);
-                    return thread;
-                });
-
-        private AnglePool() {
         }
     }
 

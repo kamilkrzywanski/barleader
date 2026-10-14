@@ -61,6 +61,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 @Tag("artelab")
 @Timeout(value = 180, unit = TimeUnit.SECONDS)
 class ArteLabRegressionTest {
+    /**
+     * No time budget: only the attempt budget stops a read, so a slow or busy runner gets the
+     * same text as the machine the frames were pinned on.
+     */
+    private static final ReadOptions FAST = ReadOptions.fast().timeBudgetMillis(Long.MAX_VALUE);
+    private static final ReadOptions AGGRESSIVE = ReadOptions.aggressive().timeBudgetMillis(Long.MAX_VALUE);
+
     private final BarcodeReader reader = new BarcodeReader();
 
     @ParameterizedTest
@@ -127,7 +134,7 @@ class ArteLabRegressionTest {
     })
     void aggressiveReadsTheLabeledGtin(String relative, String gtin) throws IOException {
         assertEquals(gtin, ArteLabScoring.labelDigits(path(relative)), relative);
-        List<BarcodeHit> hits = reader.read(load(relative), ReadOptions.aggressive());
+        List<BarcodeHit> hits = reader.read(load(relative), AGGRESSIVE);
         assertEquals(1, hits.size(), relative + " " + detail(hits));
         assertEquals(Symbology.EAN_13, hits.get(0).symbology(), relative + " " + detail(hits));
         assertEquals(gtin, hits.get(0).text(), relative + " " + detail(hits));
@@ -152,7 +159,7 @@ class ArteLabRegressionTest {
     })
     void aggressiveReadsTheLabeledUpca(String relative, String upca) throws IOException {
         assertEquals("0051122414831", ArteLabScoring.labelDigits(path(relative)), relative);
-        List<BarcodeHit> hits = reader.read(load(relative), ReadOptions.aggressive());
+        List<BarcodeHit> hits = reader.read(load(relative), AGGRESSIVE);
         assertEquals(1, hits.size(), relative + " " + detail(hits));
         assertEquals(Symbology.UPC_A, hits.get(0).symbology(), relative + " " + detail(hits));
         assertEquals(upca, hits.get(0).text(), relative + " " + detail(hits));
@@ -165,7 +172,7 @@ class ArteLabRegressionTest {
     })
     void emptyLabelKeepsThePrintedGtin(String relative, String gtin) throws IOException {
         assertEquals("", ArteLabScoring.labelDigits(path(relative)), relative);
-        List<BarcodeHit> hits = reader.read(load(relative), ReadOptions.aggressive());
+        List<BarcodeHit> hits = reader.read(load(relative), AGGRESSIVE);
         assertEquals(1, hits.size(), relative + " " + detail(hits));
         assertEquals(Symbology.EAN_13, hits.get(0).symbology(), relative + " " + detail(hits));
         assertEquals(gtin, hits.get(0).text(), relative + " " + detail(hits));
@@ -175,7 +182,7 @@ class ArteLabRegressionTest {
     @CsvSource("Dataset2/Foto(542).jpg,8002205319804")
     void fastKeepsFoto542(String relative, String gtin) throws IOException {
         assertEquals(gtin, ArteLabScoring.labelDigits(path(relative)), relative);
-        List<BarcodeHit> hits = reader.read(load(relative), ReadOptions.fast());
+        List<BarcodeHit> hits = reader.read(load(relative), FAST);
         assertEquals(1, hits.size(), relative + " " + detail(hits));
         assertEquals(Symbology.EAN_13, hits.get(0).symbology(), relative + " " + detail(hits));
         assertEquals(gtin, hits.get(0).text(), relative + " " + detail(hits));
