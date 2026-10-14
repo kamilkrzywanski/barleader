@@ -14,8 +14,8 @@ import java.util.Map;
  * is also read reversed: a stacked symbol may mirror even rows, and the reference reader does
  * the same before it asks this decoder. The non-stacked shortcut under {@code #if 0} is not
  * ported. The text is the GS1 element string from {@link DataBarExpandedDecoder}. Parentheses,
- * the {@code ]e0} identifier, and symbol position are not added. DataBar Expanded is not a
- * {@code Symbology}, and this reader is not called from the scan ladder.
+ * the {@code ]e0} identifier, and symbol position are not added. The scan ladder calls it for
+ * {@link io.github.kamilkrzywanski.barcode.Symbology#DATABAR_EXPANDED}.
  */
 final class DataBarExpandedReader {
     private static final int FULL = 8 + 5 + 8;

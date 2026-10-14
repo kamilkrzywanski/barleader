@@ -15,8 +15,9 @@ import java.util.List;
  * {@code tryHarder}. {@link #decodeLimited} is the single-row DataBar Limited reader.
  * The returned text is the element string {@code 01} plus a GTIN-14. Parentheses,
  * the {@code ]e0} identifier, and symbol position are not added. A GS1 Composite linkage flag is
- * removed from the value. Stacked and omnidirectional symbols share this text. This decoder is
- * not called from the scan ladder, and DataBar is not a {@code Symbology}.
+ * removed from the value. Stacked and omnidirectional symbols share this text. The scan ladder
+ * calls {@link #decode} for {@link io.github.kamilkrzywanski.barcode.Symbology#DATABAR} and
+ * {@link #decodeLimited} for {@link io.github.kamilkrzywanski.barcode.Symbology#DATABAR_LIMITED}.
  */
 final class DataBarDecoder {
     private static final int FULL = 8 + 5 + 8;

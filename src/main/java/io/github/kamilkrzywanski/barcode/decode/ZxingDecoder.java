@@ -28,10 +28,10 @@ import java.util.function.Supplier;
  * {@link io.github.kamilkrzywanski.barcode.locate.dm.MatrixReader} from this attempt's own black matrix,
  * including that matrix inverted. Code 128 is read by {@link Code128Scanner},
  * Code 39 by {@link Code39Scanner}, Code 93 by {@link Code93Scanner}, ITF by {@link ItfScanner},
- * Codabar by {@link CodabarScanner}, PDF417 by {@link Pdf417ScanningDecoder}, and EAN/UPC by
- * {@link UpcEanScanner}. ZXing only binarizes. A linear hit must repeat on a parallel strip.
- * Matrix hits do not. Angled bars can checksum as a short UPC-E on a single row, and that
- * row is not a barcode.
+ * Codabar by {@link CodabarScanner}, PDF417 by {@link Pdf417ScanningDecoder}, EAN/UPC by
+ * {@link UpcEanScanner}, and DataBar by {@link DataBarDecoder} and {@link DataBarExpandedReader}.
+ * ZXing only binarizes. A linear hit must repeat on a parallel strip. Matrix hits do not. Angled
+ * bars can checksum as a short UPC-E on a single row, and that row is not a barcode.
  */
 public final class ZxingDecoder {
     private static final double MIN_LINEAR_SPAN_SQ = 30.0 * 30.0;
@@ -85,7 +85,8 @@ public final class ZxingDecoder {
                 () -> code93Hits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies),
                 () -> code128Hits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies),
                 () -> itfHits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies),
-                () -> codabarHits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies)
+                () -> codabarHits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies),
+                () -> dataBarHits(owned, attempt, rotationDegrees, confidence, symbologies)
         );
         // Without findAll one attempt returns one symbol, so the readers after the first hit do not run.
         if (!findAll) {
@@ -130,7 +131,8 @@ public final class ZxingDecoder {
     }
 
     private static boolean wantsOwned(Set<Symbology> symbologies) {
-        return symbologies.contains(Symbology.CODE_128)
+        return wantsDataBar(symbologies)
+                || symbologies.contains(Symbology.CODE_128)
                 || symbologies.contains(Symbology.CODE_39)
                 || symbologies.contains(Symbology.CODE_93)
                 || symbologies.contains(Symbology.ITF)
@@ -168,12 +170,7 @@ public final class ZxingDecoder {
         } catch (ReaderException ignored) {
             return List.of();
         }
-        boolean[][] bits = new boolean[matrix.getHeight()][matrix.getWidth()];
-        for (int y = 0; y < matrix.getHeight(); y++) {
-            for (int x = 0; x < matrix.getWidth(); x++) {
-                bits[y][x] = matrix.get(x, y);
-            }
-        }
+        boolean[][] bits = rows(matrix);
         List<BarcodeHit> hits = new ArrayList<>();
         for (Pdf417ScanningDecoder.Found found : Pdf417ScanningDecoder.read(bits, findAll)) {
             if (found.text() == null || found.text().isBlank()) {
@@ -409,6 +406,85 @@ public final class ZxingDecoder {
      * Start and stop letters stay in the text. Codabar is absent from the default set.
      * A hit has to repeat on a parallel strip decoded again with the global histogram.
      */
+    private static boolean wantsDataBar(Set<Symbology> symbologies) {
+        return symbologies.contains(Symbology.DATABAR)
+                || symbologies.contains(Symbology.DATABAR_LIMITED)
+                || symbologies.contains(Symbology.DATABAR_EXPANDED);
+    }
+
+    /**
+     * DataBar from every row of this attempt's black matrix. DataBar and DataBar Expanded only
+     * accept a symbol whose pairs were seen on more than one row and whose checksum holds, which
+     * is the confirmation the other linear readers get from a parallel strip. DataBar Limited is
+     * one row with a checksum. The readers return no position, so the hit has no corners.
+     */
+    private static List<BarcodeHit> dataBarHits(
+            BinaryBitmap image,
+            String attempt,
+            int rotationDegrees,
+            double confidence,
+            Set<Symbology> symbologies
+    ) {
+        if (!wantsDataBar(symbologies)) {
+            return List.of();
+        }
+        BitMatrix matrix;
+        try {
+            matrix = image.getBlackMatrix();
+        } catch (ReaderException ignored) {
+            return List.of();
+        }
+        boolean[][] rows = rows(matrix);
+        List<BarcodeHit> hits = new ArrayList<>(1);
+        int orientation = linearOrientation(false, rotationDegrees);
+        if (symbologies.contains(Symbology.DATABAR)) {
+            addDataBar(hits, DataBarDecoder.decode(rows), Symbology.DATABAR, orientation, confidence, attempt);
+        }
+        if (symbologies.contains(Symbology.DATABAR_EXPANDED)) {
+            addDataBar(hits, DataBarExpandedReader.decode(rows), Symbology.DATABAR_EXPANDED, orientation, confidence, attempt);
+        }
+        if (symbologies.contains(Symbology.DATABAR_LIMITED)) {
+            for (boolean[] row : rows) {
+                String text = DataBarDecoder.decodeLimited(row);
+                if (text != null) {
+                    addDataBar(hits, text, Symbology.DATABAR_LIMITED, orientation, confidence, attempt);
+                    break;
+                }
+            }
+        }
+        return hits;
+    }
+
+    private static void addDataBar(
+            List<BarcodeHit> hits, String text, Symbology symbology, int orientation, double confidence, String attempt) {
+        if (text != null && !text.isBlank()) {
+            hits.add(new BarcodeHit(text, symbology, List.of(), orientation, confidence, attempt));
+        }
+    }
+
+    /** The black matrix as rows of modules, unpacked 32 at a time. */
+    private static boolean[][] rows(BitMatrix matrix) {
+        int width = matrix.getWidth();
+        int height = matrix.getHeight();
+        boolean[][] rows = new boolean[height][width];
+        BitArray row = new BitArray(width);
+        for (int y = 0; y < height; y++) {
+            int[] words = matrix.getRow(y, row).getBitArray();
+            boolean[] out = rows[y];
+            for (int word = 0, x0 = 0; x0 < width; word++, x0 += 32) {
+                int value = words[word];
+                if (value == 0) {
+                    continue;
+                }
+                int end = Math.min(32, width - x0);
+                for (int bit = 0; bit < end; bit++) {
+                    out[x0 + bit] = (value & (1 << bit)) != 0;
+                }
+            }
+        }
+        return rows;
+    }
+
     private static List<BarcodeHit> codabarHits(
             LuminanceSource source,
             BinaryBitmap image,
