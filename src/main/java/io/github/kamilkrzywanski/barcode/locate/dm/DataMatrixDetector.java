@@ -2,6 +2,7 @@ package io.github.kamilkrzywanski.barcode.locate.dm;
 
 import io.github.kamilkrzywanski.barcode.image.GrayU8;
 import io.github.kamilkrzywanski.barcode.ImagePoint;
+import io.github.kamilkrzywanski.barcode.decode.Decoded;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Bits;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Line;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.P;
@@ -33,7 +34,7 @@ public final class DataMatrixDetector {
     }
 
     /** One decoded symbol. Corners are TL, TR, BR, BL in the gray image. */
-    public record Found(String text, List<ImagePoint> corners, int orientationDegrees) {
+    public record Found(String text, byte[] bytes, List<ImagePoint> corners, int orientationDegrees) {
     }
 
     /**
@@ -79,8 +80,8 @@ public final class DataMatrixDetector {
     }
 
     private static Found decode(Grid grid) {
-        String text = DmDecoder.decode(grid.bits);
-        if (text == null) {
+        Decoded decoded = DmDecoder.decodeContent(grid.bits);
+        if (decoded == null) {
             return null;
         }
         List<ImagePoint> corners = new ArrayList<>(4);
@@ -90,7 +91,7 @@ public final class DataMatrixDetector {
             }
             corners.add(new ImagePoint(corner.x, corner.y));
         }
-        return new Found(text, List.copyOf(corners), orientation(grid.corners[0], grid.corners[1]));
+        return new Found(decoded.text(), decoded.bytes(), List.copyOf(corners), orientation(grid.corners[0], grid.corners[1]));
     }
 
     private static int orientation(P a, P b) {

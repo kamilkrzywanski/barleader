@@ -2,6 +2,7 @@ package io.github.kamilkrzywanski.barcode.cli;
 
 import io.github.kamilkrzywanski.barcode.BarcodeHit;
 import io.github.kamilkrzywanski.barcode.BarcodeReader;
+import io.github.kamilkrzywanski.barcode.EanAddOn;
 import io.github.kamilkrzywanski.barcode.ImagePoint;
 import io.github.kamilkrzywanski.barcode.ReadOptions;
 import io.github.kamilkrzywanski.barcode.Symbology;
@@ -26,10 +27,12 @@ import java.util.Locale;
  *   --aggressive        the full ladder: small-angle rotations, band search, thresholds
  *   --all               every symbol, not only the first
  *   --formats=A,B,...   only these symbologies, for example QR_CODE,EAN_13
+ *   --addon=read        also read EAN/UPC supplements; --addon=require keeps only symbols with one
  *   --json              one JSON object per symbol
  * </pre>
  *
- * <p>Plain output is tab-separated: file, symbology, text, attempt, orientation and corners.
+ * <p>Plain output is tab-separated: file, symbology, text, attempt, orientation, corners, and the
+ * EAN/UPC supplement or {@code -}.
  * Tabs, line breaks and backslashes in the text are escaped as {@code \t}, {@code \n},
  * {@code \r} and {@code \\}. The exit code is 0 when every image had a symbol, 1 when one
  * had none, and 2 for wrong usage or an unreadable file.
@@ -47,6 +50,7 @@ public final class Main {
         boolean findAll = false;
         boolean json = false;
         EnumSet<Symbology> formats = null;
+        EanAddOn addOn = EanAddOn.IGNORE;
         List<Path> files = new ArrayList<>();
         for (String arg : args) {
             if (arg.equals("-h") || arg.equals("--help")) {
@@ -58,6 +62,13 @@ public final class Main {
                 findAll = true;
             } else if (arg.equals("--json")) {
                 json = true;
+            } else if (arg.startsWith("--addon=")) {
+                try {
+                    addOn = EanAddOn.valueOf(arg.substring("--addon=".length()).toUpperCase(Locale.ROOT));
+                } catch (IllegalArgumentException unknown) {
+                    err.println("Unknown add-on mode: " + arg + ". Known: ignore, read, require");
+                    return 2;
+                }
             } else if (arg.startsWith("--formats=")) {
                 formats = EnumSet.noneOf(Symbology.class);
                 for (String name : arg.substring("--formats=".length()).split(",")) {
@@ -81,7 +92,7 @@ public final class Main {
             return 2;
         }
         ReadOptions options = aggressive ? ReadOptions.aggressive() : ReadOptions.fast();
-        options = options.findAll(findAll);
+        options = options.findAll(findAll).eanAddOn(addOn);
         if (formats != null && !formats.isEmpty()) {
             options = options.symbologies(formats);
         }
@@ -114,7 +125,8 @@ public final class Main {
     }
 
     private static void usage(PrintStream stream) {
-        stream.println("Usage: java -jar barcode-pro.jar [--aggressive] [--all] [--formats=QR_CODE,EAN_13,...] [--json] image...");
+        stream.println("Usage: java -jar barcode-pro.jar [--aggressive] [--all] [--formats=QR_CODE,EAN_13,...]"
+                + " [--addon=read|require] [--json] image...");
     }
 
     private static String tsv(Path file, BarcodeHit hit) {
@@ -123,7 +135,8 @@ public final class Main {
                 + "\t" + escape(hit.text())
                 + "\t" + hit.attempt()
                 + "\t" + hit.orientationDegrees()
-                + "\t" + corners(hit.corners());
+                + "\t" + corners(hit.corners())
+                + "\t" + (hit.addOn().isEmpty() ? "-" : hit.addOn());
     }
 
     private static String json(Path file, BarcodeHit hit) {
@@ -138,6 +151,7 @@ public final class Main {
         return "{\"file\":" + quote(file.toString())
                 + ",\"symbology\":" + quote(hit.symbology().name())
                 + ",\"text\":" + quote(hit.text())
+                + (hit.addOn().isEmpty() ? "" : ",\"addOn\":" + quote(hit.addOn()))
                 + ",\"attempt\":" + quote(hit.attempt())
                 + ",\"orientation\":" + hit.orientationDegrees()
                 + ",\"corners\":" + corners

@@ -3,6 +3,7 @@ package io.github.kamilkrzywanski.barcode.decode;
 import com.google.zxing.BinaryBitmap;
 import com.google.zxing.NotFoundException;
 import com.google.zxing.common.BitArray;
+import io.github.kamilkrzywanski.barcode.EanAddOn;
 import io.github.kamilkrzywanski.barcode.Symbology;
 import io.github.kamilkrzywanski.barcode.decode.UpcEanDecoder.Kind;
 import io.github.kamilkrzywanski.barcode.decode.UpcEanDecoder.Span;
@@ -19,17 +20,22 @@ import java.util.Set;
  */
 final class UpcEanScanner {
     /** One retail symbol. {@code left} and {@code right} are inclusive columns on {@code row}. */
-    record Found(Symbology symbology, String text, int left, int right, int row, boolean upsideDown) {
+    record Found(Symbology symbology, String text, int left, int right, int row, boolean upsideDown, String addOn) {
     }
 
     private UpcEanScanner() {
     }
 
     static Found read(BinaryBitmap image, Set<Symbology> symbologies) {
+        return read(image, symbologies, EanAddOn.IGNORE);
+    }
+
+    /** {@link #read(BinaryBitmap, Set)} with a supplement read, or required, as {@code addOn} says. */
+    static Found read(BinaryBitmap image, Set<Symbology> symbologies, EanAddOn addOn) {
         if (image == null || image.getWidth() < 2 || image.getHeight() < 2 || !wanted(symbologies)) {
             return null;
         }
-        return scan(image, symbologies);
+        return scan(image, symbologies, addOn);
     }
 
     private static boolean wanted(Set<Symbology> symbologies) {
@@ -65,7 +71,9 @@ final class UpcEanScanner {
             } catch (NotFoundException ignored) {
                 continue;
             }
-            for (Found again : new Found[]{decode(row, y, false, symbologies), decode(reversed(row), y, true, symbologies)}) {
+            for (Found again : new Found[]{
+                    decode(row, y, false, symbologies, EanAddOn.IGNORE),
+                    decode(reversed(row), y, true, symbologies, EanAddOn.IGNORE)}) {
                 if (again != null && again.symbology() == found.symbology() && again.text().equals(found.text())) {
                     return true;
                 }
@@ -74,7 +82,7 @@ final class UpcEanScanner {
         return false;
     }
 
-    private static Found scan(BinaryBitmap image, Set<Symbology> symbologies) {
+    private static Found scan(BinaryBitmap image, Set<Symbology> symbologies, EanAddOn addOn) {
         int width = image.getWidth();
         int height = image.getHeight();
         int rowStep = Math.max(1, height >> 8);
@@ -92,21 +100,52 @@ final class UpcEanScanner {
             } catch (NotFoundException ignored) {
                 continue;
             }
-            Found forward = decode(row, y, false, symbologies);
+            Found forward = decode(row, y, false, symbologies, addOn);
             if (forward != null) {
-                return forward;
+                return withSupplement(image, symbologies, addOn, forward);
             }
-            Found reversed = decode(reversed(row), y, true, symbologies);
+            Found reversed = decode(reversed(row), y, true, symbologies, addOn);
             if (reversed != null) {
-                return reversed;
+                return withSupplement(image, symbologies, addOn, reversed);
             }
         }
         return null;
     }
 
-    private static Found decode(BitArray row, int y, boolean upsideDown, Set<Symbology> symbologies) {
+    /**
+     * In {@link EanAddOn#READ} the first row may run under a short supplement. Another row with
+     * the same symbol and a supplement is then preferred, the way zxing-cpp keeps the result that
+     * more of its lines agree on.
+     */
+    private static Found withSupplement(BinaryBitmap image, Set<Symbology> symbologies, EanAddOn addOn, Found found) {
+        if (addOn != EanAddOn.READ || !found.addOn().isEmpty()) {
+            return found;
+        }
+        int height = image.getHeight();
+        BitArray row = new BitArray(image.getWidth());
+        for (int y = 0; y < height; y++) {
+            if (y == found.row()) {
+                continue;
+            }
+            try {
+                row = image.getBlackRow(y, row);
+            } catch (NotFoundException ignored) {
+                continue;
+            }
+            for (Found again : new Found[]{
+                    decode(row, y, false, symbologies, EanAddOn.REQUIRE),
+                    decode(reversed(row), y, true, symbologies, EanAddOn.REQUIRE)}) {
+                if (again != null && again.symbology() == found.symbology() && again.text().equals(found.text())) {
+                    return again;
+                }
+            }
+        }
+        return found;
+    }
+
+    private static Found decode(BitArray row, int y, boolean upsideDown, Set<Symbology> symbologies, EanAddOn addOn) {
         boolean[] black = bits(row);
-        Span span = UpcEanDecoder.decodeSpan(black);
+        Span span = UpcEanDecoder.decodeSpan(black, addOn != EanAddOn.IGNORE, addOn == EanAddOn.REQUIRE);
         if (span == null) {
             return null;
         }
@@ -143,7 +182,7 @@ final class UpcEanScanner {
         if (right < left || text.isBlank()) {
             return null;
         }
-        return new Found(symbology, text, left, right, y, upsideDown);
+        return new Found(symbology, text, left, right, y, upsideDown, span.addOn());
     }
 
     private static boolean[] bits(BitArray row) {

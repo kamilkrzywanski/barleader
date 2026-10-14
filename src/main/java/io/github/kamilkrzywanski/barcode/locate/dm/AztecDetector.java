@@ -5,6 +5,7 @@ import com.google.zxing.common.reedsolomon.GenericGF;
 import com.google.zxing.common.reedsolomon.ReedSolomonDecoder;
 import com.google.zxing.common.reedsolomon.ReedSolomonException;
 import io.github.kamilkrzywanski.barcode.ImagePoint;
+import io.github.kamilkrzywanski.barcode.decode.Decoded;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Bits;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.P;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Warp;
@@ -13,6 +14,7 @@ import io.github.kamilkrzywanski.barcode.locate.dm.QrCursor.FastEdge;
 import io.github.kamilkrzywanski.barcode.locate.dm.QrCursor.IntCursor;
 import io.github.kamilkrzywanski.barcode.locate.dm.QrCursor.View;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -37,7 +39,7 @@ public final class AztecDetector {
     }
 
     /** One decoded symbol. Corners are TL, TR, BR, BL in the gray image. */
-    public record Found(String text, List<ImagePoint> corners, int orientationDegrees) {
+    public record Found(String text, byte[] bytes, List<ImagePoint> corners, int orientationDegrees) {
     }
 
     /**
@@ -259,10 +261,10 @@ public final class AztecDetector {
         if (grid == null) {
             return null;
         }
-        String text = mode.rune
-                ? runeText(mode.message)
-                : AztecDecoder.decode(grid.bits, mode.radius == 5, layers, dataBlocks);
-        if (text == null) {
+        Decoded decoded = mode.rune
+                ? rune(mode.message)
+                : AztecDecoder.decodeContent(grid.bits, mode.radius == 5, layers, dataBlocks);
+        if (decoded == null) {
             return null;
         }
         List<ImagePoint> corners = new ArrayList<>(4);
@@ -272,7 +274,12 @@ public final class AztecDetector {
             }
             corners.add(new ImagePoint(corner.x, corner.y));
         }
-        return new Found(text, List.copyOf(corners), orientation(grid.corners[0], grid.corners[1]));
+        return new Found(decoded.text(), decoded.bytes(), List.copyOf(corners), orientation(grid.corners[0], grid.corners[1]));
+    }
+
+    private static Decoded rune(int value) {
+        String text = runeText(value);
+        return text == null ? null : new Decoded(text, text.getBytes(StandardCharsets.US_ASCII));
     }
 
     /** Rune value, three digits, matching zxing-cpp {@code ToString(value, 3)}. */

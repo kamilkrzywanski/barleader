@@ -48,6 +48,7 @@ List<BarcodeHit> hits = reader.read(image, options);
 A clean symbol is read on the first attempt in either mode, so `aggressive()` only costs more on images that need it.
 
 - **Symbologies.** `Symbology.defaults()` is QR Code, Micro QR, Data Matrix, Aztec, PDF417, Code 128, Code 39, EAN-13, EAN-8, UPC-A and UPC-E. Code 93, ITF, Codabar, DataBar, DataBar Limited and DataBar Expanded are read when you ask for them. The DataBar readers scan every row of every attempt: on 980 images without DataBar they added no false read and about a fifth more CPU in fast mode. Fewer symbologies make a read faster: without any 2D symbology the matrix detectors do not run at all.
+- **EAN/UPC supplements.** `eanAddOn(EanAddOn.READ)` also reads the 2- or 5-digit add-on printed to the right of an EAN or UPC symbol, such as a book price; `EanAddOn.REQUIRE` returns such a symbol only together with its add-on. The default, as in zxing-cpp, is `IGNORE`.
 - **Budgets.** `maxAttempts(int)` and `timeBudgetMillis(long)`. The time budget makes the result depend on how fast and how busy the machine is. `timeBudgetMillis(Long.MAX_VALUE)` leaves only the attempt budget, and the same image then gives the same hits on every machine.
 - **Threads.** `new BarcodeReader()` runs the independent variants of one read in parallel on a shared pool of daemon threads. `new BarcodeReader(executor)` uses your executor instead; a read called from one of its threads cannot deadlock, because the calling thread also runs every variant the executor has not started. `BarcodeReader.sequential()` does everything on the calling thread and stops at the first hit, which uses the least CPU when you already read many images in parallel. All three return the same hits.
 
@@ -66,6 +67,8 @@ A clean symbol is read on the first attempt in either mode, so `aggressive()` on
 | `symbology` | One of `Symbology`. |
 | `corners` | The symbol outline in source-image pixels, also after rotation and scaling. Linear symbols give the two ends of the scan line. DataBar gives none. |
 | `orientationDegrees` | Clockwise degrees with the Y axis down, or `-1` when unknown. |
+| `bytes` | The content as the symbol stores it, before any character set is applied: for QR Code, Micro QR, Data Matrix, Aztec and PDF417 the data bytes without ECI designators, so binary payloads come back intact; for the other symbologies the characters of the text. |
+| `addOn` | The EAN/UPC supplement when `eanAddOn` asked for it and one was read, else empty. |
 | `confidence` | A heuristic in `[0, 1]` from the order of the attempt that read the symbol. It is not a calibrated probability. |
 | `attempt` | The name of that attempt, such as `original-hybrid` or `rotate--15.0`. For diagnostics only; names may change between versions. |
 
@@ -90,7 +93,7 @@ All numbers come from this repository and can be repeated with the commands in [
 | UPC-E | 20 | 20 | 20 | 20 |
 | **Total** | **464** | **337** | **457** | **458** |
 
-When they are asked for, the opt-in symbologies read all of their samples: 245 of 245 DataBar, DataBar Limited and DataBar Expanded images, 18 of 18 ITF, 15 of 15 Codabar (14 in fast) and 3 of 3 Code 93. Across all 795 images, including the three of zxing-cpp's false-positive set, one text is wrong: an Italian Code 32 pharmacode returned as its raw Code 39 text.
+When they are asked for, the opt-in symbologies read all of their samples: 245 of 245 DataBar, DataBar Limited and DataBar Expanded images, 18 of 18 ITF, 15 of 15 Codabar (14 in fast) and 3 of 3 Code 93. With `eanAddOn(EanAddOn.READ)` all 10 EAN-13 and UPC-A samples that carry a supplement come back with it. Across all 795 images, including the three of zxing-cpp's false-positive set, one text is wrong: an Italian Code 32 pharmacode returned as its raw Code 39 text.
 
 **Arte-Lab Medium Barcode 1D.** 430 phone photos of EAN-13 labels, half of them taken without autofocus ([Zamberletti et al., VISAPP 2010](https://doi.org/10.5220/0002811600050011), CC BY 3.0):
 
@@ -107,20 +110,19 @@ The aggressive ladder was tuned on these photos, so treat 378 as what the ladder
 
 ## What it does not read yet
 
-- EAN/UPC add-ons (the 2- and 5-digit supplements): the main symbol is read, the add-on is not.
 - MaxiCode, Telepen and DX film edge. Their decoders are ported and tested, but there is no photo detector for them in the ladder yet.
 - rMQR, QR Model 1, Han Xin, DotCode and Code 32 as an Italian pharmacode (it reads as its Code 39 text).
-- Raw bytes, ECI and structured-append metadata are not exposed in `BarcodeHit` yet; binary content comes back as ISO-8859-1 text.
+- ECI, structured-append and symbology-identifier metadata are not exposed in `BarcodeHit` yet.
 
 ## Command line
 
 ```bash
 mvn -DskipTests package
 java -jar target/barcode-pro.jar label.jpg
-java -jar target/barcode-pro.jar --aggressive --all --formats=QR_CODE,EAN_13 --json scans/*.png
+java -jar target/barcode-pro.jar --aggressive --all --formats=QR_CODE,EAN_13 --addon=read --json scans/*.png
 ```
 
-Plain output is one tab-separated line per symbol: file, symbology, text, attempt, orientation and corners. Tabs and line breaks in the text are escaped. `--json` prints one JSON object per symbol. The exit code is 0 when every image had a symbol, 1 when one had none, and 2 for wrong usage or an unreadable file.
+Plain output is one tab-separated line per symbol: file, symbology, text, attempt, orientation, corners and the EAN/UPC supplement (`-` when there is none). Tabs and line breaks in the text are escaped. `--json` prints one JSON object per symbol. The exit code is 0 when every image had a symbol, 1 when one had none, and 2 for wrong usage or an unreadable file.
 
 ## Building
 

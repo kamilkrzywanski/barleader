@@ -55,8 +55,9 @@ final class UpcEanDecoder {
     /**
      * One symbol. {@code text} is 13 digits for EAN-13, 8 for EAN-8, and 8 for UPC-E.
      * {@code left} and {@code right} are inclusive pixel columns of the guards.
+     * {@code addOn} is the 2- or 5-digit supplement when one was asked for and read, else empty.
      */
-    record Span(Kind kind, String text, int left, int right) {
+    record Span(Kind kind, String text, int left, int right, String addOn) {
     }
 
     /** {@code true} is black. Returns the digit string, or null. Add-on digits are ignored. */
@@ -80,6 +81,14 @@ final class UpcEanDecoder {
 
     /** Same symbol as {@link #decode(boolean[])}, with guard columns and the unexpanded UPC-E text. */
     static Span decodeSpan(boolean[] black) {
+        return decodeSpan(black, false, false);
+    }
+
+    /**
+     * {@link #decodeSpan(boolean[])} that also reads the supplement when {@code addOn} is set,
+     * and returns null without one when {@code require} is set.
+     */
+    static Span decodeSpan(boolean[] black, boolean addOn, boolean require) {
         Raw raw = read(black);
         if (raw == null) {
             return null;
@@ -89,7 +98,11 @@ final class UpcEanDecoder {
         if (right < left) {
             return null;
         }
-        return new Span(raw.kind, raw.digits, left, right);
+        String extra = addOn ? readAddOn(raw.begin, raw.end) : null;
+        if (require && extra == null) {
+            return null;
+        }
+        return new Span(raw.kind, raw.digits, left, right, extra == null ? "" : extra);
     }
 
     private record Raw(Kind kind, String digits, View begin, View end) {

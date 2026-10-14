@@ -340,6 +340,12 @@ final class Pdf417Decoder {
      * A format failure returns null. The ambiguous-value search lives in the photo scanner.
      */
     static String decodeCodewords(int[] codewords, int numEc, int[] erasures) throws ChecksumException {
+        Decoded decoded = decodeCodewordsContent(codewords, numEc, erasures);
+        return decoded == null ? null : decoded.text();
+    }
+
+    /** {@link #decodeCodewords} with the content bytes. */
+    static Decoded decodeCodewordsContent(int[] codewords, int numEc, int[] erasures) throws ChecksumException {
         if (codewords.length == 0) {
             return null;
         }
@@ -348,7 +354,9 @@ final class Pdf417Decoder {
             return null;
         }
         try {
-            return new Parser(codewords).decode();
+            Parser parser = new Parser(codewords);
+            String text = parser.decode();
+            return text == null ? null : new Decoded(text, parser.text.raw());
         } catch (Format failed) {
             return null;
         }
@@ -828,6 +836,14 @@ final class Pdf417Decoder {
 
         void push(int value) {
             bytes.add(value & 0xFF);
+        }
+
+        byte[] raw() {
+            byte[] raw = new byte[bytes.size()];
+            for (int i = 0; i < raw.length; i++) {
+                raw[i] = (byte) (int) bytes.get(i);
+            }
+            return raw;
         }
 
         void append(String value) {

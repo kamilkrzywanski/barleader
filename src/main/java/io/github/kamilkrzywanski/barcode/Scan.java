@@ -863,7 +863,9 @@ final class Scan {
      * replace a guarded payload if it ran first.
      */
     private void correlateRemaining() {
-        if (stop() || (!symbologies.contains(Symbology.EAN_13) && !symbologies.contains(Symbology.UPC_A))) {
+        // The correlator reads the thirteen digits only, never a supplement.
+        if (stop() || options.eanAddOn() == EanAddOn.REQUIRE
+                || (!symbologies.contains(Symbology.EAN_13) && !symbologies.contains(Symbology.UPC_A))) {
             return;
         }
         boolean wide = false;
@@ -1304,7 +1306,9 @@ final class Scan {
                     corners,
                     hit.orientationDegrees(),
                     0.85,
-                    "qr-trace"
+                    "qr-trace",
+                    hit.bytes(),
+                    ""
             ));
         }
     }
@@ -1330,7 +1334,9 @@ final class Scan {
                     corners,
                     found.orientationDegrees(),
                     0.85,
-                    "mqr-trace"
+                    "mqr-trace",
+                    found.bytes(),
+                    ""
             ));
         }
     }
@@ -1356,7 +1362,9 @@ final class Scan {
                     corners,
                     found.orientationDegrees(),
                     0.85,
-                    "aztec-trace"
+                    "aztec-trace",
+                    found.bytes(),
+                    ""
             ));
         }
     }
@@ -1382,7 +1390,9 @@ final class Scan {
                     corners,
                     found.orientationDegrees(),
                     0.85,
-                    "dm-trace"
+                    "dm-trace",
+                    found.bytes(),
+                    ""
             ));
         }
     }
@@ -1451,7 +1461,7 @@ final class Scan {
         if (formats.isEmpty()) {
             return List.of();
         }
-        return ZxingDecoder.read(image, toSource, attempt, degrees, confidence, formats, globalBinarizer, multi);
+        return ZxingDecoder.read(image, toSource, attempt, degrees, confidence, formats, globalBinarizer, multi, options.eanAddOn());
     }
 
     /**
@@ -1490,7 +1500,7 @@ final class Scan {
             return;
         }
         attempts++;
-        accept(ZxingDecoder.read(source, PixelMap.IDENTITY, attempt, 0, confidence, symbologies, global, multi));
+        accept(ZxingDecoder.read(source, PixelMap.IDENTITY, attempt, 0, confidence, symbologies, global, multi, options.eanAddOn()));
     }
 
     private void tryBinary(GrayU8 binary, String attempt, boolean matrixOnly, double confidence) {
@@ -1524,7 +1534,7 @@ final class Scan {
             return;
         }
         attempts++;
-        accept(ZxingDecoder.read(image, toSource, attempt, degrees, confidence, formats, globalBinarizer, multi));
+        accept(ZxingDecoder.read(image, toSource, attempt, degrees, confidence, formats, globalBinarizer, multi, options.eanAddOn()));
     }
 
     private void accept(List<BarcodeHit> found) {

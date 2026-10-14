@@ -3,6 +3,7 @@ package io.github.kamilkrzywanski.barcode.locate.dm;
 import io.github.kamilkrzywanski.barcode.image.GrayU8;
 import com.google.zxing.qrcode.decoder.Version;
 import io.github.kamilkrzywanski.barcode.ImagePoint;
+import io.github.kamilkrzywanski.barcode.decode.Decoded;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Bits;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Line;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.P;
@@ -49,7 +50,7 @@ public final class QrDetector {
     }
 
     /** One decoded symbol. Corners are TL, TR, BR, BL in the gray image. */
-    public record Found(String text, List<ImagePoint> corners, int orientationDegrees) {
+    public record Found(String text, byte[] bytes, List<ImagePoint> corners, int orientationDegrees) {
     }
 
     /**
@@ -756,8 +757,8 @@ public final class QrDetector {
     }
 
     private static Found decode(Grid grid) {
-        String text = QrDecoder.decode(grid.bits);
-        if (text == null || text.isBlank()) {
+        Decoded decoded = QrDecoder.decodeContent(grid.bits);
+        if (decoded == null || decoded.text().isBlank()) {
             return null;
         }
         List<ImagePoint> corners = new ArrayList<>(4);
@@ -767,7 +768,7 @@ public final class QrDetector {
             }
             corners.add(new ImagePoint(corner.x, corner.y));
         }
-        return new Found(text, List.copyOf(corners), orientation(grid.corners[0], grid.corners[1]));
+        return new Found(decoded.text(), decoded.bytes(), List.copyOf(corners), orientation(grid.corners[0], grid.corners[1]));
     }
 
     private static int orientation(P a, P b) {

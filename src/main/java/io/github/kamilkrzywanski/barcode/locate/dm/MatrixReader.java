@@ -71,25 +71,25 @@ public final class MatrixReader {
         List<BarcodeHit> hits = new ArrayList<>();
         if (symbologies.contains(Symbology.QR_CODE)) {
             for (QrDetector.Found found : QrDetector.read(bits)) {
-                add(hits, found.text(), Symbology.QR_CODE, found.corners(), found.orientationDegrees(),
+                add(hits, found.text(), found.bytes(), Symbology.QR_CODE, found.corners(), found.orientationDegrees(),
                         toSource, attempt, rotationDegrees, confidence);
             }
         }
         if (symbologies.contains(Symbology.DATA_MATRIX)) {
             for (DataMatrixDetector.Found found : DataMatrixDetector.read(bits)) {
-                add(hits, found.text(), Symbology.DATA_MATRIX, found.corners(), found.orientationDegrees(),
+                add(hits, found.text(), found.bytes(), Symbology.DATA_MATRIX, found.corners(), found.orientationDegrees(),
                         toSource, attempt, rotationDegrees, confidence);
             }
         }
         if (symbologies.contains(Symbology.AZTEC)) {
             for (AztecDetector.Found found : AztecDetector.read(bits)) {
-                add(hits, found.text(), Symbology.AZTEC, found.corners(), found.orientationDegrees(),
+                add(hits, found.text(), found.bytes(), Symbology.AZTEC, found.corners(), found.orientationDegrees(),
                         toSource, attempt, rotationDegrees, confidence);
             }
         }
         if (symbologies.contains(Symbology.MICRO_QR)) {
             for (MicroQrDetector.Found found : MicroQrDetector.read(bits)) {
-                add(hits, found.text(), Symbology.MICRO_QR, found.corners(), found.orientationDegrees(),
+                add(hits, found.text(), found.bytes(), Symbology.MICRO_QR, found.corners(), found.orientationDegrees(),
                         toSource, attempt, rotationDegrees, confidence);
             }
         }
@@ -99,6 +99,7 @@ public final class MatrixReader {
     private static void add(
             List<BarcodeHit> hits,
             String text,
+            byte[] bytes,
             Symbology symbology,
             List<ImagePoint> corners,
             int orientationDegrees,
@@ -120,6 +121,6 @@ public final class MatrixReader {
         int orientation = rotationDegrees == 0
                 ? orientationDegrees
                 : Math.floorMod(orientationDegrees + rotationDegrees, 360);
-        hits.add(new BarcodeHit(text, symbology, mapped, orientation, confidence, attempt));
+        hits.add(new BarcodeHit(text, symbology, mapped, orientation, confidence, attempt, bytes, ""));
     }
 }

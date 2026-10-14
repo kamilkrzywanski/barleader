@@ -28,13 +28,15 @@ public final class ReadOptions {
     private final Set<Symbology> symbologies;
     private final int maxAttempts;
     private final long timeBudgetMillis;
+    private final EanAddOn eanAddOn;
 
     private ReadOptions(
             DecodeMode mode,
             boolean findAll,
             Collection<Symbology> symbologies,
             int maxAttempts,
-            long timeBudgetMillis
+            long timeBudgetMillis,
+            EanAddOn eanAddOn
     ) {
         if (maxAttempts < 1) {
             throw new IllegalArgumentException("maxAttempts must be >= 1");
@@ -50,10 +52,18 @@ public final class ReadOptions {
         this.symbologies = EnumSet.copyOf(symbologies);
         this.maxAttempts = maxAttempts;
         this.timeBudgetMillis = timeBudgetMillis;
+        this.eanAddOn = Objects.requireNonNull(eanAddOn, "eanAddOn");
     }
 
     public static ReadOptions fast() {
-        return new ReadOptions(DecodeMode.FAST, false, Symbology.defaults(), FAST_ATTEMPTS, FAST_BUDGET_MILLIS);
+        return new ReadOptions(
+                DecodeMode.FAST,
+                false,
+                Symbology.defaults(),
+                FAST_ATTEMPTS,
+                FAST_BUDGET_MILLIS,
+                EanAddOn.IGNORE
+        );
     }
 
     public static ReadOptions aggressive() {
@@ -62,12 +72,13 @@ public final class ReadOptions {
                 false,
                 Symbology.defaults(),
                 AGGRESSIVE_ATTEMPTS,
-                AGGRESSIVE_BUDGET_MILLIS
+                AGGRESSIVE_BUDGET_MILLIS,
+                EanAddOn.IGNORE
         );
     }
 
     public ReadOptions mode(DecodeMode mode) {
-        return new ReadOptions(mode, findAll, symbologies, maxAttempts, timeBudgetMillis);
+        return new ReadOptions(mode, findAll, symbologies, maxAttempts, timeBudgetMillis, eanAddOn);
     }
 
     /**
@@ -75,12 +86,12 @@ public final class ReadOptions {
      * it finds. This costs the whole ladder on every image.
      */
     public ReadOptions findAll(boolean findAll) {
-        return new ReadOptions(mode, findAll, symbologies, maxAttempts, timeBudgetMillis);
+        return new ReadOptions(mode, findAll, symbologies, maxAttempts, timeBudgetMillis, eanAddOn);
     }
 
     /** The most image variants one read decodes, at least 1. */
     public ReadOptions maxAttempts(int maxAttempts) {
-        return new ReadOptions(mode, findAll, symbologies, maxAttempts, timeBudgetMillis);
+        return new ReadOptions(mode, findAll, symbologies, maxAttempts, timeBudgetMillis, eanAddOn);
     }
 
     /**
@@ -88,7 +99,7 @@ public final class ReadOptions {
      * a read can end somewhat later. {@code Long.MAX_VALUE} means no time limit.
      */
     public ReadOptions timeBudgetMillis(long timeBudgetMillis) {
-        return new ReadOptions(mode, findAll, symbologies, maxAttempts, timeBudgetMillis);
+        return new ReadOptions(mode, findAll, symbologies, maxAttempts, timeBudgetMillis, eanAddOn);
     }
 
     /**
@@ -101,11 +112,16 @@ public final class ReadOptions {
         }
         EnumSet<Symbology> set = EnumSet.noneOf(Symbology.class);
         Collections.addAll(set, symbologies);
-        return new ReadOptions(mode, findAll, set, maxAttempts, timeBudgetMillis);
+        return new ReadOptions(mode, findAll, set, maxAttempts, timeBudgetMillis, eanAddOn);
     }
 
     public ReadOptions symbologies(Collection<Symbology> symbologies) {
-        return new ReadOptions(mode, findAll, symbologies, maxAttempts, timeBudgetMillis);
+        return new ReadOptions(mode, findAll, symbologies, maxAttempts, timeBudgetMillis, eanAddOn);
+    }
+
+    /** What to do with an EAN/UPC supplement. {@link EanAddOn#IGNORE} unless set. */
+    public ReadOptions eanAddOn(EanAddOn eanAddOn) {
+        return new ReadOptions(mode, findAll, symbologies, maxAttempts, timeBudgetMillis, eanAddOn);
     }
 
     public DecodeMode mode() {
@@ -126,5 +142,9 @@ public final class ReadOptions {
 
     public long timeBudgetMillis() {
         return timeBudgetMillis;
+    }
+
+    public EanAddOn eanAddOn() {
+        return eanAddOn;
     }
 }

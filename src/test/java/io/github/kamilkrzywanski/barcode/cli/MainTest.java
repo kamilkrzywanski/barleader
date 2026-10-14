@@ -40,6 +40,16 @@ class MainTest {
     }
 
     @Test
+    void printsTheSupplementWhenAskedFor() throws Exception {
+        String image = Path.of(MainTest.class.getResource("/official-rows/ean13-extension-1/1.png").toURI()).toString();
+        Run plain = run(image);
+        assertTrue(plain.out.strip().endsWith("\t-"), plain.out);
+        Run read = run("--addon=read", "--json", image);
+        assertTrue(read.out.contains("\"addOn\":\""), read.out);
+        assertEquals(2, run("--addon=maybe", image).status);
+    }
+
+    @Test
     void rejectsBadUsage() {
         assertEquals(2, run().status);
         assertEquals(2, run("--bogus", "x.png").status);

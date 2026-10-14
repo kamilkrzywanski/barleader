@@ -9,6 +9,7 @@ import com.google.zxing.common.BitMatrix;
 import com.google.zxing.common.GlobalHistogramBinarizer;
 import com.google.zxing.common.HybridBinarizer;
 import io.github.kamilkrzywanski.barcode.BarcodeHit;
+import io.github.kamilkrzywanski.barcode.EanAddOn;
 import io.github.kamilkrzywanski.barcode.ImagePoint;
 import io.github.kamilkrzywanski.barcode.Symbology;
 import io.github.kamilkrzywanski.barcode.image.GrayLuminanceSource;
@@ -55,10 +56,25 @@ public final class ZxingDecoder {
             boolean binary,
             boolean findAll
     ) {
+        return read(luma, toSource, attempt, rotationDegrees, confidence, symbologies, binary, findAll, EanAddOn.IGNORE);
+    }
+
+    /** {@link #read(GrayU8, PixelMap, String, int, double, Set, boolean, boolean)} with an EAN/UPC supplement mode. */
+    public static List<BarcodeHit> read(
+            GrayU8 luma,
+            PixelMap toSource,
+            String attempt,
+            int rotationDegrees,
+            double confidence,
+            Set<Symbology> symbologies,
+            boolean binary,
+            boolean findAll,
+            EanAddOn addOn
+    ) {
         if (luma.width < 2 || luma.height < 2) {
             return List.of();
         }
-        return read(new GrayLuminanceSource(luma), toSource, attempt, rotationDegrees, confidence, symbologies, binary, findAll);
+        return read(new GrayLuminanceSource(luma), toSource, attempt, rotationDegrees, confidence, symbologies, binary, findAll, addOn);
     }
 
     public static List<BarcodeHit> read(
@@ -71,6 +87,21 @@ public final class ZxingDecoder {
             boolean binary,
             boolean findAll
     ) {
+        return read(source, toSource, attempt, rotationDegrees, confidence, symbologies, binary, findAll, EanAddOn.IGNORE);
+    }
+
+    /** {@link #read(LuminanceSource, PixelMap, String, int, double, Set, boolean, boolean)} with an EAN/UPC supplement mode. */
+    public static List<BarcodeHit> read(
+            LuminanceSource source,
+            PixelMap toSource,
+            String attempt,
+            int rotationDegrees,
+            double confidence,
+            Set<Symbology> symbologies,
+            boolean binary,
+            boolean findAll,
+            EanAddOn addOn
+    ) {
         if ((!wantsOwned(symbologies) && !MatrixReader.wants(symbologies))
                 || source.getWidth() < 2
                 || source.getHeight() < 2) {
@@ -80,7 +111,7 @@ public final class ZxingDecoder {
         List<Supplier<List<BarcodeHit>>> byPriority = List.of(
                 () -> matrixHits(owned, toSource, attempt, rotationDegrees, confidence, symbologies, findAll),
                 () -> pdf417Hits(owned, toSource, attempt, rotationDegrees, confidence, symbologies, findAll),
-                () -> eanHits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies, binary),
+                () -> eanHits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies, binary, addOn),
                 () -> code39Hits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies),
                 () -> code93Hits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies),
                 () -> code128Hits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies),
@@ -186,7 +217,9 @@ public final class ZxingDecoder {
                     corners,
                     Math.floorMod(found.rotation() + rotationDegrees, 360),
                     confidence,
-                    attempt
+                    attempt,
+                    found.bytes(),
+                    ""
             ));
         }
         return hits;
@@ -205,12 +238,13 @@ public final class ZxingDecoder {
             int rotationDegrees,
             double confidence,
             Set<Symbology> symbologies,
-            boolean binary
+            boolean binary,
+            EanAddOn addOn
     ) {
         if (!wantsEan(symbologies)) {
             return List.of();
         }
-        UpcEanScanner.Found found = UpcEanScanner.read(image, symbologies);
+        UpcEanScanner.Found found = UpcEanScanner.read(image, symbologies, addOn);
         if (found == null || found.text() == null || found.text().isBlank()) {
             return List.of();
         }
@@ -250,7 +284,9 @@ public final class ZxingDecoder {
                 corners,
                 linearOrientation(found.upsideDown(), rotationDegrees),
                 confidence,
-                attempt
+                attempt,
+                null,
+                found.addOn()
         ));
     }
 

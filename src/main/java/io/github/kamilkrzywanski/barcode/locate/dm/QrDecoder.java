@@ -1,12 +1,13 @@
 package io.github.kamilkrzywanski.barcode.locate.dm;
 
-import java.io.ByteArrayOutputStream;
 import com.google.zxing.common.reedsolomon.GenericGF;
 import com.google.zxing.common.reedsolomon.ReedSolomonDecoder;
 import com.google.zxing.common.reedsolomon.ReedSolomonException;
+import io.github.kamilkrzywanski.barcode.decode.Decoded;
 import io.github.kamilkrzywanski.barcode.decode.TextDecoder;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Bits;
 
+import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -150,6 +151,12 @@ final class QrDecoder {
      * at the top left in the chosen rotation. Null means the grid is not a valid model-2 QR.
      */
     static String decode(Bits bits) {
+        Decoded decoded = decodeContent(bits);
+        return decoded == null ? null : decoded.text();
+    }
+
+    /** {@link #decode(Bits)} with the content bytes. */
+    static Decoded decodeContent(Bits bits) {
         if (!model2(bits)) {
             return null;
         }
@@ -166,7 +173,7 @@ final class QrDecoder {
         if (data == null) {
             return null;
         }
-        return decodeStream(data, version);
+        return decodeStreamContent(data, version);
     }
 
     private static boolean model2(Bits bits) {
@@ -457,6 +464,12 @@ final class QrDecoder {
 
     /** {@code DecodeBitStream} for one model-2 version. The text does not include the {@code ]Q} identifier. */
     static String decodeStream(byte[] data, int version) {
+        Decoded decoded = decodeStreamContent(data, version);
+        return decoded == null ? null : decoded.text();
+    }
+
+    /** {@link #decodeStream} with the content bytes. */
+    static Decoded decodeStreamContent(byte[] data, int version) {
         try {
             BitReader bits = new BitReader(data);
             Content content = new Content();
@@ -515,7 +528,7 @@ final class QrDecoder {
                 }
             }
             String text = content.render();
-            return text.isEmpty() ? null : text;
+            return text.isEmpty() ? null : new Decoded(text, content.raw());
         } catch (IllegalArgumentException truncated) {
             return null;
         }
@@ -599,6 +612,14 @@ final class QrDecoder {
 
         void appendByte(int value) {
             bytes.add(value & 0xFF);
+        }
+
+        byte[] raw() {
+            byte[] out = new byte[bytes.size()];
+            for (int i = 0; i < out.length; i++) {
+                out[i] = (byte) (int) bytes.get(i);
+            }
+            return out;
         }
 
         boolean segment(int mode, BitReader bits, int count) {

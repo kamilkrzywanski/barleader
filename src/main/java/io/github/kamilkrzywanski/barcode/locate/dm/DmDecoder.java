@@ -1,5 +1,6 @@
 package io.github.kamilkrzywanski.barcode.locate.dm;
 
+import io.github.kamilkrzywanski.barcode.decode.Decoded;
 import com.google.zxing.common.reedsolomon.GenericGF;
 import com.google.zxing.common.reedsolomon.ReedSolomonDecoder;
 import com.google.zxing.common.reedsolomon.ReedSolomonException;
@@ -95,17 +96,23 @@ final class DmDecoder {
 
     /** Decodes one sampled symbol, then the L-finder mirror. Null if neither reads. */
     static String decode(Bits bits) {
+        Decoded decoded = decodeContent(bits);
+        return decoded == null ? null : decoded.text();
+    }
+
+    /** {@link #decode(Bits)} with the content bytes. */
+    static Decoded decodeContent(Bits bits) {
         if (bits == null) {
             return null;
         }
-        String text = doDecode(bits);
-        if (text != null) {
-            return text;
+        Decoded decoded = doDecode(bits);
+        if (decoded != null) {
+            return decoded;
         }
         return doDecode(flippedL(bits));
     }
 
-    private static String doDecode(Bits bits) {
+    private static Decoded doDecode(Bits bits) {
         Version version = versionFor(bits.height, bits.width);
         if (version == null || !finderIntact(bits)) {
             return null;
@@ -141,7 +148,7 @@ final class DmDecoder {
             if (data == null) {
                 return null;
             }
-            return decodeStream(data);
+            return decodeStreamContent(data);
         }
     }
 
@@ -432,18 +439,24 @@ final class DmDecoder {
 
     /** {@code DecodedBitStreamParser::Decode}. The {@code ]d} identifier is not part of the text. */
     static String decodeStream(byte[] raw) {
+        Decoded decoded = decodeStreamContent(raw);
+        return decoded == null ? null : decoded.text();
+    }
+
+    /** {@link #decodeStream} with the content bytes. */
+    static Decoded decodeStreamContent(byte[] raw) {
         try {
-            String text = parse(raw);
-            if (text == null || text.isEmpty()) {
+            Decoded decoded = parse(raw);
+            if (decoded == null || decoded.text() == null || decoded.text().isEmpty()) {
                 return null;
             }
-            return text;
+            return decoded;
         } catch (IllegalArgumentException failed) {
             return null;
         }
     }
 
-    private static String parse(byte[] raw) {
+    private static Decoded parse(byte[] raw) {
         BitReader bits = new BitReader(raw);
         Content content = new Content();
         Shift upper = new Shift();
@@ -503,7 +516,7 @@ final class DmDecoder {
         if (trailer.length() > 0) {
             content.append(trailer.toString());
         }
-        return content.render();
+        return new Decoded(content.render(), content.raw());
     }
 
     private static void fnc1(BitReader bits, Content content, int firstFnc1) {
@@ -738,6 +751,14 @@ final class DmDecoder {
 
         int byteAt(int index) {
             return bytes.get(index);
+        }
+
+        byte[] raw() {
+            byte[] out = new byte[bytes.size()];
+            for (int i = 0; i < out.length; i++) {
+                out[i] = (byte) (int) bytes.get(i);
+            }
+            return out;
         }
 
         void encoding(int eci, boolean isEci) {

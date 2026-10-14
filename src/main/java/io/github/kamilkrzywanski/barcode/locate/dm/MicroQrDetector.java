@@ -2,6 +2,7 @@ package io.github.kamilkrzywanski.barcode.locate.dm;
 
 import io.github.kamilkrzywanski.barcode.image.GrayU8;
 import io.github.kamilkrzywanski.barcode.ImagePoint;
+import io.github.kamilkrzywanski.barcode.decode.Decoded;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Bits;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.P;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Warp;
@@ -34,7 +35,7 @@ public final class MicroQrDetector {
     }
 
     /** One decoded symbol. Corners are TL, TR, BR, BL in the gray image. */
-    public record Found(String text, List<ImagePoint> corners, int orientationDegrees) {
+    public record Found(String text, byte[] bytes, List<ImagePoint> corners, int orientationDegrees) {
     }
 
     /**
@@ -116,8 +117,8 @@ public final class MicroQrDetector {
         if (grid == null) {
             return null;
         }
-        String text = MicroQrDecoder.decode(grid.bits);
-        if (text == null) {
+        Decoded decoded = MicroQrDecoder.decodeContent(grid.bits);
+        if (decoded == null) {
             return null;
         }
         List<ImagePoint> corners = new ArrayList<>(4);
@@ -127,7 +128,7 @@ public final class MicroQrDetector {
             }
             corners.add(new ImagePoint(corner.x, corner.y));
         }
-        return new Found(text, List.copyOf(corners), orientation(grid.corners[0], grid.corners[1]));
+        return new Found(decoded.text(), decoded.bytes(), List.copyOf(corners), orientation(grid.corners[0], grid.corners[1]));
     }
 
     private static boolean timing(Bits image, Warp warp, int index, boolean requireBlack) {

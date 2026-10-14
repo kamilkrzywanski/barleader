@@ -1,5 +1,6 @@
 package io.github.kamilkrzywanski.barcode.locate.dm;
 
+import io.github.kamilkrzywanski.barcode.decode.Decoded;
 import com.google.zxing.common.reedsolomon.GenericGF;
 import com.google.zxing.common.reedsolomon.ReedSolomonDecoder;
 import com.google.zxing.common.reedsolomon.ReedSolomonException;
@@ -7,6 +8,7 @@ import io.github.kamilkrzywanski.barcode.decode.TextDecoder;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Bits;
 
 import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -69,6 +71,12 @@ final class MicroQrDecoder {
      * top left in the chosen rotation. Null means the symbol is not a valid Micro QR.
      */
     static String decode(Bits bits) {
+        Decoded decoded = decodeContent(bits);
+        return decoded == null ? null : decoded.text();
+    }
+
+    /** {@link #decode(Bits)} with the content bytes. */
+    static Decoded decodeContent(Bits bits) {
         if (!microSize(bits)) {
             return null;
         }
@@ -249,9 +257,10 @@ final class MicroQrDecoder {
      * Micro QR has no ECI, so byte mode is read in the character set {@code GuessTextEncoding}
      * picks from all byte segments together, as {@code Content::guessEncoding} does.
      */
-    private static String decodeStream(byte[] data, int version) {
+    private static Decoded decodeStream(byte[] data, int version) {
         BitReader bits = new BitReader(data);
         StringBuilder text = new StringBuilder();
+        ByteArrayOutputStream content = new ByteArrayOutputStream();
         List<int[]> byteOffsets = new ArrayList<>();
         ByteArrayOutputStream byteData = new ByteArrayOutputStream();
         int modeBits = version - 1;
@@ -263,13 +272,20 @@ final class MicroQrDecoder {
                     return null;
                 }
                 int count = bits.read(countBits(mode, version));
+                int before = text.length();
+                int bytesBefore = byteData.size();
                 boolean ok = switch (mode) {
                     case 0 -> numeric(bits, count, text);
                     case 1 -> alphanumeric(bits, count, text);
                     case 2 -> bytes(bits, count, text.length(), byteOffsets, byteData);
-                    case 3 -> kanji(bits, count, text);
+                    case 3 -> kanji(bits, count, text, content);
                     default -> false;
                 };
+                if (mode == 0 || mode == 1) {
+                    content.writeBytes(text.substring(before).getBytes(StandardCharsets.US_ASCII));
+                } else if (mode == 2) {
+                    content.write(byteData.toByteArray(), bytesBefore, byteData.size() - bytesBefore);
+                }
                 if (!ok) {
                     return null;
                 }
@@ -290,7 +306,7 @@ final class MicroQrDecoder {
         if (text.isEmpty()) {
             return null;
         }
-        return text.toString();
+        return new Decoded(text.toString(), content.toByteArray());
     }
 
     private static boolean endOfStream(BitReader bits, int terminator) {
@@ -365,7 +381,7 @@ final class MicroQrDecoder {
         return true;
     }
 
-    private static boolean kanji(BitReader bits, int count, StringBuilder text) {
+    private static boolean kanji(BitReader bits, int count, StringBuilder text, ByteArrayOutputStream content) {
         byte[] raw = new byte[count * 2];
         for (int i = 0; i < count; i++) {
             int value = bits.read(13);
@@ -375,6 +391,7 @@ final class MicroQrDecoder {
             raw[i * 2 + 1] = (byte) assembled;
         }
         text.append(TextDecoder.decodeOrLatin1(raw, 20));
+        content.writeBytes(raw);
         return true;
     }
 

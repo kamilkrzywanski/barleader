@@ -1,5 +1,6 @@
 package io.github.kamilkrzywanski.barcode.locate.dm;
 
+import io.github.kamilkrzywanski.barcode.decode.Decoded;
 import com.google.zxing.common.reedsolomon.GenericGF;
 import com.google.zxing.common.reedsolomon.ReedSolomonDecoder;
 import com.google.zxing.common.reedsolomon.ReedSolomonException;
@@ -56,6 +57,12 @@ final class AztecDecoder {
 
     /** Text of one sampled symbol. Null when the grid is not a decodable Aztec code. */
     static String decode(Bits matrix, boolean compact, int layers, int dataBlocks) {
+        Decoded decoded = decodeContent(matrix, compact, layers, dataBlocks);
+        return decoded == null ? null : decoded.text();
+    }
+
+    /** {@link #decode} with the content bytes. */
+    static Decoded decodeContent(Bits matrix, boolean compact, int layers, int dataBlocks) {
         if (matrix == null || layers < 1 || dataBlocks < 1) {
             return null;
         }
@@ -80,7 +87,8 @@ final class AztecDecoder {
             return null;
         }
         try {
-            return text(bits);
+            Decoded decoded = text(bits);
+            return decoded == null ? null : decoded.text();
         } catch (Miss ignored) {
             return null;
         }
@@ -187,7 +195,7 @@ final class AztecDecoder {
         return trimmed;
     }
 
-    private static String text(boolean[] bits) {
+    private static Decoded text(boolean[] bits) {
         Out out = new Out();
         boolean fnc1 = false;
         Table latch = Table.UPPER;
@@ -242,7 +250,8 @@ final class AztecDecoder {
         if (fnc1) {
             stripFnc1(out);
         }
-        return out.render();
+        String text = out.render();
+        return text == null ? null : new Decoded(text, out.raw());
     }
 
     /** ISO/IEC 24778 structured append. The id and index stay out of the returned text. */
@@ -371,6 +380,14 @@ final class AztecDecoder {
                     encoding[1] -= count;
                 }
             }
+        }
+
+        private byte[] raw() {
+            byte[] raw = new byte[bytes.size()];
+            for (int i = 0; i < raw.length; i++) {
+                raw[i] = (byte) (int) bytes.get(i);
+            }
+            return raw;
         }
 
         private String render() {

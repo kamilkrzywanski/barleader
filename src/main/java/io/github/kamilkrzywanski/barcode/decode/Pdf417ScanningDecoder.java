@@ -35,14 +35,15 @@ final class Pdf417ScanningDecoder {
         if (found == null || found.symbols.isEmpty()) {
             return null;
         }
-        return decode(found.bits, found.symbols.get(0).points);
+        Decoded decoded = decode(found.bits, found.symbols.get(0).points);
+        return decoded == null ? null : decoded.text();
     }
 
     /**
      * One PDF417 in the input image. {@code rotation} is 0, 90, 180, or 270.
      * Corners are the outer guards, already mapped back from the detector's rotation.
      */
-    record Found(String text, List<ImagePoint> corners, int rotation) {
+    record Found(String text, byte[] bytes, List<ImagePoint> corners, int rotation) {
     }
 
     /**
@@ -56,11 +57,11 @@ final class Pdf417ScanningDecoder {
         }
         List<Found> hits = new ArrayList<>();
         for (Pdf417Detector.Symbol symbol : found.symbols) {
-            String text = decode(found.bits, symbol.points);
-            if (text == null || text.isBlank()) {
+            Decoded decoded = decode(found.bits, symbol.points);
+            if (decoded == null || decoded.text().isBlank()) {
                 continue;
             }
-            hits.add(new Found(text, outerGuards(found, symbol.points), found.rotation));
+            hits.add(new Found(decoded.text(), decoded.bytes(), outerGuards(found, symbol.points), found.rotation));
             if (!multiple) {
                 break;
             }
@@ -112,15 +113,15 @@ final class Pdf417ScanningDecoder {
         }
         List<String> texts = new ArrayList<>();
         for (Pdf417Detector.Symbol symbol : found.symbols) {
-            String text = decode(found.bits, symbol.points);
-            if (text != null) {
-                texts.add(text);
+            Decoded decoded = decode(found.bits, symbol.points);
+            if (decoded != null) {
+                texts.add(decoded.text());
             }
         }
         return texts;
     }
 
-    private static String decode(boolean[][] image, Pdf417Detector.Point[] points) {
+    private static Decoded decode(boolean[][] image, Pdf417Detector.Point[] points) {
         int width = image[0].length;
         int height = image.length;
         BoundingBox box = BoundingBox.create(width, height, points[4], points[5], points[6], points[7]);
@@ -783,7 +784,7 @@ final class Pdf417ScanningDecoder {
             columns = new Column[metadata.columns + 2];
         }
 
-        String decodeText() {
+        Decoded decodeText() {
             BarcodeValue[][] matrix = matrix();
             if (matrix == null || !adjustCount(matrix)) {
                 return null;
@@ -1098,7 +1099,7 @@ final class Pdf417ScanningDecoder {
     }
 
     /** {@code CreateDecoderResultFromAmbiguousValues}. Only a checksum error tries the next vote. */
-    private static String resolve(int level, int[] codewords, int[] erasures, int[] ambiguousAt, int[][] choices) {
+    private static Decoded resolve(int level, int[] codewords, int[] erasures, int[] ambiguousAt, int[][] choices) {
         // Erased positions are stored as zero. A symbol that was barely read is then the
         // all-zero codeword, and text compaction turns those zeros into a run of 'A'.
         // Official and synthetic symbols keep more than half of their codewords.
@@ -1114,7 +1115,7 @@ final class Pdf417ScanningDecoder {
                 attempt[ambiguousAt[i]] = choices[i][cursor[i]];
             }
             try {
-                return Pdf417Decoder.decodeCodewords(attempt, numEc, erasures);
+                return Pdf417Decoder.decodeCodewordsContent(attempt, numEc, erasures);
             } catch (ChecksumException failed) {
                 if (cursor.length == 0) {
                     return null;
