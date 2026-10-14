@@ -2,7 +2,6 @@ package io.github.kamilkrzywanski.barcode.decode;
 
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.BinaryBitmap;
-import com.google.zxing.ChecksumException;
 import com.google.zxing.EncodeHintType;
 import com.google.zxing.NotFoundException;
 import com.google.zxing.client.j2se.BufferedImageLuminanceSource;
@@ -13,6 +12,7 @@ import com.google.zxing.common.HybridBinarizer;
 import com.google.zxing.pdf417.PDF417Reader;
 import com.google.zxing.pdf417.PDF417Writer;
 import com.google.zxing.pdf417.encoder.Compaction;
+import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonException;
 import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
@@ -73,8 +73,8 @@ class Pdf417DecoderTest {
         // Row indicators give the level as a value mod 30 over 3, so a damaged one can say 9.
         int[] codewords = new int[2048];
         codewords[0] = 1500;
-        assertThrows(ChecksumException.class, () -> Pdf417Decoder.decodeCodewordsContent(codewords, 1 << 10, new int[0]));
-        assertThrows(ChecksumException.class, () -> Pdf417Decoder.decodeCodewordsContent(new int[20], 4, new int[6]));
+        assertThrows(ReedSolomonException.class, () -> Pdf417Decoder.decodeCodewordsContent(codewords, 1 << 10, new int[0]));
+        assertThrows(ReedSolomonException.class, () -> Pdf417Decoder.decodeCodewordsContent(new int[20], 4, new int[6]));
     }
 
     @Test
@@ -286,7 +286,7 @@ class Pdf417DecoderTest {
 
     /** Locked to zxing-cpp {@code PDF417ScanningDecoderTest}. A bad length descriptor is repaired. */
     @Test
-    void repairsABadSymbolLengthDescriptor() throws ChecksumException {
+    void repairsABadSymbolLengthDescriptor() throws ReedSolomonException {
         int[] high = {4, 1, 449, 394};
         assertEquals("AB", Pdf417Decoder.decodeCodewords(high, 2, new int[0]));
         assertEquals(2, high[0]);

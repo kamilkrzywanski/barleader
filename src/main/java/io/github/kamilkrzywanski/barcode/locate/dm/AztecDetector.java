@@ -1,11 +1,11 @@
 package io.github.kamilkrzywanski.barcode.locate.dm;
 
-import io.github.kamilkrzywanski.barcode.image.GrayU8;
-import com.google.zxing.common.reedsolomon.GenericGF;
-import com.google.zxing.common.reedsolomon.ReedSolomonDecoder;
-import com.google.zxing.common.reedsolomon.ReedSolomonException;
 import io.github.kamilkrzywanski.barcode.ImagePoint;
 import io.github.kamilkrzywanski.barcode.decode.Decoded;
+import io.github.kamilkrzywanski.barcode.ecc.GenericGF;
+import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonDecoder;
+import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonException;
+import io.github.kamilkrzywanski.barcode.image.GrayU8;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Bits;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.P;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Warp;

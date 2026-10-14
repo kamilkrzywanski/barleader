@@ -1,8 +1,8 @@
 package io.github.kamilkrzywanski.barcode.decode;
 
-import com.google.zxing.ChecksumException;
-import com.google.zxing.pdf417.decoder.ec.ErrorCorrection;
 import io.github.kamilkrzywanski.barcode.decode.OneDRow.View;
+import io.github.kamilkrzywanski.barcode.ecc.Pdf417ErrorCorrection;
+import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonException;
 
 import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
@@ -30,7 +30,7 @@ final class Pdf417Decoder {
     private static final int MIN_SIDE = 3 * START_SUM;
     private static final int UNKNOWN = -1;
     private static final int CONFLICT = -2;
-    private static final ErrorCorrection CORRECTION = new ErrorCorrection();
+    private static final Pdf417ErrorCorrection CORRECTION = new Pdf417ErrorCorrection();
     private static final int MAX_ERRORS = 3;
     private static final int MAX_EC_CODEWORDS = 512;
 
@@ -280,7 +280,7 @@ final class Pdf417Decoder {
         }
         try {
             CORRECTION.decode(codewords, numEc, erasureIndex);
-        } catch (ChecksumException failed) {
+        } catch (ReedSolomonException failed) {
             return null;
         }
         if (!verifyCount(codewords, numEc)) {
@@ -341,19 +341,19 @@ final class Pdf417Decoder {
      * {@code DecodeCodewords}. Corrects {@code codewords} in place. A checksum failure throws.
      * A format failure returns null. The ambiguous-value search lives in the photo scanner.
      */
-    static String decodeCodewords(int[] codewords, int numEc, int[] erasures) throws ChecksumException {
+    static String decodeCodewords(int[] codewords, int numEc, int[] erasures) throws ReedSolomonException {
         Decoded decoded = decodeCodewordsContent(codewords, numEc, erasures);
         return decoded == null ? null : decoded.text();
     }
 
     /** {@link #decodeCodewords} with the content bytes. */
-    static Decoded decodeCodewordsContent(int[] codewords, int numEc, int[] erasures) throws ChecksumException {
+    static Decoded decodeCodewordsContent(int[] codewords, int numEc, int[] erasures) throws ReedSolomonException {
         if (codewords.length == 0) {
             return null;
         }
         // CorrectErrors. A damaged row indicator can give level 9, 1024 EC codewords, past the field.
         if (erasures.length > numEc / 2 + MAX_ERRORS || numEc < 0 || numEc > MAX_EC_CODEWORDS) {
-            throw ChecksumException.getChecksumInstance();
+            throw new ReedSolomonException("PDF417 error correction failed");
         }
         CORRECTION.decode(codewords, numEc, erasures);
         if (!verifyCount(codewords, numEc)) {

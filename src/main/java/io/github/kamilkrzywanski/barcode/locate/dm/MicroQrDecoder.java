@@ -1,10 +1,10 @@
 package io.github.kamilkrzywanski.barcode.locate.dm;
 
 import io.github.kamilkrzywanski.barcode.decode.Decoded;
-import com.google.zxing.common.reedsolomon.GenericGF;
-import com.google.zxing.common.reedsolomon.ReedSolomonDecoder;
-import com.google.zxing.common.reedsolomon.ReedSolomonException;
 import io.github.kamilkrzywanski.barcode.decode.TextDecoder;
+import io.github.kamilkrzywanski.barcode.ecc.GenericGF;
+import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonDecoder;
+import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonException;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Bits;
 
 import java.io.ByteArrayOutputStream;

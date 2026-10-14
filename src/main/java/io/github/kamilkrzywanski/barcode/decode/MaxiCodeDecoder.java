@@ -1,8 +1,8 @@
 package io.github.kamilkrzywanski.barcode.decode;
 
-import com.google.zxing.common.reedsolomon.GenericGF;
-import com.google.zxing.common.reedsolomon.ReedSolomonDecoder;
-import com.google.zxing.common.reedsolomon.ReedSolomonException;
+import io.github.kamilkrzywanski.barcode.ecc.GenericGF;
+import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonDecoder;
+import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonException;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;

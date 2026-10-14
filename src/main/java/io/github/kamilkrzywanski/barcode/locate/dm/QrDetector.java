@@ -1,9 +1,8 @@
 package io.github.kamilkrzywanski.barcode.locate.dm;
 
-import io.github.kamilkrzywanski.barcode.image.GrayU8;
-import com.google.zxing.qrcode.decoder.Version;
 import io.github.kamilkrzywanski.barcode.ImagePoint;
 import io.github.kamilkrzywanski.barcode.decode.Decoded;
+import io.github.kamilkrzywanski.barcode.image.GrayU8;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Bits;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.Line;
 import io.github.kamilkrzywanski.barcode.locate.dm.DmGeometry.P;
@@ -372,16 +371,16 @@ public final class QrDetector {
         Warp warp = mod2Pix(dimension, offsetX, offsetY, fp.tl, fp.tr, bottomRight, fp.bl);
         List<Grid> grids = new ArrayList<>(2);
         if (dimension >= 45) {
-            Version version = readVersion(image, dimension, warp);
+            QrVersion version = readVersion(image, dimension, warp);
             if (version == null
                     || Math.min(
-                            Math.abs(version.getDimensionForVersion() - top.dim),
-                            Math.abs(version.getDimensionForVersion() - left.dim)
+                            Math.abs(version.dimension() - top.dim),
+                            Math.abs(version.dimension() - left.dim)
                     ) > 8) {
                 return grids;
             }
-            if (version.getDimensionForVersion() != dimension) {
-                dimension = version.getDimensionForVersion();
+            if (version.dimension() != dimension) {
+                dimension = version.dimension();
                 warp = mod2Pix(dimension, offsetX, offsetY, fp.tl, fp.tr, bottomRight, fp.bl);
             }
             Grid aligned = sampleAligned(image, dimension, moduleSize, warp, version, fp);
@@ -519,7 +518,7 @@ public final class QrDetector {
         return null;
     }
 
-    private static Version readVersion(Bits image, int dimension, Warp warp) {
+    private static QrVersion readVersion(Bits image, int dimension, Warp warp) {
         int[] bits = new int[2];
         for (int mirror = 0; mirror < 2; mirror++) {
             int versionBits = 0;
@@ -538,7 +537,7 @@ public final class QrDetector {
             bits[mirror] = versionBits;
         }
         int version = versionNumber(bits[0], bits[1]);
-        return version == 0 ? null : Version.getVersionForNumber(version);
+        return version == 0 ? null : QrVersion.of(version);
     }
 
     /** {@code Version::DecodeVersionInformation}. Zero when neither sample is within 3 bits. */
@@ -569,10 +568,10 @@ public final class QrDetector {
             int dimension,
             int moduleSize,
             Warp warp,
-            Version version,
+            QrVersion version,
             FinderSet fp
     ) {
-        int[] centers = version.getAlignmentPatternCenters();
+        int[] centers = version.alignmentPatternCenters();
         int n = centers.length;
         if (n < 2) {
             return sampleGrid(image, dimension, dimension, List.of(new Roi(0, dimension, 0, dimension, warp)));

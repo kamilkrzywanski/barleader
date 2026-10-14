@@ -1,7 +1,7 @@
 package io.github.kamilkrzywanski.barcode.decode;
 
-import com.google.zxing.ChecksumException;
 import io.github.kamilkrzywanski.barcode.ImagePoint;
+import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -1116,7 +1116,7 @@ final class Pdf417ScanningDecoder {
             }
             try {
                 return Pdf417Decoder.decodeCodewordsContent(attempt, numEc, erasures);
-            } catch (ChecksumException failed) {
+            } catch (ReedSolomonException failed) {
                 if (cursor.length == 0) {
                     return null;
                 }
