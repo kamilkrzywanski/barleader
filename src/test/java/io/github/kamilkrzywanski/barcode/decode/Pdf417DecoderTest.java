@@ -22,6 +22,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class Pdf417DecoderTest {
     @Test
@@ -65,6 +66,15 @@ class Pdf417DecoderTest {
             assertRoundTrip("P".repeat(length), null);
             assertRoundTrip("9".repeat(length), numeric);
         }
+    }
+
+    @Test
+    void anErrorCorrectionLevelPastEightIsAChecksumError() {
+        // Row indicators give the level as a value mod 30 over 3, so a damaged one can say 9.
+        int[] codewords = new int[2048];
+        codewords[0] = 1500;
+        assertThrows(ChecksumException.class, () -> Pdf417Decoder.decodeCodewordsContent(codewords, 1 << 10, new int[0]));
+        assertThrows(ChecksumException.class, () -> Pdf417Decoder.decodeCodewordsContent(new int[20], 4, new int[6]));
     }
 
     @Test

@@ -31,6 +31,8 @@ final class Pdf417Decoder {
     private static final int UNKNOWN = -1;
     private static final int CONFLICT = -2;
     private static final ErrorCorrection CORRECTION = new ErrorCorrection();
+    private static final int MAX_ERRORS = 3;
+    private static final int MAX_EC_CODEWORDS = 512;
 
     private static final int TEXT_LATCH = 900;
     private static final int BYTE_LATCH = 901;
@@ -348,6 +350,10 @@ final class Pdf417Decoder {
     static Decoded decodeCodewordsContent(int[] codewords, int numEc, int[] erasures) throws ChecksumException {
         if (codewords.length == 0) {
             return null;
+        }
+        // CorrectErrors. A damaged row indicator can give level 9, 1024 EC codewords, past the field.
+        if (erasures.length > numEc / 2 + MAX_ERRORS || numEc < 0 || numEc > MAX_EC_CODEWORDS) {
+            throw ChecksumException.getChecksumInstance();
         }
         CORRECTION.decode(codewords, numEc, erasures);
         if (!verifyCount(codewords, numEc)) {
