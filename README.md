@@ -65,7 +65,7 @@ A clean symbol is read on the first attempt in either mode, so `aggressive()` on
 | --- | --- |
 | `text` | The decoded text. Byte content without an ECI is UTF-8 when it is valid UTF-8; QR Code and Micro QR can also be Shift_JIS, as in zxing-cpp; otherwise ISO-8859-1. GS1 symbols return the element string without parentheses. UPC-A has 12 digits and UPC-E 8. |
 | `symbology` | One of `Symbology`. |
-| `corners` | The symbol outline in source-image pixels, also after rotation and scaling. Linear symbols give the two ends of the scan line. DataBar gives none. |
+| `corners` | The symbol outline in source-image pixels, also after rotation and scaling. Linear symbols give the two ends of the scan line; stacked DataBar gives the four corners of its rows. |
 | `orientationDegrees` | Clockwise degrees with the Y axis down, or `-1` when unknown. |
 | `bytes` | The content as the symbol stores it, before any character set is applied: for QR Code, Micro QR, Data Matrix, Aztec and PDF417 the data bytes without ECI designators, so binary payloads come back intact; for the other symbologies the characters of the text. |
 | `addOn` | The EAN/UPC supplement when `eanAddOn` asked for it and one was read, else empty. |

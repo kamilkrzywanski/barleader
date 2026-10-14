@@ -1,5 +1,6 @@
 package io.github.kamilkrzywanski.barcode.decode;
 
+import io.github.kamilkrzywanski.barcode.ImagePoint;
 import io.github.kamilkrzywanski.barcode.decode.OneDRow.View;
 
 import java.util.ArrayList;
@@ -13,9 +14,9 @@ import java.util.Map;
  * <p>The compiled path is the stacked state machine. Pairs accumulate across rows, and each row
  * is also read reversed: a stacked symbol may mirror even rows, and the reference reader does
  * the same before it asks this decoder. The non-stacked shortcut under {@code #if 0} is not
- * ported. The text is the GS1 element string from {@link DataBarExpandedDecoder}. Parentheses,
- * the {@code ]e0} identifier, and symbol position are not added. The scan ladder calls it for
- * {@link io.github.kamilkrzywanski.barcode.Symbology#DATABAR_EXPANDED}.
+ * ported. The text is the GS1 element string from {@link DataBarExpandedDecoder}. Parentheses and
+ * the {@code ]e0} identifier are not added; {@link #decodeLocated} also returns the position. The
+ * scan ladder calls it for {@link io.github.kamilkrzywanski.barcode.Symbology#DATABAR_EXPANDED}.
  */
 final class DataBarExpandedReader {
     private static final int FULL = 8 + 5 + 8;
@@ -94,28 +95,68 @@ final class DataBarExpandedReader {
      * Null when the rows do not hold a checksum-valid symbol.
      */
     static String decode(boolean[][] rows) {
+        DataBarDecoder.Located located = decodeLocated(rows);
+        return located == null ? null : located.text();
+    }
+
+    /**
+     * {@link #decode(boolean[][])} with the position of the symbol: the line through its pairs,
+     * or the box around them when the symbol is stacked.
+     */
+    static DataBarDecoder.Located decodeLocated(boolean[][] rows) {
         if (rows == null) {
             return null;
         }
         Map<Integer, List<Pair>> all = new HashMap<>();
-        for (boolean[] row : rows) {
+        for (int y = 0; y < rows.length; y++) {
+            boolean[] row = rows[y];
             if (row == null) {
                 continue;
             }
-            String text = scan(OneDRow.runs(row), all);
-            if (text != null) {
-                return text;
+            List<Pair> sequence = scan(OneDRow.runs(row), all, y, -1);
+            if (sequence == null) {
+                sequence = scan(OneDRow.runs(reverse(row)), all, y, row.length);
             }
-            String reversed = scan(OneDRow.runs(reverse(row)), all);
-            if (reversed != null) {
-                return reversed;
+            if (sequence != null) {
+                String text = DataBarExpandedDecoder.decode(buildBits(sequence));
+                followDown(rows, y, all, sequence);
+                return new DataBarDecoder.Located(text, position(sequence));
             }
         }
         return null;
     }
 
-    /** One direction of one row, including the {@code tryHarder} rescan that follows a pair group. */
-    private static String scan(int[] runs, Map<Integer, List<Pair>> all) {
+    /**
+     * Keeps reading the rows below a decoded sequence while they still show one of its pairs, so
+     * the box of a stacked symbol reaches its last row. A few rows without any end it.
+     */
+    private static void followDown(boolean[][] rows, int from, Map<Integer, List<Pair>> all, List<Pair> sequence) {
+        int misses = 0;
+        for (int y = from + 1; y < rows.length && misses < 3; y++) {
+            if (rows[y] == null) {
+                continue;
+            }
+            long before = lastRows(sequence);
+            scan(OneDRow.runs(rows[y]), all, y, -1);
+            scan(OneDRow.runs(reverse(rows[y])), all, y, rows[y].length);
+            misses = lastRows(sequence) == before ? misses + 1 : 0;
+        }
+    }
+
+    private static long lastRows(List<Pair> pairs) {
+        long sum = 0;
+        for (Pair pair : pairs) {
+            sum += pair.lastY;
+        }
+        return sum;
+    }
+
+    /**
+     * One direction of one row, including the {@code tryHarder} rescan that follows a pair group.
+     * {@code reversedWidth} is the row width when the runs are the row read backwards, else -1;
+     * pair positions are stored in the columns of the unreversed row.
+     */
+    private static List<Pair> scan(int[] runs, Map<Integer, List<Pair>> all, int y, int reversedWidth) {
         View cursor = View.of(runs);
         int seen = Integer.MIN_VALUE;
         while (cursor.size() > 0) {
@@ -128,6 +169,15 @@ final class DataBarExpandedReader {
             if (found.pairs == null) {
                 return null;
             }
+            for (Pair pair : found.pairs) {
+                pair.y = y;
+                pair.lastY = y;
+                if (reversedWidth >= 0) {
+                    int start = reversedWidth - 1 - pair.xStop;
+                    pair.xStop = reversedWidth - 1 - pair.xStart;
+                    pair.xStart = start;
+                }
+            }
             insert(all, found.pairs);
             List<Pair> sequence = findSequence(all);
             if (!sequence.isEmpty()) {
@@ -135,7 +185,7 @@ final class DataBarExpandedReader {
                 if (bits != null) {
                     String text = DataBarExpandedDecoder.decode(bits);
                     if (text != null) {
-                        return text;
+                        return sequence;
                     }
                 }
             }
@@ -231,6 +281,32 @@ final class DataBarExpandedReader {
         return rightToLeft ? -index : index;
     }
 
+    /**
+     * The line through the middle of the pairs, or the box around every row they were seen on
+     * when the symbol is stacked: a later pair starting left of the first pair's centre, the test
+     * zxing-cpp uses for {@code DataBarExpStk}.
+     */
+    private static List<ImagePoint> position(List<Pair> pairs) {
+        Pair first = pairs.get(0);
+        int center = (first.xStart + first.xStop) / 2;
+        boolean stacked = false;
+        int minX = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE;
+        int minY = Integer.MAX_VALUE;
+        int maxY = Integer.MIN_VALUE;
+        for (Pair pair : pairs) {
+            stacked |= pair != first && pair.xStart < center;
+            minX = Math.min(minX, pair.xStart);
+            maxX = Math.max(maxX, pair.xStop);
+            minY = Math.min(minY, pair.y);
+            maxY = Math.max(maxY, pair.lastY);
+        }
+        if (!stacked) {
+            return DataBarDecoder.line((minY + maxY) / 2, minX, maxX);
+        }
+        return List.of(new ImagePoint(minX, minY), new ImagePoint(maxX, minY), new ImagePoint(maxX, maxY), new ImagePoint(minX, maxY));
+    }
+
     private static Pair readPair(View view, boolean rightToLeft) {
         int finder = parseFinder(view.sub(8, 5), rightToLeft);
         if (finder == 0) {
@@ -249,7 +325,10 @@ final class DataBarExpandedReader {
         if (right == null && !halfPair(finder)) {
             return null;
         }
-        return new Pair(left, right, finder);
+        Pair pair = new Pair(left, right, finder);
+        pair.xStart = view.pixelsInFront();
+        pair.xStop = (right != null ? rightView : view.sub(8, 5)).pixelsTillEnd();
+        return pair;
     }
 
     private static boolean validTail(Pair pair, View view) {
@@ -312,6 +391,7 @@ final class DataBarExpandedReader {
             }
             Pair existing = pairs.get(found);
             existing.count++;
+            existing.lastY = Math.max(existing.lastY, pair.y);
             while (found > 0 && pairs.get(found).count > pairs.get(found - 1).count) {
                 pairs.set(found, pairs.set(found - 1, existing));
                 found--;
@@ -456,12 +536,17 @@ final class DataBarExpandedReader {
         }
     }
 
-    /** Equality ignores the sighting count. A missing right character stays null. */
+    /** Equality ignores the position and the sighting count. A missing right character stays null. */
     private static final class Pair {
         final Character left;
         final Character right;
         final int finder;
         int count = 1;
+        int xStart;
+        int xStop;
+        /** Rows of the first and the last sighting. */
+        int y;
+        int lastY;
 
         Pair(Character left, Character right, int finder) {
             this.left = left;

@@ -117,7 +117,7 @@ public final class ZxingDecoder {
                 () -> code128Hits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies),
                 () -> itfHits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies),
                 () -> codabarHits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies),
-                () -> dataBarHits(owned, attempt, rotationDegrees, confidence, symbologies)
+                () -> dataBarHits(owned, toSource, attempt, rotationDegrees, confidence, symbologies)
         );
         // Without findAll one attempt returns one symbol, so the readers after the first hit do not run.
         if (!findAll) {
@@ -461,10 +461,12 @@ public final class ZxingDecoder {
      * DataBar from every row of this attempt's black matrix. DataBar and DataBar Expanded only
      * accept a symbol whose pairs were seen on more than one row and whose checksum holds, which
      * is the confirmation the other linear readers get from a parallel strip. DataBar Limited is
-     * one row with a checksum. The readers return no position, so the hit has no corners.
+     * one row with a checksum. The corners are zxing-cpp's estimate: the two ends of the line
+     * through the symbol, or four corners for a stacked one.
      */
     private static List<BarcodeHit> dataBarHits(
             BinaryBitmap image,
+            PixelMap toSource,
             String attempt,
             int rotationDegrees,
             double confidence,
@@ -483,16 +485,19 @@ public final class ZxingDecoder {
         List<BarcodeHit> hits = new ArrayList<>(1);
         int orientation = linearOrientation(false, rotationDegrees);
         if (symbologies.contains(Symbology.DATABAR)) {
-            addDataBar(hits, DataBarDecoder.decode(rows), Symbology.DATABAR, orientation, confidence, attempt);
+            addDataBar(hits, DataBarDecoder.decodeLocated(rows), Symbology.DATABAR, toSource, matrix.getWidth(), orientation, confidence,
+                    attempt);
         }
         if (symbologies.contains(Symbology.DATABAR_EXPANDED)) {
-            addDataBar(hits, DataBarExpandedReader.decode(rows), Symbology.DATABAR_EXPANDED, orientation, confidence, attempt);
+            addDataBar(hits, DataBarExpandedReader.decodeLocated(rows), Symbology.DATABAR_EXPANDED, toSource,
+                    matrix.getWidth(), orientation, confidence, attempt);
         }
         if (symbologies.contains(Symbology.DATABAR_LIMITED)) {
-            for (boolean[] row : rows) {
-                String text = DataBarDecoder.decodeLimited(row);
-                if (text != null) {
-                    addDataBar(hits, text, Symbology.DATABAR_LIMITED, orientation, confidence, attempt);
+            for (int y = 0; y < rows.length; y++) {
+                DataBarDecoder.Located located = DataBarDecoder.decodeLimitedLocated(rows[y], y);
+                if (located != null) {
+                    addDataBar(hits, located, Symbology.DATABAR_LIMITED, toSource, matrix.getWidth(), orientation, confidence,
+                            attempt);
                     break;
                 }
             }
@@ -501,10 +506,25 @@ public final class ZxingDecoder {
     }
 
     private static void addDataBar(
-            List<BarcodeHit> hits, String text, Symbology symbology, int orientation, double confidence, String attempt) {
-        if (text != null && !text.isBlank()) {
-            hits.add(new BarcodeHit(text, symbology, List.of(), orientation, confidence, attempt));
+            List<BarcodeHit> hits,
+            DataBarDecoder.Located located,
+            Symbology symbology,
+            PixelMap toSource,
+            int width,
+            int orientation,
+            double confidence,
+            String attempt
+    ) {
+        if (located == null || located.text() == null || located.text().isBlank()) {
+            return;
         }
+        // zxing-cpp ends a right pair two elements past its last bar, which can pass the image edge.
+        List<ImagePoint> corners = new ArrayList<>(located.corners().size());
+        for (ImagePoint corner : located.corners()) {
+            double x = Math.max(0, Math.min(width - 1, corner.x()));
+            addCorner(corners, toSource.toSource(x, corner.y()));
+        }
+        hits.add(new BarcodeHit(located.text(), symbology, corners, orientation, confidence, attempt));
     }
 
     /** The black matrix as rows of modules, unpacked 32 at a time. */

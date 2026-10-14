@@ -16,7 +16,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Every DataBar image of the zxing-cpp 3.1.1 samples under {@code official-rows} reads through the
- * full reader once the DataBar symbologies are asked for. The text is the element string.
+ * full reader once the DataBar symbologies are asked for. The text is the element string, and the
+ * corners lie on the symbol.
  */
 class DataBarReadTest {
     private static final ReadOptions DATABAR = ReadOptions.fast()
@@ -46,9 +47,33 @@ class DataBarReadTest {
             List<BarcodeHit> hits = reader.read(picture, DATABAR);
             if (hits.size() != 1 || !hits.get(0).text().equals(expected)) {
                 failures.add(root.relativize(image) + " " + hits);
+            } else if (!plausibleCorners(hits.get(0), picture)) {
+                failures.add(root.relativize(image) + " corners " + hits.get(0).corners());
             }
         }
         assertEquals(List.of(), failures);
+    }
+
+    /** Two or four corners inside the image, spanning at least a fifth of its width or height. */
+    private static boolean plausibleCorners(BarcodeHit hit, BufferedImage image) {
+        List<ImagePoint> corners = hit.corners();
+        if (corners.size() != 2 && corners.size() != 4) {
+            return false;
+        }
+        double minX = Double.MAX_VALUE;
+        double maxX = -Double.MAX_VALUE;
+        double minY = Double.MAX_VALUE;
+        double maxY = -Double.MAX_VALUE;
+        for (ImagePoint corner : corners) {
+            if (corner.x() < -2 || corner.y() < -2 || corner.x() > image.getWidth() + 1 || corner.y() > image.getHeight() + 1) {
+                return false;
+            }
+            minX = Math.min(minX, corner.x());
+            maxX = Math.max(maxX, corner.x());
+            minY = Math.min(minY, corner.y());
+            maxY = Math.max(maxY, corner.y());
+        }
+        return maxX - minX >= image.getWidth() / 5.0 || maxY - minY >= image.getHeight() / 5.0;
     }
 
     @Test

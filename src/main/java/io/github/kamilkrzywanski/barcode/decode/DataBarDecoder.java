@@ -1,5 +1,6 @@
 package io.github.kamilkrzywanski.barcode.decode;
 
+import io.github.kamilkrzywanski.barcode.ImagePoint;
 import io.github.kamilkrzywanski.barcode.decode.OneDRow.View;
 
 import java.util.ArrayList;
@@ -13,9 +14,9 @@ import java.util.List;
  * off, so the one-pass linear shortcut is not used. A pair has to be seen on two rows before
  * it is accepted. {@link #decodeOmni} is that shortcut: DataBar Omni only, still without
  * {@code tryHarder}. {@link #decodeLimited} is the single-row DataBar Limited reader.
- * The returned text is the element string {@code 01} plus a GTIN-14. Parentheses,
- * the {@code ]e0} identifier, and symbol position are not added. A GS1 Composite linkage flag is
- * removed from the value. Stacked and omnidirectional symbols share this text. The scan ladder
+ * The returned text is the element string {@code 01} plus a GTIN-14. Parentheses and the
+ * {@code ]e0} identifier are not added; {@link #decodeLocated} also returns the position. A GS1
+ * Composite linkage flag is removed from the value. Stacked and omnidirectional symbols share this text. The scan ladder
  * calls {@link #decode} for {@link io.github.kamilkrzywanski.barcode.Symbology#DATABAR} and
  * {@link #decodeLimited} for {@link io.github.kamilkrzywanski.barcode.Symbology#DATABAR_LIMITED}.
  */
@@ -77,18 +78,49 @@ final class DataBarDecoder {
      * Null when the rows do not hold a checksum-valid symbol seen twice.
      */
     static String decode(boolean[][] rows) {
+        Located located = decodeLocated(rows);
+        return located == null ? null : located.text();
+    }
+
+    /**
+     * A symbol and where it sits in the rows: {@code corners} are row-and-column points, two for
+     * a symbol read on one line, four for a stacked one, as zxing-cpp's {@code EstimatePosition}.
+     */
+    record Located(String text, List<ImagePoint> corners) {
+    }
+
+    /** {@link #decode(boolean[][])} with the position of the symbol. */
+    static Located decodeLocated(boolean[][] rows) {
         if (rows == null) {
             return null;
         }
         List<Pair> left = new ArrayList<>();
         List<Pair> right = new ArrayList<>();
         for (int y = 0; y < rows.length; y++) {
-            String text = scan(OneDRow.runs(rows[y]), y, left, right, false);
-            if (text != null) {
-                return text;
+            Match match = scanPairs(OneDRow.runs(rows[y]), y, left, right);
+            if (match != null) {
+                followDown(rows, y, left, right, match);
+                return new Located(match.text, position(match.left, match.right));
             }
         }
         return null;
+    }
+
+    private record Match(String text, Pair left, Pair right) {
+    }
+
+    /**
+     * Keeps reading the rows below a match while they still show one of its pairs, so the last
+     * row each pair is seen on, and the position, reach the bottom of the symbol. A few rows
+     * without either pair end it.
+     */
+    private static void followDown(boolean[][] rows, int from, List<Pair> left, List<Pair> right, Match match) {
+        int misses = 0;
+        for (int y = from + 1; y < rows.length && misses < 3; y++) {
+            int before = match.left.lastY + match.right.lastY;
+            scanPairs(OneDRow.runs(rows[y]), y, left, right);
+            misses = match.left.lastY + match.right.lastY == before ? misses + 1 : 0;
+        }
     }
 
     /** One scanline of a non-stacked DataBar Omni symbol. */
@@ -96,11 +128,18 @@ final class DataBarDecoder {
         if (row == null) {
             return null;
         }
-        return scan(OneDRow.runs(row), 0, null, null, true);
+        Located located = scanOmni(OneDRow.runs(row), 0);
+        return located == null ? null : located.text();
     }
 
     /** One scanline of a DataBar Limited symbol. Null when the row does not hold one. */
     static String decodeLimited(boolean[] row) {
+        Located located = decodeLimitedLocated(row, 0);
+        return located == null ? null : located.text();
+    }
+
+    /** {@link #decodeLimited} on row {@code y}, with the two ends of the symbol on that row. */
+    static Located decodeLimitedLocated(boolean[] row, int y) {
         if (row == null) {
             return null;
         }
@@ -147,35 +186,41 @@ final class DataBarDecoder {
                     || (leftChar.checksum + 20 * rightChar.checksum) % 89 != checksum) {
                 continue;
             }
-            return constructLimited(leftChar, rightChar);
+            String text = constructLimited(leftChar, rightChar);
+            return text == null ? null : new Located(text, line(y, next.pixelsInFront(), next.pixelsTillEnd()));
         }
         return null;
     }
 
-    private static String scan(int[] runs, int y, List<Pair> leftPairs, List<Pair> rightPairs, boolean omniOnly) {
-        View row = View.of(runs);
-        if (omniOnly) {
-            View next = row.sub(-1, FULL + 1);
-            while (next.shift(2)) {
-                if (!isLeftPair(next)) {
-                    continue;
-                }
-                Pair left = readPair(next, false);
-                if (left != null && next.shift(FULL) && isRightPair(next)) {
-                    Pair right = readPair(next, true);
-                    if (right != null && checksumValid(left, right)) {
-                        return construct(left, right);
-                    }
+    /** {@code tryHarder}-less one-line DataBar Omni: a left and a right pair next to each other on this row. */
+    private static Located scanOmni(int[] runs, int y) {
+        View next = View.of(runs).sub(-1, FULL + 1);
+        while (next.shift(2)) {
+            if (!isLeftPair(next)) {
+                continue;
+            }
+            Pair left = readPair(next, false);
+            if (left != null && next.shift(FULL) && isRightPair(next)) {
+                Pair right = readPair(next, true);
+                if (right != null && checksumValid(left, right)) {
+                    String text = construct(left, right);
+                    return text == null ? null : new Located(text, line(y, left.xStart, right.xStop));
                 }
             }
-            return null;
         }
+        return null;
+    }
+
+    /** One row of the stacked reader: remember its pairs, then the first plausible valid pairing seen twice. */
+    private static Match scanPairs(int[] runs, int y, List<Pair> leftPairs, List<Pair> rightPairs) {
+        View row = View.of(runs);
         View next = row.sub(0, FULL + 1);
         while (next.shift(1)) {
             if (isLeftPair(next)) {
                 Pair left = readPair(next, false);
                 if (left != null) {
                     left.y = y;
+                    left.lastY = y;
                     remember(leftPairs, left);
                     next.shift(FULL - 1);
                 }
@@ -184,6 +229,7 @@ final class DataBarDecoder {
                 Pair right = readPair(next, true);
                 if (right != null) {
                     right.y = y;
+                    right.lastY = y;
                     remember(rightPairs, right);
                     next.shift(FULL + 2);
                 }
@@ -192,7 +238,8 @@ final class DataBarDecoder {
         for (Pair left : leftPairs) {
             for (Pair right : rightPairs) {
                 if (checksumValid(left, right) && plausible(left, right) && left.count > 1 && right.count > 1) {
-                    return construct(left, right);
+                    String text = construct(left, right);
+                    return text == null ? null : new Match(text, left, right);
                 }
             }
         }
@@ -203,6 +250,7 @@ final class DataBarDecoder {
         for (Pair existing : pairs) {
             if (existing.equals(pair)) {
                 existing.count++;
+                existing.lastY = Math.max(existing.lastY, pair.y);
                 return;
             }
         }
@@ -473,6 +521,31 @@ final class DataBarDecoder {
         return a == b && symbolValue(left, right) <= 9_999_999_999_999L;
     }
 
+    /**
+     * {@code EstimatePosition}: a line between the pairs, or four corners when stacked. Unlike
+     * zxing-cpp, which keeps only the row each pair was first seen on, the line runs through the
+     * middle of the rows both pairs were seen on, and a stacked box reaches the last row of the
+     * lower pair, so it covers the whole symbol.
+     */
+    private static List<ImagePoint> position(Pair first, Pair last) {
+        boolean stacked = Math.abs(first.y - last.y) > (first.xStop - first.xStart)
+                || last.xStart < (first.xStart + first.xStop) / 2;
+        if (!stacked) {
+            int top = Math.min(first.y, last.y);
+            int bottom = Math.max(first.lastY, last.lastY);
+            return line((top + bottom) / 2, first.xStart, last.xStop);
+        }
+        Pair upper = first.y <= last.y ? first : last;
+        Pair lower = upper == first ? last : first;
+        return List.of(
+                new ImagePoint(upper.xStart, upper.y), new ImagePoint(upper.xStop, upper.y),
+                new ImagePoint(lower.xStop, lower.lastY), new ImagePoint(lower.xStart, lower.lastY));
+    }
+
+    static List<ImagePoint> line(int y, int xStart, int xStop) {
+        return List.of(new ImagePoint(xStart, y), new ImagePoint(xStop, y));
+    }
+
     private static boolean plausible(Pair left, Pair right) {
         int widthLeft = left.xStop - left.xStart;
         int widthRight = right.xStop - right.xStart;
@@ -614,7 +687,9 @@ final class DataBarDecoder {
         final int finder;
         final int xStart;
         final int xStop;
+        /** Rows of the first and the last sighting. */
         int y;
+        int lastY;
         int count = 1;
 
         Pair(Character left, Character right, int finder, int xStart, int xStop) {
