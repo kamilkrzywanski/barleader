@@ -11,6 +11,7 @@ import io.github.kamilkrzywanski.barcode.locate.dm.QrConcentric.Ring;
 import io.github.kamilkrzywanski.barcode.locate.dm.QrCursor.FloatCursor;
 import io.github.kamilkrzywanski.barcode.locate.dm.QrCursor.IntCursor;
 import io.github.kamilkrzywanski.barcode.locate.dm.QrCursor.View;
+import io.github.kamilkrzywanski.barcode.qr.QrVersion;
 
 import java.util.ArrayList;
 import java.util.Comparator;

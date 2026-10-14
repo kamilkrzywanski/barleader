@@ -1,6 +1,6 @@
 # barcode-pro
 
-A barcode reader in pure Java, with no JNI, no OpenCV and no native libraries. Apache License 2.0.
+A barcode reader in pure Java, with no JNI, no OpenCV and no native libraries, which also writes QR Codes. Apache License 2.0.
 
 barcode-pro reads QR Code, Micro QR, Data Matrix, Aztec, PDF417, Code 128, Code 39, Code 93, EAN-13, EAN-8, UPC-A, UPC-E, ITF, Codabar and the GS1 DataBar family from photos and scans. The detectors and bit decoders are a Java port of the read path of [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp) 3.1.1, and the binarizers and Reed-Solomon decoders a port of [ZXing](https://github.com/zxing/zxing) 3.5.4. Around them sits a ladder of image variants (inversion, contrast, illumination, thresholds, rotations, scales, a finder for tilted linear symbols) that is tried until one of them decodes. On hard images it reads far more than the usual Java ZXing call, and on clean images it stops after the first attempt.
 
@@ -119,6 +119,22 @@ On KAIST's 788 photos without a barcode, ZXing reads something on 7, fast on non
 
 **Robustness.** 1,500 random, degenerate (from 1×1 pixel to 3 megapixels) and damaged images in every mode raise no exception.
 
+## Writing QR Codes
+
+```java
+QrCode qr = QrCode.encode("https://example.com");
+ImageIO.write(qr.toImage(8), "png", new File("qr.png"));        // 8 pixels a module, 4-module quiet zone
+Files.writeString(Path.of("qr.svg"), qr.toSvg());
+
+QrCode label = QrCode.encode("Zażółć gęślą jaźń", QrOptions.defaults()
+        .errorCorrection(QrErrorCorrection.Q)                     // L, M (default), Q or H
+        .version(5)                                               // fixed size; default: the smallest that fits
+        .mask(-1));                                               // default: the lowest penalty
+QrCode binary = QrCode.encode(bytes, QrOptions.defaults());       // byte mode, no ECI
+```
+
+The text is one segment in the most compact mode that holds all of it: numeric, alphanumeric, byte, or Kanji with `charset(Shift_JIS)`. Text that fits ISO-8859-1, the character set QR Code assumes, is written in it without an ECI; any other text is UTF-8 announced with ECI 26, so a reader does not have to guess. `charset(...)` sets it, announced with its ECI, and `gs1(true)` marks GS1 element strings. `isDark(x, y)` and `size()` give the modules for drawing them yourself. The encoder is a port of ZXing's, and for the same choices every module is the one ZXing writes; the tests check that, and that both readers read the result back.
+
 ## What it does not read yet
 
 - MaxiCode, Telepen and DX film edge. Their decoders are ported and tested, but there is no photo detector for them in the ladder yet.
@@ -151,8 +167,10 @@ This needs JDK 17 or later and Maven 3.9. CI builds on JDK 17, 21 and 25: [.gith
 
 | Package | Role |
 | --- | --- |
-| `io.github.kamilkrzywanski.barcode` | The API: `BarcodeReader`, `ReadOptions`, `BarcodeHit`, `Symbology`. Also the attempt ladder (`Scan`) and the tilted-band finder. |
-| `….image` | Luminance, rotations, scales, homographies. |
+| `io.github.kamilkrzywanski.barcode` | The API: `BarcodeReader`, `ReadOptions`, `BarcodeHit`, `Symbology`, and `QrCode`, `QrOptions`, `QrErrorCorrection` for writing. Also the attempt ladder (`Scan`) and the tilted-band finder. |
+| `….image` | Luminance, rotations, scales, homographies, and the binarizers. |
+| `….ecc` | Reed-Solomon decoding and encoding, and the PDF417 error correction. |
+| `….qr` | The QR Code encoder and the version table the reader shares. |
 | `….preprocess` | Thresholds and morphology: Otsu, local mean, Gaussian, Sauvola, erosion, dilation. |
 | `….decode` | Linear readers, PDF417, MaxiCode, DataBar, text decoding. |
 | `….locate` | QR, Micro QR, Aztec and Data Matrix detectors and bit decoders. |

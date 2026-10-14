@@ -49,7 +49,10 @@ This product also includes a Java port of parts of ZXing (https://github.com/zxi
 version 3.5.4: the thresholds of core/src/main/java/com/google/zxing/common/GlobalHistogramBinarizer.java
 and HybridBinarizer.java, the Reed-Solomon decoder (common/reedsolomon/GenericGF.java,
 GenericGFPoly.java, ReedSolomonDecoder.java) and the PDF417 error correction
-(pdf417/decoder/ec/ErrorCorrection.java, ModulusGF.java, ModulusPoly.java).
+(pdf417/decoder/ec/ErrorCorrection.java, ModulusGF.java, ModulusPoly.java), and the QR Code
+encoder (qrcode/encoder/Encoder.java, MatrixUtil.java, MaskUtil.java, ByteMatrix.java,
+BlockPair.java, qrcode/decoder/Mode.java and Version.java, common/reedsolomon/ReedSolomonEncoder.java,
+and the part of common/BitArray.java and common/CharacterSetECI.java it uses).
 Copyright 2007 ZXing authors. Licensed under the Apache License, Version 2.0.
 
 Copyright 2006 Jeremias Maerki
