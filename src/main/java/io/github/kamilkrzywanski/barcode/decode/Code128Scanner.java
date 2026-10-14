@@ -5,6 +5,8 @@ import com.google.zxing.NotFoundException;
 import com.google.zxing.common.BitArray;
 import io.github.kamilkrzywanski.barcode.decode.Code128Decoder.Span;
 
+import java.util.function.Predicate;
+
 /**
  * Row scan for {@link Code128Decoder}, matching the middle-out loop in ZXing
  * {@code OneDReader} with {@code TRY_HARDER}. A reversed row is the upside-down
@@ -20,13 +22,21 @@ final class Code128Scanner {
     }
 
     static Found read(BinaryBitmap image) {
+        return read(image, found -> true);
+    }
+
+    /**
+     * The first symbol {@code accept} takes. A row whose read is refused does not end the scan, as
+     * zxing-cpp keeps scanning until a symbol has been seen on {@code minLineCount} rows.
+     */
+    static Found read(BinaryBitmap image, Predicate<Found> accept) {
         if (image == null || image.getWidth() < 2 || image.getHeight() < 2) {
             return null;
         }
-        return scan(image);
+        return scan(image, accept);
     }
 
-    private static Found scan(BinaryBitmap image) {
+    private static Found scan(BinaryBitmap image, Predicate<Found> accept) {
         int width = image.getWidth();
         int height = image.getHeight();
         int rowStep = Math.max(1, height >> 8);
@@ -45,11 +55,11 @@ final class Code128Scanner {
                 continue;
             }
             Found forward = decode(row, y, false);
-            if (forward != null) {
+            if (forward != null && accept.test(forward)) {
                 return forward;
             }
             Found reversed = decode(reversed(row), y, true);
-            if (reversed != null) {
+            if (reversed != null && accept.test(reversed)) {
                 return reversed;
             }
         }

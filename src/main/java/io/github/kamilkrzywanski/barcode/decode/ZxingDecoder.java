@@ -384,11 +384,9 @@ public final class ZxingDecoder {
         if (!symbologies.contains(Symbology.CODE_128)) {
             return List.of();
         }
-        Code128Scanner.Found found = Code128Scanner.read(image);
-        if (found == null || found.text() == null || found.text().isBlank()) {
-            return List.of();
-        }
-        if (!confirmedCode128(source, found)) {
+        Code128Scanner.Found found = Code128Scanner.read(image, candidate -> candidate.text() != null
+                && !candidate.text().isBlank() && confirmedCode128(source, candidate));
+        if (found == null) {
             return List.of();
         }
         List<ImagePoint> corners = new ArrayList<>(2);

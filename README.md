@@ -85,13 +85,13 @@ All numbers come from this repository and its `datasets` submodule, [barcode-pro
 | Data Matrix | 79 | 41 | 77 | 77 |
 | Aztec | 47 | 20 | 47 | 47 |
 | PDF417 | 56 | 52 | 56 | 56 |
-| Code 128 | 22 | 21 | 21 | 22 |
+| Code 128 | 22 | 21 | 22 | 22 |
 | Code 39 | 14 | 10 | 13 | 13 |
 | EAN-13 | 37 | 34 | 37 | 37 |
 | EAN-8 | 9 | 8 | 8 | 8 |
 | UPC-A | 47 | 44 | 47 | 47 |
 | UPC-E | 20 | 20 | 20 | 20 |
-| **Total** | **464** | **337** | **457** | **458** |
+| **Total** | **464** | **337** | **458** | **458** |
 
 When they are asked for, the opt-in symbologies read all of their samples: 245 of 245 DataBar, DataBar Limited and DataBar Expanded images, 18 of 18 ITF, 15 of 15 Codabar (14 in fast) and 3 of 3 Code 93. With `eanAddOn(EanAddOn.READ)` all 10 EAN-13 and UPC-A samples that carry a supplement come back with it. Across all 795 images, including the three of zxing-cpp's false-positive set, one text is wrong: an Italian Code 32 pharmacode returned as its raw Code 39 text.
 

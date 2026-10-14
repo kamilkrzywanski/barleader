@@ -64,8 +64,28 @@ final class Code128Decoder {
         if (black == null || black.length == 0) {
             return null;
         }
-        int[] runs = OneDRow.runs(black);
-        View view = View.of(runs);
+        View next = View.of(OneDRow.runs(black));
+        View[] stopped = new View[1];
+        // ODReader's DoDecode with tryHarder: a failed try goes on from the bar after the one it stopped at,
+        // so a start-like pattern in the text in front of the symbol does not cost the whole row.
+        while (next.size() > 0) {
+            Span span = decodeAt(next, stopped, false);
+            if (span != null || stopped[0] == null) {
+                return span;
+            }
+            span = decodeAt(next, new View[1], true);
+            if (span != null) {
+                return span;
+            }
+            next = stopped[0];
+            next.shift(2 - (next.data() - 1) % 2);
+            next.extend();
+        }
+        return null;
+    }
+
+    /** {@code Code128Reader::decodePattern}. {@code stopped} gets the view it failed at, null when no guard is left. */
+    private static Span decodeAt(View view, View[] stopped, boolean variance) {
         View guard = OneDRow.findLeftGuard(
                 view,
                 MIN_CHARS * CHAR_LEN,
@@ -73,15 +93,17 @@ final class Code128Decoder {
                 4,
                 QUIET_ZONE
         );
+        stopped[0] = guard;
         if (guard == null) {
             return null;
         }
         int left = guard.pixelsInFront();
         View next = guard.sub(0, CHAR_LEN);
+        stopped[0] = next;
         if (!next.isValid()) {
             return null;
         }
-        int start = decodePattern(next, true);
+        int start = decodePattern(next, true, variance);
         if (start < CODE_START_A || start > CODE_START_C) {
             return null;
         }
@@ -92,7 +114,7 @@ final class Code128Decoder {
             if (!next.skipSymbol()) {
                 return null;
             }
-            int code = decodePattern(next, false);
+            int code = decodePattern(next, false, variance);
             if (code < 0) {
                 return null;
             }
@@ -108,6 +130,7 @@ final class Code128Decoder {
             return null;
         }
         View stop = next.sub(0, CHAR_LEN + 1);
+        stopped[0] = stop;
         if (!stop.isValid()
                 || stop.at(CHAR_LEN) > stop.sum(CHAR_LEN) / 4
                 || !stop.hasQuietZoneAfter((float) (QUIET_ZONE / 13))) {
@@ -131,7 +154,13 @@ final class Code128Decoder {
         return new Span(value, left, right);
     }
 
-    private static int decodePattern(View view, boolean start) {
+    private static int decodePattern(View view, boolean start, boolean variance) {
+        if (variance) {
+            int code = OneDRow.decodeDigit(view, PATTERNS, MAX_AVG_VARIANCE, MAX_INDIVIDUAL_VARIANCE);
+            if (code >= 0) {
+                return code;
+            }
+        }
         int[] e2e = OneDRow.normalizedE2E(view, CHAR_LEN, CHAR_MODS);
         int code = e2e == null ? -1 : indexOf(E2E, OneDRow.pack(e2e));
         if (code < 0 && !start) {
