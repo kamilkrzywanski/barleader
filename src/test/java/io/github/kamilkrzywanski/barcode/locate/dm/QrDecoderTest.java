@@ -139,6 +139,14 @@ class QrDecoderTest {
                 0x52, 0x05, 0x99, 0x60, 0x5F, 0xB5, 0x35, 0x80, 0x01, 0x08, 0x00, 0xEC, 0x11), 1));
     }
 
+    /** ISO/IEC 18004: Kanji is Shift_JIS whatever ECI is in force, before it or after it. */
+    @Test
+    void kanjiStaysShiftJisNextToAnEci() {
+        // 日 is Shift_JIS 0x93FA, 13-bit value (0x93FA - 0x8140) / 0x100 * 0xC0 + low byte = 3642.
+        assertEquals("\u65e5a", QrDecoder.decodeStream(pack(0x08, 4, 1, 8, 3642, 13, 0x07, 4, 26, 8, 0x04, 4, 1, 8, 0x61, 8), 1));
+        assertEquals("\u65e5\u00e9", QrDecoder.decodeStream(pack(0x07, 4, 26, 8, 0x08, 4, 1, 8, 3642, 13, 0x04, 4, 2, 8, 0xC3, 8, 0xA9, 8), 1));
+    }
+
     /**
      * Locked to zxing-cpp {@code QRFormatInformationTest} model 2.
      * Equality is the data mask, the error-correction level, and the model. Hamming is not compared.

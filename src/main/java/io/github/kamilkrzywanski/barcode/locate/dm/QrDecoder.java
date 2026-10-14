@@ -582,12 +582,22 @@ final class QrDecoder {
     /**
      * Byte blocks and the ECI markers that cover them. Once an ECI has been seen,
      * a later non-ECI switch does not start a new block: those bytes stay in the
-     * current ECI, matching {@code Content::switchEncoding}.
+     * current ECI, matching {@code Content::switchEncoding}. Kanji and Hanzi are the
+     * exception: their bytes are Shift_JIS and GB18030 whatever ECI is in force, as
+     * ISO/IEC 18004 has it and ZXing reads them, where zxing-cpp 3.1.1 lets a later
+     * ECI turn earlier Kanji into ISO-8859-1. A segment is its ECI, its first byte and
+     * its kind.
      */
     private static final class Content {
+        private static final int SWITCH = 0;
+        private static final int DECLARED = 1;
+        private static final int FIXED = 2;
+        private static final int RESUME = 3;
+
         private final List<Integer> bytes = new ArrayList<>();
         private final List<int[]> segments = new ArrayList<>();
         private boolean hasEci;
+        private int declared = ECI_LATIN1;
         private boolean fnc1;
 
         int size() {
@@ -596,12 +606,35 @@ final class QrDecoder {
 
         void encoding(int eci, boolean isEci) {
             if (isEci && !hasEci) {
+                // The switches before the first ECI go, and their bytes become ISO-8859-1; a Kanji
+                // or Hanzi run keeps its set, and the bytes after it are ISO-8859-1 again.
+                List<int[]> kept = new ArrayList<>();
+                for (int i = 0; i < segments.size(); i++) {
+                    if (segments.get(i)[2] == FIXED) {
+                        kept.add(segments.get(i));
+                        int end = i + 1 < segments.size() ? segments.get(i + 1)[1] : bytes.size();
+                        kept.add(new int[]{ECI_LATIN1, end, RESUME});
+                    }
+                }
                 segments.clear();
+                segments.addAll(kept);
             }
             if (isEci || !hasEci) {
-                segments.add(new int[]{eci, bytes.size()});
+                segments.add(new int[]{eci, bytes.size(), isEci ? DECLARED : SWITCH});
             }
             hasEci |= isEci;
+            if (isEci) {
+                declared = eci;
+            }
+        }
+
+        /** A Kanji or Hanzi run in {@code eci}; after it the ECI in force applies again. */
+        private void fixed(int eci, Runnable append) {
+            segments.add(new int[]{eci, bytes.size(), FIXED});
+            append.run();
+            if (hasEci) {
+                segments.add(new int[]{declared, bytes.size(), RESUME});
+            }
         }
 
         void append(String text) {
@@ -673,26 +706,28 @@ final class QrDecoder {
         }
 
         boolean kanji(BitReader bits, int count) {
-            encoding(ECI_SHIFT_JIS, false);
-            for (int i = 0; i < count; i++) {
-                int value = bits.read(13);
-                int assembled = ((value / 0x0C0) << 8) | (value % 0x0C0);
-                assembled += assembled < 0x01F00 ? 0x08140 : 0x0C140;
-                appendByte(assembled >> 8);
-                appendByte(assembled);
-            }
+            fixed(ECI_SHIFT_JIS, () -> {
+                for (int i = 0; i < count; i++) {
+                    int value = bits.read(13);
+                    int assembled = ((value / 0x0C0) << 8) | (value % 0x0C0);
+                    assembled += assembled < 0x01F00 ? 0x08140 : 0x0C140;
+                    appendByte(assembled >> 8);
+                    appendByte(assembled);
+                }
+            });
             return true;
         }
 
         boolean hanzi(BitReader bits, int count) {
-            encoding(ECI_GB18030, false);
-            for (int i = 0; i < count; i++) {
-                int value = bits.read(13);
-                int assembled = ((value / 0x060) << 8) | (value % 0x060);
-                assembled += assembled < 0x00A00 ? 0x0A1A1 : 0x0A6A1;
-                appendByte(assembled >> 8);
-                appendByte(assembled);
-            }
+            fixed(ECI_GB18030, () -> {
+                for (int i = 0; i < count; i++) {
+                    int value = bits.read(13);
+                    int assembled = ((value / 0x060) << 8) | (value % 0x060);
+                    assembled += assembled < 0x00A00 ? 0x0A1A1 : 0x0A6A1;
+                    appendByte(assembled >> 8);
+                    appendByte(assembled);
+                }
+            });
             return true;
         }
 
