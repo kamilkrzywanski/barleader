@@ -214,7 +214,16 @@ public final class ZxingDecoder {
         if (found == null || found.text() == null || found.text().isBlank()) {
             return List.of();
         }
-        if (!confirmedEan(source, found, symbologies)) {
+        // A short UPC-E or EAN-8 has to repeat on the parallel strip: one row of slanted bars can
+        // checksum as one. A full EAN-13 or UPC-A may instead repeat on any other row of this
+        // bitmap, which is zxing-cpp's two-line rule and keeps small blurred labels whose only
+        // clean rows are far from the strip or right next to the first one. Not on a shrunken
+        // image or a band crop: their neighbouring rows are near copies, and on the Arte-Lab
+        // photos they repeated checksum-valid wrong codes such as 6328925005431.
+        if (!confirmedEan(source, found, symbologies)
+                && !(fullRetail(found.symbology())
+                        && fullResolution(attempt)
+                        && UpcEanScanner.seenOnAnotherRow(image, symbologies, found))) {
             return List.of();
         }
         // The first row that confirms can be a short glitch while the same bitmap's real bars
@@ -659,6 +668,14 @@ public final class ZxingDecoder {
             }
         }
         return out;
+    }
+
+    private static boolean fullResolution(String attempt) {
+        return !attempt.startsWith("linear-band") && !attempt.startsWith("downscale") && !attempt.equals("scale-0.5");
+    }
+
+    private static boolean fullRetail(Symbology symbology) {
+        return symbology == Symbology.EAN_13 || symbology == Symbology.UPC_A;
     }
 
     private static boolean confirmedEan(LuminanceSource source, UpcEanScanner.Found found, Set<Symbology> symbologies) {

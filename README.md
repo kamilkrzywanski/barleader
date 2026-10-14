@@ -84,11 +84,11 @@ All numbers come from this repository and can be repeated with the commands in [
 | PDF417 | 56 | 52 | 56 | 56 |
 | Code 128 | 22 | 21 | 21 | 22 |
 | Code 39 | 14 | 10 | 13 | 13 |
-| EAN-13 | 37 | 34 | 33 | 33 |
+| EAN-13 | 37 | 34 | 37 | 37 |
 | EAN-8 | 9 | 8 | 8 | 8 |
-| UPC-A | 47 | 44 | 36 | 47 |
+| UPC-A | 47 | 44 | 47 | 47 |
 | UPC-E | 20 | 20 | 20 | 20 |
-| **Total** | **464** | **337** | **442** | **454** |
+| **Total** | **464** | **337** | **457** | **458** |
 
 When they are asked for, the opt-in symbologies read all of their samples: 245 of 245 DataBar, DataBar Limited and DataBar Expanded images, 18 of 18 ITF, 15 of 15 Codabar (14 in fast) and 3 of 3 Code 93. Across all 795 images, including the three of zxing-cpp's false-positive set, one text is wrong: an Italian Code 32 pharmacode returned as its raw Code 39 text.
 
@@ -96,7 +96,7 @@ When they are asked for, the opt-in symbologies read all of their samples: 245 o
 
 | | ZXing | fast | aggressive |
 | --- | ---: | ---: | ---: |
-| Labels read | 205 | 235 | 378 |
+| Labels read | 205 | 243 | 378 |
 | Wrong texts | 9 | 5 | 5 |
 
 The aggressive ladder was tuned on these photos, so treat 378 as what the ladder can reach on this kind of image, not as a measurement on unseen data.
@@ -145,7 +145,7 @@ This needs JDK 17 or later and Maven 3.9. CI builds on JDK 17, 21 and 25: [.gith
 
 - Detection and decoding follow zxing-cpp 3.1.1. Every ported class names its source file, and [NOTICE](NOTICE) lists them.
 - Writing barcodes is out of scope. Use ZXing or zxing-cpp for that.
-- A false read is worse than no read. Linear symbols are confirmed on a parallel strip, and variants that only make sense for matrix codes do not decode linear ones.
+- A false read is worse than no read. A linear symbol has to repeat on a parallel strip; a full EAN-13 or UPC-A may instead repeat on any other row, as zxing-cpp requires, except on shrunken images and band crops. Variants that only make sense for matrix codes do not decode linear ones.
 
 ## License
 

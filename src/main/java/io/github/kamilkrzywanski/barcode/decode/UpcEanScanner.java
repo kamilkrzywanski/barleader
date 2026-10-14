@@ -39,6 +39,41 @@ final class UpcEanScanner {
                 || symbologies.contains(Symbology.UPC_E);
     }
 
+    /**
+     * Whether a row other than {@code found.row()} reads the same symbology and text, scanning
+     * middle-out with the same step as {@link #read}. This is zxing-cpp's {@code minLineCount}
+     * of two: a symbol counts once two scan lines agree.
+     */
+    static boolean seenOnAnotherRow(BinaryBitmap image, Set<Symbology> symbologies, Found found) {
+        int width = image.getWidth();
+        int height = image.getHeight();
+        int rowStep = Math.max(1, height >> 8);
+        int middle = height / 2;
+        BitArray row = new BitArray(width);
+        for (int step = 0; step < height; step++) {
+            int away = (step + 1) / 2;
+            boolean above = (step & 1) == 0;
+            int y = middle + rowStep * (above ? away : -away);
+            if (y < 0 || y >= height) {
+                break;
+            }
+            if (y == found.row()) {
+                continue;
+            }
+            try {
+                row = image.getBlackRow(y, row);
+            } catch (NotFoundException ignored) {
+                continue;
+            }
+            for (Found again : new Found[]{decode(row, y, false, symbologies), decode(reversed(row), y, true, symbologies)}) {
+                if (again != null && again.symbology() == found.symbology() && again.text().equals(found.text())) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     private static Found scan(BinaryBitmap image, Set<Symbology> symbologies) {
         int width = image.getWidth();
         int height = image.getHeight();
