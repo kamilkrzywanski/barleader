@@ -3,12 +3,21 @@ package io.github.kamilkrzywanski.barcode;
 /**
  * What {@link BarcodeWriter} can write: the symbologies of ZXing's writers and of Barcode-Lib4J.
  * The content each takes is described at the constant.
+ *
+ * <p>GS1 content is element strings, each Application Identifier in parentheses. A value of
+ * variable length that is not the last ends with GS ({@code \u001D}), since it may itself hold a
+ * parenthesis: {@code (10)AB-123\u001D(17)250630}. The GS after a value of fixed length is not
+ * needed and is dropped. The check digit of AI 00, 01 and 02 may be {@code #} to have it computed.
  */
 public enum BarcodeType {
     /** Any text; see {@link QrCode}. */
     QR_CODE(false),
-    /** GS1 element strings with FNC1 in first position, written as {@code (01)09501101530003(10)AB-123}. */
+    /** GS1 element strings with FNC1 in first position: {@code (01)09501101530003(10)AB-123}. */
     GS1_QR_CODE(false),
+    /** Any text, ECC 200. */
+    DATA_MATRIX(false),
+    /** GS1 element strings with FNC1 in first position: {@code (01)09501101530003(17)250630}. */
+    GS1_DATA_MATRIX(false),
     /** ASCII text, the code sets A, B and C chosen as the text goes. */
     CODE_128(true),
     /** ASCII up to underscore, control characters included, all in code set A. */
@@ -17,7 +26,7 @@ public enum BarcodeType {
     CODE_128_B(true),
     /** An even number of digits, all in code set C; an odd number gets a leading zero. */
     CODE_128_C(true),
-    /** GS1 element strings, written as {@code (01)09501101530003(17)140704(10)AB-123}. */
+    /** GS1 element strings: {@code (01)09501101530003(17)140704(10)AB-123}. */
     GS1_128(true),
     /** A GTIN-14 in GS1-128 with AI 01: 13 digits, or 14 with the check digit. */
     EAN_14(true),

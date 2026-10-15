@@ -193,6 +193,7 @@ class BarcodeWriterTest {
                 new Case(BarcodeType.CODE_128, "Hello, World!", Symbology.CODE_128, "Hello, World!"),
                 new Case(BarcodeType.CODE_128_C, "12345678", Symbology.CODE_128, "12345678"),
                 new Case(BarcodeType.GS1_128, "(01)09501101530003(10)AB-123", Symbology.CODE_128, "010950110153000310AB-123"),
+                new Case(BarcodeType.GS1_128, "(10)AB-123\u001D(17)250630", Symbology.CODE_128, "10AB-123\u001D17250630"),
                 new Case(BarcodeType.CODE_39, "CODE-39", Symbology.CODE_39, "CODE-39"),
                 new Case(BarcodeType.PZN, "123456", Symbology.CODE_39, "-1234562"),
                 new Case(BarcodeType.CODE_93, "CODE 93", Symbology.CODE_93, "CODE 93"),

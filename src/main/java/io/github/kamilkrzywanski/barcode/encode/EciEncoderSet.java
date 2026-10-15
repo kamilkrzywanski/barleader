@@ -1,4 +1,4 @@
-package io.github.kamilkrzywanski.barcode.qr;
+package io.github.kamilkrzywanski.barcode.encode;
 
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetEncoder;
@@ -15,7 +15,7 @@ import java.util.List;
  * <p>Ported from ZXing 3.5.4 {@code com.google.zxing.common.ECIEncoderSet} (Apache License 2.0, the
  * ZXing authors).
  */
-final class EciEncoderSet {
+public final class EciEncoderSet {
     private static final List<CharsetEncoder> ENCODERS = new ArrayList<>();
 
     static {
@@ -24,7 +24,7 @@ final class EciEncoderSet {
                 "ISO-8859-16", "windows-1250", "windows-1251", "windows-1252", "windows-1256", "Shift_JIS"};
         for (String name : names) {
             // As in ZXing, only a set its ECI table knows by this name: IBM437 is not.
-            if (QrEncoder.eciValue(name) >= 0) {
+            if (Eci.value(name) >= 0) {
                 try {
                     ENCODERS.add(Charset.forName(name).newEncoder());
                 } catch (UnsupportedCharsetException absent) {
@@ -41,7 +41,7 @@ final class EciEncoderSet {
      * @param priorityCharset the set to use for every character it can encode, or null
      * @param fnc1            the character that stands for FNC1 in GS1 text, or -1
      */
-    EciEncoderSet(String stringToEncode, Charset priorityCharset, int fnc1) {
+    public EciEncoderSet(String stringToEncode, Charset priorityCharset, int fnc1) {
         List<CharsetEncoder> neededEncoders = new ArrayList<>();
         neededEncoders.add(StandardCharsets.ISO_8859_1.newEncoder());
         boolean needUnicodeEncoder = priorityCharset != null && priorityCharset.name().startsWith("UTF");
@@ -90,36 +90,36 @@ final class EciEncoderSet {
         priorityEncoderIndex = priority;
     }
 
-    int length() {
+    public int length() {
         return encoders.length;
     }
 
-    String getCharsetName(int index) {
+    public String getCharsetName(int index) {
         return encoders[index].charset().name();
     }
 
-    Charset getCharset(int index) {
+    public Charset getCharset(int index) {
         return encoders[index].charset();
     }
 
-    int getEciValue(int encoderIndex) {
-        return QrEncoder.eciValue(encoders[encoderIndex].charset().name());
+    public int getEciValue(int encoderIndex) {
+        return Eci.value(encoders[encoderIndex].charset().name());
     }
 
     /** -1 when no priority set was given, or it is not among these. */
-    int getPriorityEncoderIndex() {
+    public int getPriorityEncoderIndex() {
         return priorityEncoderIndex;
     }
 
-    boolean canEncode(char c, int encoderIndex) {
+    public boolean canEncode(char c, int encoderIndex) {
         return encoders[encoderIndex].canEncode("" + c);
     }
 
-    byte[] encode(char c, int encoderIndex) {
+    public byte[] encode(char c, int encoderIndex) {
         return ("" + c).getBytes(encoders[encoderIndex].charset());
     }
 
-    byte[] encode(String s, int encoderIndex) {
+    public byte[] encode(String s, int encoderIndex) {
         return s.getBytes(encoders[encoderIndex].charset());
     }
 }

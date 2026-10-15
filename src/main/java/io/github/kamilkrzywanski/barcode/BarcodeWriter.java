@@ -8,6 +8,11 @@ import io.github.kamilkrzywanski.barcode.encode.Linear;
 import io.github.kamilkrzywanski.barcode.encode.UpcEanEncoder;
 import io.github.kamilkrzywanski.barcode.encode.UpcEanEncoder.Kind;
 import io.github.kamilkrzywanski.barcode.encode.WideNarrowEncoders;
+import io.github.kamilkrzywanski.barcode.encode.datamatrix.DataMatrixEncoder;
+import io.github.kamilkrzywanski.barcode.encode.datamatrix.SymbolShapeHint;
+
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 
 import java.util.Objects;
 
@@ -50,6 +55,11 @@ public final class BarcodeWriter {
             case GS1_QR_CODE -> {
                 Gs1 gs1 = new Gs1(content, GS);
                 yield qr(type, gs1.getContent(), gs1.getText(), options);
+            }
+            case DATA_MATRIX -> dataMatrix(type, content, content, false, options);
+            case GS1_DATA_MATRIX -> {
+                Gs1 gs1 = new Gs1(content, GS);
+                yield dataMatrix(type, gs1.getContent(), gs1.getText(), true, options);
             }
             case CODE_128 -> code128(type, content, content, CodeSet.AUTO, options);
             case CODE_128_A -> code128(type, content, content, CodeSet.A, options);
@@ -108,12 +118,34 @@ public final class BarcodeWriter {
         return new Barcode(type, modules, text == null ? content : text, quiet, quiet, quiet, quiet);
     }
 
+    /**
+     * Data Matrix through ZXing's high-level encoder, or its minimal one when asked for, when a
+     * character set is given, or when the text has a character outside ISO-8859-1, which the
+     * high-level encoder cannot write; that text is then UTF-8 with an ECI.
+     */
+    private static Barcode dataMatrix(BarcodeType type, String content, String text, boolean gs1, WriteOptions options) {
+        SymbolShapeHint shape = switch (options.dataMatrixShape()) {
+            case SQUARE -> SymbolShapeHint.FORCE_SQUARE;
+            case RECTANGLE -> SymbolShapeHint.FORCE_RECTANGLE;
+            default -> SymbolShapeHint.FORCE_NONE;
+        };
+        Charset charset = options.charset();
+        boolean latin1 = StandardCharsets.ISO_8859_1.newEncoder().canEncode(content);
+        boolean compact = options.compact() || charset != null || !latin1;
+        if (charset == null && !latin1) {
+            charset = StandardCharsets.UTF_8;
+        }
+        boolean[][] modules = DataMatrixEncoder.encode(content, shape, gs1, compact, charset);
+        int quiet = options.quietZone() >= 0 ? options.quietZone() : 1;
+        return new Barcode(type, modules, text, quiet, quiet, quiet, quiet);
+    }
+
     private static Barcode code128(BarcodeType type, String content, String text, CodeSet codeSet, WriteOptions options) {
         return linear(type, new Linear.Bars(Code128Encoder.encode(content, codeSet, options.compact()), text), options, LINEAR_QUIET_ZONE);
     }
 
     private static Barcode gs1128(BarcodeType type, String content, WriteOptions options) {
-        Gs1 gs1 = new Gs1(content, Code128Encoder.FNC_1);
+        Gs1 gs1 = new Gs1(content.replace(GS, Code128Encoder.FNC_1), Code128Encoder.FNC_1);
         return code128(type, Code128Encoder.FNC_1 + gs1.getContent(), gs1.getText(), CodeSet.AUTO, options);
     }
 
