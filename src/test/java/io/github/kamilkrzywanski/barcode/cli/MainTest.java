@@ -8,6 +8,8 @@ import java.net.URISyntaxException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -68,6 +70,38 @@ class MainTest {
         assertEquals(2, run("qr").status);
         assertEquals(2, run("qr", "--level=X", "text").status);
         assertEquals(2, run("qr", "--version=1", "x".repeat(200)).status);
+    }
+
+    @Test
+    void writesEveryTypeThatReadsBack() throws Exception {
+        record Case(String[] options, String content, String text) {
+        }
+        for (Case c : List.of(
+                new Case(new String[]{"--type=CODE_128"}, "ABC-123", "ABC-123"),
+                new Case(new String[]{"--type=ean_13", "--height=40"}, "590123412345", "5901234123457"),
+                new Case(new String[]{"--type=DATA_MATRIX", "--shape=RECTANGLE"}, "Hello, World!", "Hello, World!"),
+                new Case(new String[]{"--type=PDF_417", "--level=4", "--truncated"}, "Zażółć gęślą jaźń", "Zażółć gęślą jaźń"),
+                new Case(new String[]{"--type=AZTEC", "--level=50", "--quiet=2"}, "Aztec", "Aztec"),
+                new Case(new String[]{"--level=H"}, "QR", "QR"))) {
+            Path png = Files.createTempFile("barcode-pro-write", ".png");
+            try {
+                List<String> args = new ArrayList<>(List.of("write", "--out=" + png));
+                args.addAll(List.of(c.options()));
+                args.add(c.content());
+                Run write = run(args.toArray(String[]::new));
+                assertEquals(0, write.status, write.err);
+                Run read = run(png.toString());
+                assertEquals(0, read.status, read.err);
+                assertEquals(c.text(), read.out.strip().split("\t")[2], String.join(" ", c.options()));
+            } finally {
+                Files.deleteIfExists(png);
+            }
+        }
+        assertTrue(run("write", "--type=CODE_39", "SVG").out.startsWith("<svg "));
+        assertEquals(2, run("write", "--type=NOPE", "x").status);
+        assertEquals(2, run("write", "--type=EAN_8", "--level=2", "1234567").status);
+        assertEquals(2, run("write", "--type=EAN_8", "12345").status);
+        assertEquals(2, run("write").status);
     }
 
     @Test

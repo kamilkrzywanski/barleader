@@ -1,6 +1,6 @@
 # barcode-pro
 
-A barcode reader in pure Java, with no JNI, no OpenCV and no native libraries, which also writes QR Codes. Apache License 2.0.
+A barcode reader in pure Java, with no JNI, no OpenCV and no native libraries, which also writes every symbology of the ZXing and Barcode-Lib4J writers. Apache License 2.0.
 
 barcode-pro reads QR Code, Micro QR, Data Matrix, Aztec, PDF417, Code 128, Code 39, Code 93, EAN-13, EAN-8, UPC-A, UPC-E, ITF, Codabar and the GS1 DataBar family from photos and scans. The detectors and bit decoders are a Java port of the read path of [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp) 3.1.1, and the binarizers and Reed-Solomon decoders a port of [ZXing](https://github.com/zxing/zxing) 3.5.4. Around them sits a ladder of image variants (inversion, contrast, illumination, thresholds, rotations, scales, a finder for tilted linear symbols) that is tried until one of them decodes. On hard images it reads far more than the usual Java ZXing call, and on clean images it stops after the first attempt.
 
@@ -119,7 +119,30 @@ On KAIST's 788 photos without a barcode, ZXing reads something on 7, fast on non
 
 **Robustness.** 1,500 random, degenerate (from 1×1 pixel to 3 megapixels) and damaged images in every mode raise no exception.
 
-## Writing QR Codes
+## Writing barcodes
+
+```java
+Barcode label = BarcodeWriter.encode(BarcodeType.GS1_128, "(01)09501101530003(17)250630(10)AB-123");
+ImageIO.write(label.toImage(2), "png", new File("label.png"));  // 2 pixels a module, bars 60 modules high
+Files.writeString(Path.of("label.svg"), label.toSvg());
+
+Barcode book = BarcodeWriter.encode(BarcodeType.ISBN_13, "978-3-16-148410", WriteOptions.defaults().addOn("51299"));
+Barcode matrix = BarcodeWriter.encode(BarcodeType.DATA_MATRIX, "Zażółć gęślą jaźń",
+        WriteOptions.defaults().dataMatrixShape(DataMatrixShape.RECTANGLE));
+Barcode ticket = BarcodeWriter.encode(BarcodeType.PDF_417, text,
+        WriteOptions.defaults().pdf417(Pdf417Options.defaults().errorCorrection(4).columns(6)));
+Barcode aztec = BarcodeWriter.encode(BarcodeType.AZTEC, text, WriteOptions.defaults().aztec(AztecOptions.defaults().layers(-2)));
+```
+
+`BarcodeType` lists what it writes: QR Code and GS1 QR Code, Data Matrix and GS1 Data Matrix (square or rectangular), PDF417 (also truncated), Aztec (compact and full), Code 128 (code sets chosen as the text goes, or all A, B or C), GS1-128, EAN-14, SSCC-18, Code 39 (also extended, with the optional modulo 43 check character), PZN and PZN8, Code 93 (also extended), Codabar, Code 11, ITF, EAN-13, EAN-8, UPC-A and UPC-E with 2- and 5-digit add-ons, ISBN-13 and ISMN. That is every symbology of ZXing's writers and of [Barcode-Lib4J](https://github.com/vws-java/Barcode-Lib4J) 3.2.0. A `Barcode` is its modules, `isDark(x, y)`, `width()` and `height()`, and its quiet zones, which `toImage` and `toSvg` draw around it; a linear symbol is one row of modules that a drawing stretches to the bar height. The drawings have no human-readable line.
+
+GS1 content is element strings with each application identifier in parentheses, checked as Barcode-Lib4J checks them. A value of variable length that is not the last ends with GS (`\u001D`), and `#` as the check digit of AI 00, 01 or 02 has it computed. Text in a 2D symbol that fits ISO-8859-1 is written without an ECI, other text as UTF-8 with ECI 26, and `charset(...)` chooses another. `compact(true)` takes the minimal encoders of Code 128, QR Code and Data Matrix, and lets PDF417 split the text among character sets.
+
+The encoders are ports of ZXing's, and of Barcode-Lib4J's for Code 11, PZN, ISBN, ISMN, EAN-14, SSCC-18, the add-ons, the quiet zones and GS1 Data Matrix outside the minimal encoder. For the same choices every module is the one ZXing or Barcode-Lib4J writes; the tests check that, and that the reader reads the result back. The exception is two bugs of ZXing's minimal Data Matrix encoder, fixed here: it sizes the 12×36 rectangle as 33 codewords instead of 22 and fails on 17 to 33 codewords in a rectangle, and it ends data in EDIFACT without the unlatch, so that 252 of its 15,000 compact symbols of random texts in the three shapes read back with extra characters. The defaults are the quiet zones of ISO and Barcode-Lib4J (ten modules for the linear codes, EAN and UPC their own, 4 for QR Code, 1 for Data Matrix, 2 for PDF417, none for Aztec), a wide-to-narrow ratio of 2.5, PDF417 error correction level 2 with rows three modules high where ZXing draws four, and 23% Aztec error correction as ISO/IEC 24778 recommends, where ZXing takes 33%.
+
+### QR Code
+
+`QrCode` writes QR Code with every setting of its own:
 
 ```java
 QrCode qr = QrCode.encode("https://example.com");
@@ -150,11 +173,13 @@ java -jar target/barcode-pro.jar label.jpg
 java -jar target/barcode-pro.jar --aggressive --all --formats=QR_CODE,EAN_13 --addon=read --json scans/*.png
 java -jar target/barcode-pro.jar qr --level=Q --module=8 --out=qr.png "https://example.com"
 java -jar target/barcode-pro.jar qr "Zażółć gęślą jaźń" > qr.svg
+java -jar target/barcode-pro.jar write --type=CODE_128 --module=2 --out=code.png "ABC-123"
+java -jar target/barcode-pro.jar write --type=PDF_417 --level=4 --truncated --out=ticket.svg "Zażółć gęślą jaźń"
 ```
 
 Plain output is one tab-separated line per symbol: file, symbology, text, attempt, orientation, corners and the EAN/UPC supplement (`-` when there is none). Tabs and line breaks in the text are escaped. `--json` prints one JSON object per symbol. The exit code is 0 when every image had a symbol, 1 when one had none, and 2 for wrong usage or an unreadable file.
 
-`qr` writes a QR Code instead: an image in the format of the `--out` extension, or SVG, also on standard output when there is no `--out`. `--level`, `--version`, `--mask`, `--charset`, `--gs1` and `--compact` are the `QrOptions`, `--module` the pixels a module and `--quiet` the quiet zone in modules.
+`qr` writes a QR Code instead: an image in the format of the `--out` extension, or SVG, also on standard output when there is no `--out`. `--level`, `--version`, `--mask`, `--charset`, `--gs1` and `--compact` are the `QrOptions`, `--module` the pixels a module and `--quiet` the quiet zone in modules. `write --type=...` writes any `BarcodeType` the same way, with the `WriteOptions` as options (`java -jar target/barcode-pro.jar write --help` lists them); `--level` is L, M, Q or H for QR Code, 0 to 8 for PDF417 and a percent for Aztec.
 
 ## Building
 
@@ -172,10 +197,11 @@ This needs JDK 17 or later and Maven 3.9. CI builds on JDK 17, 21 and 25: [.gith
 
 | Package | Role |
 | --- | --- |
-| `io.github.kamilkrzywanski.barcode` | The API: `BarcodeReader`, `ReadOptions`, `BarcodeHit`, `Symbology`, and `QrCode`, `QrOptions`, `QrErrorCorrection` for writing. Also the attempt ladder (`Scan`) and the tilted-band finder. |
+| `io.github.kamilkrzywanski.barcode` | The API: `BarcodeReader`, `ReadOptions`, `BarcodeHit`, `Symbology` for reading; `BarcodeWriter`, `BarcodeType`, `WriteOptions`, `Barcode` and the settings of QR Code, Data Matrix, PDF417 and Aztec for writing. Also the attempt ladder (`Scan`) and the tilted-band finder. |
 | `….image` | Luminance, rotations, scales, homographies, and the binarizers. |
 | `….ecc` | Reed-Solomon: decoding with errors and erasures as zxing-cpp's librscpp does it, and ZXing's encoder. |
 | `….qr` | The QR Code encoder and the version table the reader shares. |
+| `….encode` | The other writers: the linear symbologies, GS1 element strings, and the Data Matrix, PDF417 and Aztec encoders. |
 | `….preprocess` | Thresholds and morphology: Otsu, local mean, Gaussian, Sauvola, erosion, dilation. |
 | `….decode` | Linear readers, PDF417, MaxiCode, DataBar, text decoding. |
 | `….locate` | QR, Micro QR, Aztec and Data Matrix detectors and bit decoders. |
@@ -184,9 +210,9 @@ This needs JDK 17 or later and Maven 3.9. CI builds on JDK 17, 21 and 25: [.gith
 ## Principles
 
 - Detection and decoding follow zxing-cpp 3.1.1. Every ported class names its source file, and [NOTICE](NOTICE) lists them.
-- Writing barcodes is out of scope. Use ZXing or zxing-cpp for that.
+- Writing follows ZXing's writers module for module, and Barcode-Lib4J's where ZXing has none.
 - A false read is worse than no read. A linear symbol has to repeat on a parallel strip; a full EAN-13 or UPC-A may instead repeat on any other row, as zxing-cpp requires, except on shrunken images and band crops. Variants that only make sense for matrix codes do not decode linear ones.
 
 ## License
 
-Apache License 2.0, see [LICENSE](LICENSE). The ported zxing-cpp code keeps its authors' copyright, see [NOTICE](NOTICE). The Arte-Lab photos in the `datasets` submodule and the eight of them in `src/test/resources/artelab` are CC BY 3.0, and the zxing-cpp samples Apache 2.0.
+Apache License 2.0, see [LICENSE](LICENSE). The ported zxing-cpp, ZXing and Barcode-Lib4J code keeps its authors' copyright, see [NOTICE](NOTICE). The Arte-Lab photos in the `datasets` submodule and the eight of them in `src/test/resources/artelab` are CC BY 3.0, and the zxing-cpp samples Apache 2.0.

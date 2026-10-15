@@ -60,6 +60,8 @@ EAN8Writer.java, UPCAWriter.java and UPCEWriter.java, with the pattern tables of
 The Data Matrix writer ports datamatrix/DataMatrixWriter.java and the package datamatrix/encoder,
 with common/MinimalECIInput.java and ECIInput.java; its minimal encoder takes 22 codewords for the
 12x36 rectangle, where ZXing has 33, and writes the EDIFACT unlatch that ZXing leaves out.
+The PDF417 writer ports pdf417/PDF417Writer.java and the package pdf417/encoder, and the Aztec
+writer aztec/AztecWriter.java and the package aztec/encoder.
 Copyright 2007 ZXing authors. Licensed under the Apache License, Version 2.0.
 
 This product also includes code ported from Barcode-Lib4J (https://github.com/vws-java/Barcode-Lib4J),

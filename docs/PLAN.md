@@ -21,7 +21,7 @@ Kolejność:
 7. Reed-Solomon z wymazaniami. Wszystkie dekodery (QR, Micro QR, Data Matrix, Aztec, MaxiCode, PDF417) korygują przez port `librscpp` z zxing-cpp 3.1.1: syndromy, lokator wymazań, algorytm Sugiyamy, wzór Forneya i ponowne sprawdzenie syndromów po korekcji. ZXing liczył lokator wymazań, ale go nie używał, więc PDF417 z brakującymi słowami kodowymi naprawiał najwyżej numEC/2 z nich; teraz 2t + e ≤ numEC, jak w zxing-cpp, z limitem e ≤ numEC − 2. Końcowe sprawdzenie syndromów odrzuca błędne korekcje, które ZXing przyjmował: na `aztec-1/rune-64.png` znikł fałszywy drugi odczyt „192”.
 8. Wiersz raz dla wszystkich czytników liniowych. Profil FAST na Arte-Lab pokazał, że każdy skaner (EAN/UPC, Code 39, Code 128 i reszta) binaryzował te same wiersze od nowa i od nowa liczył z nich długości serii, w przód i wstecz: `OneDRow.runs` miał 8% czasu własnego, `getBlackRow` 7%. `BinaryBitmap` trzyma teraz wiersz i jego serie dla całej próby, jak `ODReader` w zxing-cpp buduje wiersz wzorców raz dla wszystkich czytników; serie wiersza czytanego od prawej to serie od lewej w odwrotnej kolejności. `BlackMatrix` trzyma tablicę na wiersz, którą PDF417 i DataBar biorą bez kopiowania. Odczyty bez zmian, FAST o 7–11% mniej CPU. Czas odczytu mierzy `mvn -q -Pspeed test-compile exec:java -Dexec.args="datasets/artelab-medium-barcode-1d"`.
 
-Zapis kodów zostaje poza portem. Od zxing-cpp 3.0 domyślny writer stoi na C-owej bibliotece zint.
+9. Zapis wszystkich symbologii. `BarcodeWriter.encode(BarcodeType, treść, WriteOptions)` pisze każdą symbologię writerów ZXing 3.5.4 i Barcode-Lib4J 3.2.0: QR (też GS1), Data Matrix (też GS1, kwadrat albo prostokąt), PDF417 (też obcięty), Aztec (kompaktowy i pełny), Code 128 (A, B, C i automatycznie), GS1-128, EAN-14, SSCC-18, Code 39 (z rozszerzonym i znakiem mod 43), PZN, PZN8, Code 93 (z rozszerzonym), Codabar, Code 11, ITF, EAN-13, EAN-8, UPC-A, UPC-E z dodatkami 2 i 5 cyfr, ISBN-13 i ISMN. Enkodery 2D i liniowe to porty ZXing w pakiecie `encode`, a Code 11, PZN, ISBN, ISMN, EAN-14, SSCC-18, dodatki, strefy ciszy, walidacja GS1 i GS1 Data Matrix poza enkoderem minimalnym to port Barcode-Lib4J. Testy porównują moduł po module z ZXingiem i Barcode-Lib4J (pola prywatne `TwoDSymbol` przez refleksję) i czytają wynik naszym czytnikiem. Dwa błędy minimalnego enkodera Data Matrix z ZXinga są poprawione: tabela pojemności prostokątów ma 33 zamiast 22 dla 12×36, więc ZXing rzuca wyjątek dla 17–33 słów kodowych w prostokącie, a EDIFACT na końcu danych bez unlatch sprawia, że dopełnienie czyta się jako tekst (252 z 15 000 symboli losowych tekstów). Domyślne: PDF417 poziom 2 i wiersz 3 moduły (ZXing rysuje 4), Aztec 23% korekcji jak zaleca ISO/IEC 24778 (ZXing 33%), strefy ciszy jak w Barcode-Lib4J. Tekst czytelny pod kodem nie jest rysowany. CLI: `write --type=...`.
 
 ## Stan rusztowania
 
@@ -40,7 +40,7 @@ Priorytet symbologii: QR Code, Data Matrix, Code 128, PDF417, EAN/UPC, Code 39. 
 ## Poza zakresem
 
 - JNI, JavaCV, natywny OpenCV, libdmtx, zint oraz podpięcie zxing-cpp jako biblioteki C++.
-- Port ścieżki zapisu kodów.
+- Rysowanie tekstu czytelnego pod kodem i writer zint z zxing-cpp 3.x.
 - Gwarancja jakości komercyjnych SDK na przypadkowych zdjęciach z produkcji.
 - Parytet prędkości z binarką C++.
 

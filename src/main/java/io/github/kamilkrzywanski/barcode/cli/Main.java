@@ -21,8 +21,9 @@ import java.util.List;
 import java.util.Locale;
 
 /**
- * Reads the barcodes in image files and prints one line per symbol, or with {@code qr} as the first
- * argument writes a QR Code ({@link QrCommand}).
+ * Reads the barcodes in image files and prints one line per symbol, or with {@code write} as the
+ * first argument writes a barcode ({@link WriteCommand}), and with {@code qr} a QR Code
+ * ({@link QrCommand}).
  *
  * <pre>
  * java -jar barcode-pro.jar [options] image...
@@ -50,6 +51,9 @@ public final class Main {
     static int run(String[] args, PrintStream out, PrintStream err) {
         if (args.length > 0 && args[0].equals("qr")) {
             return QrCommand.run(Arrays.copyOfRange(args, 1, args.length), out, err);
+        }
+        if (args.length > 0 && args[0].equals("write")) {
+            return WriteCommand.run(Arrays.copyOfRange(args, 1, args.length), out, err);
         }
         boolean aggressive = false;
         boolean findAll = false;
@@ -132,6 +136,7 @@ public final class Main {
     private static void usage(PrintStream stream) {
         stream.println("Usage: java -jar barcode-pro.jar [--aggressive] [--all] [--formats=QR_CODE,EAN_13,...]"
                 + " [--addon=read|require] [--json] image...");
+        WriteCommand.usage(stream);
         QrCommand.usage(stream);
     }
 

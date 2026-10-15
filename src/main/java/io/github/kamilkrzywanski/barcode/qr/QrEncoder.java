@@ -3,6 +3,7 @@ package io.github.kamilkrzywanski.barcode.qr;
 import io.github.kamilkrzywanski.barcode.QrErrorCorrection;
 import io.github.kamilkrzywanski.barcode.ecc.GenericGF;
 import io.github.kamilkrzywanski.barcode.ecc.ReedSolomonEncoder;
+import io.github.kamilkrzywanski.barcode.encode.BitBuffer;
 import io.github.kamilkrzywanski.barcode.encode.Eci;
 
 import java.nio.charset.Charset;

@@ -1,4 +1,4 @@
-package io.github.kamilkrzywanski.barcode.qr;
+package io.github.kamilkrzywanski.barcode.encode;
 
 import java.util.Arrays;
 
@@ -6,29 +6,29 @@ import java.util.Arrays;
  * A growing sequence of bits, most significant first within each appended value: the part of
  * ZXing's {@code BitArray} the QR encoder writes with.
  */
-final class BitBuffer {
+public final class BitBuffer {
     private boolean[] bits = new boolean[64];
     private int size;
 
-    int getSize() {
+    public int getSize() {
         return size;
     }
 
-    int getSizeInBytes() {
+    public int getSizeInBytes() {
         return (size + 7) / 8;
     }
 
-    boolean get(int i) {
+    public boolean get(int i) {
         return bits[i];
     }
 
-    void appendBit(boolean bit) {
+    public void appendBit(boolean bit) {
         ensureCapacity(size + 1);
         bits[size++] = bit;
     }
 
     /** The low {@code numBits} bits of {@code value}, highest first. */
-    void appendBits(int value, int numBits) {
+    public void appendBits(int value, int numBits) {
         if (numBits < 0 || numBits > 32) {
             throw new IllegalArgumentException("Num bits must be between 0 and 32");
         }
@@ -38,13 +38,13 @@ final class BitBuffer {
         }
     }
 
-    void appendBitArray(BitBuffer other) {
+    public void appendBitArray(BitBuffer other) {
         ensureCapacity(size + other.size);
         System.arraycopy(other.bits, 0, bits, size, other.size);
         size += other.size;
     }
 
-    void xor(BitBuffer other) {
+    public void xor(BitBuffer other) {
         if (size != other.size) {
             throw new IllegalArgumentException("Sizes don't match");
         }
@@ -54,7 +54,7 @@ final class BitBuffer {
     }
 
     /** {@code numBytes} bytes from bit {@code bitOffset} on, the first bit as the high bit of a byte. */
-    void toBytes(int bitOffset, byte[] array, int offset, int numBytes) {
+    public void toBytes(int bitOffset, byte[] array, int offset, int numBytes) {
         for (int i = 0; i < numBytes; i++) {
             int theByte = 0;
             for (int j = 0; j < 8; j++) {

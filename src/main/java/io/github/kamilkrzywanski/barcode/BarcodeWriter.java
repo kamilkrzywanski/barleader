@@ -8,8 +8,10 @@ import io.github.kamilkrzywanski.barcode.encode.Linear;
 import io.github.kamilkrzywanski.barcode.encode.UpcEanEncoder;
 import io.github.kamilkrzywanski.barcode.encode.UpcEanEncoder.Kind;
 import io.github.kamilkrzywanski.barcode.encode.WideNarrowEncoders;
+import io.github.kamilkrzywanski.barcode.encode.aztec.Encoder;
 import io.github.kamilkrzywanski.barcode.encode.datamatrix.DataMatrixEncoder;
 import io.github.kamilkrzywanski.barcode.encode.datamatrix.SymbolShapeHint;
+import io.github.kamilkrzywanski.barcode.encode.pdf417.Pdf417Encoder;
 
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
@@ -61,6 +63,8 @@ public final class BarcodeWriter {
                 Gs1 gs1 = new Gs1(content, GS);
                 yield dataMatrix(type, gs1.getContent(), gs1.getText(), true, options);
             }
+            case PDF_417 -> pdf417(type, content, options);
+            case AZTEC -> aztec(type, content, options);
             case CODE_128 -> code128(type, content, content, CodeSet.AUTO, options);
             case CODE_128_A -> code128(type, content, content, CodeSet.A, options);
             case CODE_128_B -> code128(type, content, content, CodeSet.B, options);
@@ -138,6 +142,44 @@ public final class BarcodeWriter {
         boolean[][] modules = DataMatrixEncoder.encode(content, shape, gs1, compact, charset);
         int quiet = options.quietZone() >= 0 ? options.quietZone() : 1;
         return new Barcode(type, modules, text, quiet, quiet, quiet, quiet);
+    }
+
+    /**
+     * PDF417 through ZXing's encoder: text in ISO-8859-1 without an ECI, other text UTF-8 with
+     * one, a given character set with its own; each row {@code rowHeight} modules high.
+     */
+    private static Barcode pdf417(BarcodeType type, String content, WriteOptions options) {
+        Pdf417Options pdf417 = options.pdf417();
+        Charset charset = options.charset();
+        if (charset == null && !StandardCharsets.ISO_8859_1.newEncoder().canEncode(content)) {
+            charset = StandardCharsets.UTF_8;
+        }
+        int columns = pdf417.columns();
+        int rows = pdf417.rows();
+        boolean[][] symbolRows = Pdf417Encoder.encode(content, pdf417.errorCorrection(), columns == 0 ? 1 : columns,
+                columns == 0 ? 30 : columns, rows == 0 ? 3 : rows, rows == 0 ? 90 : rows, pdf417.truncated(), charset,
+                options.compact());
+        boolean[][] modules = new boolean[symbolRows.length * pdf417.rowHeight()][];
+        for (int y = 0; y < modules.length; y++) {
+            modules[y] = symbolRows[y / pdf417.rowHeight()];
+        }
+        int quiet = options.quietZone() >= 0 ? options.quietZone() : 2;
+        return new Barcode(type, modules, content, quiet, quiet, quiet, quiet);
+    }
+
+    /** Aztec through ZXing's encoder: text in ISO-8859-1 without an ECI, other text UTF-8 with one. */
+    private static Barcode aztec(BarcodeType type, String content, WriteOptions options) {
+        if (content.isEmpty()) {
+            throw new IllegalArgumentException("Found empty contents");
+        }
+        Charset charset = options.charset();
+        if (charset == null && !StandardCharsets.ISO_8859_1.newEncoder().canEncode(content)) {
+            charset = StandardCharsets.UTF_8;
+        }
+        AztecOptions aztec = options.aztec();
+        boolean[][] modules = Encoder.encode(content, aztec.errorCorrection(), aztec.layers(), charset).getMatrix();
+        int quiet = Math.max(options.quietZone(), 0);
+        return new Barcode(type, modules, content, quiet, quiet, quiet, quiet);
     }
 
     private static Barcode code128(BarcodeType type, String content, String text, CodeSet codeSet, WriteOptions options) {

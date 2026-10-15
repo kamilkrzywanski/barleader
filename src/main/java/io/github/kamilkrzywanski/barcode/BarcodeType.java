@@ -18,6 +18,10 @@ public enum BarcodeType {
     DATA_MATRIX(false),
     /** GS1 element strings with FNC1 in first position: {@code (01)09501101530003(17)250630}. */
     GS1_DATA_MATRIX(false),
+    /** Any text; see {@link Pdf417Options}. */
+    PDF_417(false),
+    /** Any text; see {@link AztecOptions}. */
+    AZTEC(false),
     /** ASCII text, the code sets A, B and C chosen as the text goes. */
     CODE_128(true),
     /** ASCII up to underscore, control characters included, all in code set A. */

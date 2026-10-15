@@ -1,6 +1,7 @@
 package io.github.kamilkrzywanski.barcode.qr;
 
 import io.github.kamilkrzywanski.barcode.QrErrorCorrection;
+import io.github.kamilkrzywanski.barcode.encode.BitBuffer;
 
 /**
  * Lays out a QR Code: the finder, timing and alignment patterns, the format and version information

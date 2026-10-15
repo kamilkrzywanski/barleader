@@ -1,6 +1,7 @@
 package io.github.kamilkrzywanski.barcode.qr;
 
 import io.github.kamilkrzywanski.barcode.QrErrorCorrection;
+import io.github.kamilkrzywanski.barcode.encode.BitBuffer;
 import io.github.kamilkrzywanski.barcode.encode.EciEncoderSet;
 
 import java.nio.charset.Charset;
