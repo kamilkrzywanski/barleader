@@ -5,6 +5,7 @@ import io.github.kamilkrzywanski.barcode.encode.UpcEanEncoder;
 import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.geom.AffineTransform;
 import java.awt.geom.Path2D;
 import java.awt.geom.PathIterator;
 import java.awt.geom.Rectangle2D;
@@ -21,6 +22,7 @@ import java.awt.image.BufferedImage;
  * Barcode code = BarcodeWriter.encode(BarcodeType.CODE_128, "ABC-123");
  * ImageIO.write(code.toImage(2), "png", new File("code.png"));
  * Files.write(Path.of("code.pdf"), code.toPdf(0.33));
+ * code.draw(graphics, 72, 72, 0.33 * 72 / 25.4);   // on a page in points, an inch from the corner
  * </pre>
  */
 public final class Barcode {
@@ -216,6 +218,51 @@ public final class Barcode {
             }
         }
         return d.toString();
+    }
+
+    /** Draws with the {@link RenderOptions#defaults()}; see {@link #draw(Graphics2D, double, double, double, RenderOptions)}. */
+    public Rectangle2D draw(Graphics2D graphics, double x, double y, double moduleSize) {
+        return draw(graphics, x, y, moduleSize, RenderOptions.defaults());
+    }
+
+    /**
+     * Draws the barcode on any {@code Graphics2D}: a page of PDFBox or OpenPDF, a print job, a
+     * component, an image. The drawing has its top left corner at ({@code x}, {@code y}) and
+     * {@code moduleSize} user units a module, so with a page in points 0.33 mm is
+     * {@code 0.33 * 72 / 25.4}. The bars and the human-readable line are filled in the current
+     * paint with {@link Graphics2D#fill} alone, a rectangle a bar and the line as glyph outlines;
+     * the quiet zones and the background are left as they are, and the transform, the clip and the
+     * rendering hints are not touched. On a raster, a whole number of pixels a module keeps the bars
+     * sharp.
+     *
+     * @return the area of the drawing, quiet zones included, in user units
+     */
+    public Rectangle2D draw(Graphics2D graphics, double x, double y, double moduleSize, RenderOptions options) {
+        if (!(moduleSize > 0) || Double.isInfinite(moduleSize)) {
+            throw new IllegalArgumentException("moduleSize must be > 0");
+        }
+        Drawing drawing = Drawing.of(this, options);
+        // one rectangle a bar, which also suits a Graphics2D that records rectangles
+        for (Rectangle2D.Double dark : drawing.dark) {
+            graphics.fill(new Rectangle2D.Double(x + dark.x * moduleSize, y + dark.y * moduleSize,
+                    dark.width * moduleSize, dark.height * moduleSize));
+        }
+        if (drawing.hasText()) {
+            graphics.fill(new AffineTransform(moduleSize, 0, 0, moduleSize, x, y).createTransformedShape(drawing.text));
+        }
+        return new Rectangle2D.Double(x, y, drawing.width * moduleSize, drawing.height * moduleSize);
+    }
+
+    /**
+     * The area {@link #draw} covers with its top left corner at (0, 0) and {@code moduleSize} user
+     * units a module, to lay out a page before drawing.
+     */
+    public Rectangle2D bounds(double moduleSize, RenderOptions options) {
+        if (!(moduleSize > 0) || Double.isInfinite(moduleSize)) {
+            throw new IllegalArgumentException("moduleSize must be > 0");
+        }
+        Drawing drawing = Drawing.of(this, options);
+        return new Rectangle2D.Double(0, 0, drawing.width * moduleSize, drawing.height * moduleSize);
     }
 
     /** A one-page PDF, {@code moduleMillimetres} a module, drawn with the {@link RenderOptions#defaults()}. */

@@ -7,8 +7,12 @@ import org.apache.pdfbox.rendering.ImageType;
 import org.apache.pdfbox.rendering.PDFRenderer;
 import org.junit.jupiter.api.Test;
 
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.geom.AffineTransform;
 import java.awt.geom.Rectangle2D;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Set;
@@ -16,6 +20,7 @@ import java.util.TreeSet;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RenderTest {
@@ -138,5 +143,66 @@ class RenderTest {
                 assertEquals(List.of(c.text()), read(image), c.code().type().toString());
             }
         }
+    }
+
+    @Test
+    void drawMatchesTheImageAndLeavesTheGraphicsAsItWas() {
+        RenderOptions bare = RenderOptions.defaults().humanReadable(false);
+        for (Barcode code : List.of(BarcodeWriter.encode(BarcodeType.CODE_128, "ABC-123"),
+                BarcodeWriter.encode(BarcodeType.EAN_13, "590123412345", WriteOptions.defaults().addOn("12")),
+                BarcodeWriter.encode(BarcodeType.QR_CODE, "Graphics2D"))) {
+            BufferedImage expected = code.toImage(3, bare);
+            BufferedImage canvas = new BufferedImage(expected.getWidth() + 20, expected.getHeight() + 20, BufferedImage.TYPE_BYTE_GRAY);
+            Graphics2D graphics = canvas.createGraphics();
+            graphics.setColor(Color.WHITE);
+            graphics.fillRect(0, 0, canvas.getWidth(), canvas.getHeight());
+            graphics.setColor(Color.BLACK);
+            AffineTransform before = graphics.getTransform();
+            Rectangle2D area = code.draw(graphics, 5, 7, 3, bare);
+            assertEquals(before, graphics.getTransform());
+            assertEquals(Color.BLACK, graphics.getColor());
+            graphics.dispose();
+            assertEquals(new Rectangle2D.Double(5, 7, expected.getWidth(), expected.getHeight()), area);
+            assertEquals(code.bounds(3, bare).getWidth(), area.getWidth());
+            for (int y = 0; y < expected.getHeight(); y++) {
+                for (int x = 0; x < expected.getWidth(); x++) {
+                    assertEquals(expected.getRGB(x, y), canvas.getRGB(x + 5, y + 7), code.type() + " at " + x + "," + y);
+                }
+            }
+        }
+        // with the line, at a module size that is not a whole number of pixels
+        Barcode ean = BarcodeWriter.encode(BarcodeType.UPC_A, "03600029145");
+        Rectangle2D area = ean.bounds(2.5, RenderOptions.defaults());
+        BufferedImage canvas = new BufferedImage((int) area.getWidth() + 40, (int) area.getHeight() + 40, BufferedImage.TYPE_BYTE_GRAY);
+        Graphics2D graphics = canvas.createGraphics();
+        graphics.setColor(Color.WHITE);
+        graphics.fillRect(0, 0, canvas.getWidth(), canvas.getHeight());
+        graphics.setColor(Color.BLACK);
+        ean.draw(graphics, 20, 20, 2.5);
+        graphics.dispose();
+        assertEquals(List.of("036000291452"), read(canvas));
+    }
+
+    /**
+     * Barcode-Lib4J's exporter has a Graphics2D that takes the bounds of each filled shape as a bar and
+     * text only from drawString, and writes them to a PDF; the bars alone go through it.
+     */
+    @Test
+    void drawFillsARectangleABar() throws Exception {
+        for (Barcode code : List.of(BarcodeWriter.encode(BarcodeType.EAN_13, "590123412345"),
+                BarcodeWriter.encode(BarcodeType.DATA_MATRIX, "Graphics2D"))) {
+            double millimetres = 0.33;
+            RenderOptions bare = RenderOptions.defaults().humanReadable(false);
+            Rectangle2D area = code.bounds(millimetres, bare);
+            de.vwsoft.barcodelib4j.image.BarExporter exporter = new de.vwsoft.barcodelib4j.image.BarExporter(area.getWidth(), area.getHeight());
+            code.draw(exporter.getGraphics2D(), 0, 0, millimetres, bare);
+            ByteArrayOutputStream pdf = new ByteArrayOutputStream();
+            exporter.writePDF(pdf, de.vwsoft.barcodelib4j.image.ImageColorModel.RGB);
+            try (PDDocument document = Loader.loadPDF(pdf.toByteArray())) {
+                BufferedImage image = new PDFRenderer(document).renderImageWithDPI(0, 600, ImageType.GRAY);
+                assertEquals(List.of(code.type() == BarcodeType.EAN_13 ? "5901234123457" : "Graphics2D"), read(image), code.type().toString());
+            }
+        }
+        assertThrows(IllegalArgumentException.class, () -> BarcodeWriter.encode(BarcodeType.ITF, "12").draw(null, 0, 0, 0));
     }
 }
