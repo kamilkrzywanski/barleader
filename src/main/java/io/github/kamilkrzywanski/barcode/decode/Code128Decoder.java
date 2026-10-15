@@ -17,6 +17,14 @@ final class Code128Decoder {
     private static final int CHAR_MODS = 11;
     private static final float MAX_AVG_VARIANCE = 0.25f;
     private static final float MAX_INDIVIDUAL_VARIANCE = 0.7f;
+    /**
+     * The widest module, in pixels, that the variance try reads. It is there for modules so narrow
+     * that their edge-to-edge distances round wrong; on wider ones a symbol whose edges match no
+     * code is damaged, and variance matching takes it for another. All of the variance reads on
+     * BarBeR's ParcelBar photos have modules under 2.95 pixels, and the false read of BarBeR's
+     * {@code Special_0118}, two symbols wrong with the checksum still holding, 3.12.
+     */
+    private static final float MAX_VARIANCE_MODULE = 3f;
     private static final int CODE_SHIFT = 98;
     private static final int CODE_CODE_C = 99;
     private static final int CODE_CODE_B = 100;
@@ -154,6 +162,10 @@ final class Code128Decoder {
         }
         int right = stop.pixelsInFront() + stop.sum(0) - 1;
         if (right < left) {
+            return null;
+        }
+        // the start, the symbols with the check symbol, and the stop pattern of 13 modules
+        if (variance && right - left + 1 >= MAX_VARIANCE_MODULE * (CHAR_MODS * raw.size() + 13)) {
             return null;
         }
         return new Span(value, left, right);

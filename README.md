@@ -111,7 +111,7 @@ The aggressive ladder was tuned on these photos, so treat 378 as what the ladder
 | KAIST DEAL test split, EAN-13 photos (wrong texts) | 2000 | 1224 (73) | 1437 (38) | 1576 (46) | 1459 (18) |
 | KAIST DEAL EAN-8 photos | 90 | 70 | 80 | 88 | 81 |
 | BoofCV QR v3, QR codes found by place | 1232 | 149 | 410 | 429 | 1005 |
-| BarBeR without its Arte-Lab and KAIST parts, codes read | 5176 | 2450 | 3158 | 3480 | 3411 |
+| BarBeR without its Arte-Lab and KAIST parts, codes read | 5176 | 2450 | 3158 | 3481 | 3410 |
 
 On KAIST's 788 photos without a barcode, ZXing reads something on 7, fast on none and aggressive on one. On BarBeR's ParcelBar part, Code 128 on parcels with modules of about two pixels, fast reads 283 of the 1,142 codes and aggressive 368, where ZXing reads 228. BarBeR counts codes ZXing knows but barcode-pro reads only when asked, such as the Interleaved 2 of 5 of its SKUU DSP Lab part.
 
