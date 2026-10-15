@@ -54,7 +54,18 @@ encoder (qrcode/encoder/Encoder.java, MatrixUtil.java, MaskUtil.java, ByteMatrix
 BlockPair.java, MinimalEncoder.java, qrcode/decoder/Mode.java and Version.java,
 common/reedsolomon/ReedSolomonEncoder.java, common/ECIEncoderSet.java, and the part of
 common/BitArray.java and common/CharacterSetECI.java it uses).
+The linear writers port ZXing's core/src/main/java/com/google/zxing/oned/Code128Writer.java,
+Code39Writer.java, Code93Writer.java, CodaBarWriter.java, ITFWriter.java, EAN13Writer.java,
+EAN8Writer.java, UPCAWriter.java and UPCEWriter.java, with the pattern tables of their readers.
 Copyright 2007 ZXing authors. Licensed under the Apache License, Version 2.0.
+
+This product also includes code ported from Barcode-Lib4J (https://github.com/vws-java/Barcode-Lib4J),
+version 3.2.0: the GS1 element string validator (de/vwsoft/barcodelib4j/oned/GS1Validator.java), and
+the Code 11, PZN, PZN8, ISBN-13, ISMN, EAN-14 and SSCC-18 encodings, the Code 39 check character, the
+EAN/UPC add-ons and the quiet zones of ImplCode11.java, ImplPZN.java, ImplPZN8.java, ImplISBN13.java,
+ImplISMN.java, ImplEAN14.java, ImplSSCC18.java, ImplCode39.java and UPCEANFamily.java.
+Copyright (c) 2025 Viktor Wedel, https://www.vw-software.com/
+Licensed under the Apache License, Version 2.0.
 
 Copyright 2006 Jeremias Maerki
 Copyright 2016 Huy Cuong Nguyen
