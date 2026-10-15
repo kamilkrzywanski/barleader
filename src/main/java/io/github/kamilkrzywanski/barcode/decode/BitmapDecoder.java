@@ -568,15 +568,13 @@ public final class BitmapDecoder {
      */
     private static boolean widerRival(BinaryBitmap image, String text) {
         Map<String, int[]> support = new HashMap<>();
-        boolean[] row = null;
         for (int y = 0; y < image.getHeight(); y++) {
-            boolean[] black = image.getBlackRow(y, row);
-            if (black == null) {
+            int[] runs = image.runs(y, false);
+            if (runs == null) {
                 continue;
             }
-            row = black;
-            noteEanRow(support, row, y);
-            noteEanRow(support, reversedRow(row), y);
+            noteEanRow(support, runs, y);
+            noteEanRow(support, image.runs(y, true), y);
         }
         String hitKey = eanKey(text);
         int[] hit = support.get(hitKey);
@@ -600,8 +598,8 @@ public final class BitmapDecoder {
     }
 
     /** {@code stats} is count, first row, last row. The same row in both directions counts once. */
-    private static void noteEanRow(Map<String, int[]> support, boolean[] row, int y) {
-        String span = spanText(row);
+    private static void noteEanRow(Map<String, int[]> support, int[] runs, int y) {
+        String span = spanText(runs);
         if (span == null) {
             return;
         }
@@ -630,14 +628,12 @@ public final class BitmapDecoder {
         int count = 0;
         int first = -1;
         int last = -1;
-        boolean[] row = null;
         for (int y = 0; y < image.getHeight(); y++) {
-            boolean[] black = image.getBlackRow(y, row);
-            if (black == null) {
+            int[] runs = image.runs(y, false);
+            if (runs == null) {
                 continue;
             }
-            row = black;
-            if (!eanRowMatches(row, text) && !eanRowMatches(reversedRow(row), text)) {
+            if (!eanRowMatches(runs, text) && !eanRowMatches(image.runs(y, true), text)) {
                 continue;
             }
             count++;
@@ -655,8 +651,8 @@ public final class BitmapDecoder {
         return count >= 2 && image.getHeight() > 48;
     }
 
-    private static boolean eanRowMatches(boolean[] row, String text) {
-        String span = spanText(row);
+    private static boolean eanRowMatches(int[] runs, String text) {
+        String span = spanText(runs);
         if (span == null) {
             return false;
         }
@@ -669,19 +665,11 @@ public final class BitmapDecoder {
                 && span.regionMatches(1, text, 0, 12);
     }
 
-    private static String spanText(boolean[] black) {
-        UpcEanDecoder.Span span = UpcEanDecoder.decodeSpan(black);
+    private static String spanText(int[] runs) {
+        UpcEanDecoder.Span span = UpcEanDecoder.decodeSpan(runs, false, false);
         return span == null ? null : span.text();
     }
 
-    private static boolean[] reversedRow(boolean[] row) {
-        boolean[] out = new boolean[row.length];
-        int last = row.length - 1;
-        for (int x = 0; x < row.length; x++) {
-            out[x] = row[last - x];
-        }
-        return out;
-    }
 
     private static boolean fullResolution(String attempt) {
         return !attempt.startsWith("linear-band") && !attempt.startsWith("downscale") && !attempt.equals("scale-0.5");

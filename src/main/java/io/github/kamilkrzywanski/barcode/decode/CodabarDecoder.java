@@ -40,7 +40,12 @@ final class CodabarDecoder {
 
     /** Same symbol as {@link #decode(boolean[])}, with the guard columns. Start and stop letters stay. */
     static Span decodeSpan(boolean[] black) {
-        View next = findStart(View.of(OneDRow.runs(black)));
+        return decodeSpan(OneDRow.runs(black));
+    }
+
+    /** {@link #decodeSpan(boolean[])} on the run lengths of the row. */
+    static Span decodeSpan(int[] runs) {
+        View next = findStart(View.of(runs));
         if (next == null) {
             return null;
         }

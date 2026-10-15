@@ -29,7 +29,6 @@ final class CodabarScanner {
         int height = image.getHeight();
         int rowStep = Math.max(1, height >> 8);
         int middle = height / 2;
-        boolean[] row = null;
         for (int step = 0; step < height; step++) {
             int away = (step + 1) / 2;
             boolean above = (step & 1) == 0;
@@ -37,16 +36,15 @@ final class CodabarScanner {
             if (y < 0 || y >= height) {
                 break;
             }
-            boolean[] black = image.getBlackRow(y, row);
-            if (black == null) {
+            int[] runs = image.runs(y, false);
+            if (runs == null) {
                 continue;
             }
-            row = black;
-            Found forward = decode(row, y, false);
+            Found forward = decode(runs, image.getWidth(), y, false);
             if (forward != null) {
                 return forward;
             }
-            Found reversed = decode(reversed(row), y, true);
+            Found reversed = decode(image.runs(y, true), image.getWidth(), y, true);
             if (reversed != null) {
                 return reversed;
             }
@@ -54,16 +52,16 @@ final class CodabarScanner {
         return null;
     }
 
-    private static Found decode(boolean[] black, int y, boolean upsideDown) {
-        Span span = CodabarDecoder.decodeSpan(black);
+    private static Found decode(int[] runs, int width, int y, boolean upsideDown) {
+        Span span = CodabarDecoder.decodeSpan(runs);
         if (span == null || span.text() == null || span.text().isBlank()) {
             return null;
         }
         int left = span.left();
         int right = span.right();
         if (upsideDown) {
-            left = black.length - 1 - span.right();
-            right = black.length - 1 - span.left();
+            left = width - 1 - span.right();
+            right = width - 1 - span.left();
         }
         if (right < left) {
             return null;
@@ -71,11 +69,4 @@ final class CodabarScanner {
         return new Found(span.text(), left, right, y, upsideDown);
     }
 
-    private static boolean[] reversed(boolean[] black) {
-        boolean[] out = new boolean[black.length];
-        for (int x = 0; x < black.length; x++) {
-            out[x] = black[black.length - 1 - x];
-        }
-        return out;
-    }
 }

@@ -71,7 +71,10 @@ final class UpcEanDecoder {
      * The digits are appended with no separator. UPC-E comes back expanded to 13 digits.
      */
     static String decode(boolean[] black, boolean addOn, boolean require) {
-        Raw raw = read(black);
+        if (black == null || black.length == 0) {
+            return null;
+        }
+        Raw raw = read(OneDRow.runs(black));
         if (raw == null) {
             return null;
         }
@@ -89,7 +92,15 @@ final class UpcEanDecoder {
      * and returns null without one when {@code require} is set.
      */
     static Span decodeSpan(boolean[] black, boolean addOn, boolean require) {
-        Raw raw = read(black);
+        if (black == null || black.length == 0) {
+            return null;
+        }
+        return decodeSpan(OneDRow.runs(black), addOn, require);
+    }
+
+    /** {@link #decodeSpan(boolean[], boolean, boolean)} on the run lengths of a non-empty row. */
+    static Span decodeSpan(int[] runs, boolean addOn, boolean require) {
+        Raw raw = read(runs);
         if (raw == null) {
             return null;
         }
@@ -108,11 +119,8 @@ final class UpcEanDecoder {
     private record Raw(Kind kind, String digits, View begin, View end) {
     }
 
-    private static Raw read(boolean[] black) {
-        if (black == null || black.length == 0) {
-            return null;
-        }
-        View row = OneDRow.View.of(OneDRow.runs(black));
+    private static Raw read(int[] runs) {
+        View row = OneDRow.View.of(runs);
         View guard = OneDRow.findLeftGuard(row, MIN_SIZE, START_END, START_END.length, QUIET_LEFT);
         if (guard == null) {
             return null;

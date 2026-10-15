@@ -60,8 +60,13 @@ final class Code39Decoder {
 
     /** Same symbol as {@link #decode(boolean[])}, with the asterisk columns. */
     static Span decodeSpan(boolean[] black) {
+        return decodeSpan(OneDRow.runs(black));
+    }
+
+    /** {@link #decodeSpan(boolean[])} on the run lengths of the row. */
+    static Span decodeSpan(int[] runs) {
         View next = OneDRow.findSparseGuard(
-                View.of(OneDRow.runs(black)),
+                View.of(runs),
                 MIN_CHARS * CHAR_LEN,
                 CHAR_LEN,
                 START_NARROW,

@@ -33,7 +33,12 @@ final class ItfDecoder {
 
     /** Same symbol as {@link #decode(boolean[])}, with the guard columns. */
     static Span decodeSpan(boolean[] black) {
-        View start = OneDRow.findLeftGuard(View.of(OneDRow.runs(black)), 4 + 10 + 3, START, 4, MIN_QUIET);
+        return decodeSpan(OneDRow.runs(black));
+    }
+
+    /** {@link #decodeSpan(boolean[])} on the run lengths of the row. */
+    static Span decodeSpan(int[] runs) {
+        View start = OneDRow.findLeftGuard(View.of(runs), 4 + 10 + 3, START, 4, MIN_QUIET);
         if (start == null) {
             return null;
         }

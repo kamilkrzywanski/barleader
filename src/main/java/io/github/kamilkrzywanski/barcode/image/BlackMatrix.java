@@ -1,19 +1,19 @@
 package io.github.kamilkrzywanski.barcode.image;
 
 /**
- * A binarized image, row-major, {@code true} is black. One boolean a pixel, as zxing-cpp keeps
- * one byte a pixel in its {@code BitMatrix}: the readers take a pixel or a row without unpacking
- * 32-bit words.
+ * A binarized image, {@code true} is black, as one boolean array a row. One boolean a pixel, as
+ * zxing-cpp keeps one byte a pixel in its {@code BitMatrix}: the readers take a pixel or a row
+ * without unpacking 32-bit words, and the PDF417 and DataBar readers take the rows themselves.
  */
 public final class BlackMatrix {
     private final int width;
     private final int height;
-    private final boolean[] data;
+    private final boolean[][] rows;
 
     BlackMatrix(int width, int height) {
         this.width = width;
         this.height = height;
-        this.data = new boolean[width * height];
+        this.rows = new boolean[height][width];
     }
 
     public int width() {
@@ -25,24 +25,28 @@ public final class BlackMatrix {
     }
 
     public boolean get(int x, int y) {
-        return data[y * width + x];
+        return rows[y][x];
     }
 
     void set(int x, int y) {
-        data[y * width + x] = true;
+        rows[y][x] = true;
     }
 
     /** Copies row {@code y} into {@code out}, from {@code offset}. */
     public void copyRow(int y, boolean[] out, int offset) {
-        System.arraycopy(data, y * width, out, offset, width);
+        System.arraycopy(rows[y], 0, out, offset, width);
     }
 
-    /** A copy of every row. */
+    /**
+     * The rows themselves, shared by every reader of the attempt: a reader that changes a module
+     * copies the matrix first, as the matrix readers do.
+     */
     public boolean[][] rows() {
-        boolean[][] rows = new boolean[height][width];
-        for (int y = 0; y < height; y++) {
-            System.arraycopy(data, y * width, rows[y], 0, width);
-        }
         return rows;
+    }
+
+    /** Row {@code y} itself, shared as {@link #rows()} is. */
+    boolean[] row(int y) {
+        return rows[y];
     }
 }

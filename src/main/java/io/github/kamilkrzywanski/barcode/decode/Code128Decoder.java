@@ -64,7 +64,12 @@ final class Code128Decoder {
         if (black == null || black.length == 0) {
             return null;
         }
-        View next = View.of(OneDRow.runs(black));
+        return decodeSpan(OneDRow.runs(black));
+    }
+
+    /** {@link #decodeSpan(boolean[])} on the run lengths of a non-empty row. */
+    static Span decodeSpan(int[] runs) {
+        View next = View.of(runs);
         View[] stopped = new View[1];
         // ODReader's DoDecode with tryHarder: a failed try goes on from the bar after the one it stopped at,
         // so a start-like pattern in the text in front of the symbol does not cost the whole row.

@@ -27,6 +27,11 @@ public final class BinaryBitmap {
     private byte[] luminances = new byte[0];
     private BlackMatrix matrix;
     private boolean matrixDone;
+    /** Rows and run lengths computed once and shared by every linear reader of this attempt. */
+    private boolean[][] rows;
+    private int[][] runs;
+    private int[][] reversedRuns;
+    private static final boolean[] FLAT = new boolean[0];
 
     private BinaryBitmap(GrayLuminanceSource source, boolean hybrid) {
         this.source = source;
@@ -91,6 +96,87 @@ public final class BinaryBitmap {
         return row;
     }
 
+    /**
+     * {@link #getBlackRow} of row {@code y}, computed once. Shared: callers do not change it. Null
+     * when the row has too little contrast.
+     */
+    public boolean[] blackRow(int y) {
+        if (rows == null) {
+            rows = new boolean[source.getHeight()][];
+        }
+        boolean[] row = rows[y];
+        if (row == null) {
+            row = getBlackRow(y, null);
+            rows[y] = row == null ? FLAT : row;
+        }
+        return row == FLAT ? null : row;
+    }
+
+    /**
+     * The run lengths of {@link #blackRow} as {@code OneDRow.runs} has them, white first, or of the
+     * row read from right to left, which is the same runs backwards: both ends are white runs, empty
+     * when the row starts or ends black. zxing-cpp's {@code ODReader} also makes the pattern row once
+     * for all linear readers. Shared; null when the row has too little contrast.
+     */
+    public int[] runs(int y, boolean reversed) {
+        if (runs == null) {
+            runs = new int[source.getHeight()][];
+            reversedRuns = new int[source.getHeight()][];
+        }
+        int[][] cache = reversed ? reversedRuns : runs;
+        int[] cached = cache[y];
+        if (cached == null) {
+            boolean[] row = blackRow(y);
+            if (row == null) {
+                return null;
+            }
+            int[] forward = runs[y];
+            if (forward == null) {
+                forward = runLengths(row);
+                runs[y] = forward;
+            }
+            if (reversed) {
+                int[] backward = new int[forward.length];
+                for (int i = 0; i < forward.length; i++) {
+                    backward[i] = forward[forward.length - 1 - i];
+                }
+                reversedRuns[y] = backward;
+                cached = backward;
+            } else {
+                cached = forward;
+            }
+        }
+        return cached;
+    }
+
+    /**
+     * The run lengths of a row, {@code true} black: a white run first, zero-width when the row starts
+     * black, and a zero-width white run after a last black one.
+     */
+    public static int[] runLengths(boolean[] black) {
+        if (black.length == 0) {
+            return new int[]{0};
+        }
+        int[] out = new int[black.length + 2];
+        int count = 0;
+        if (black[0]) {
+            out[count++] = 0;
+        }
+        int cursor = 0;
+        while (cursor < black.length) {
+            boolean color = black[cursor];
+            int start = cursor;
+            while (cursor < black.length && black[cursor] == color) {
+                cursor++;
+            }
+            out[count++] = cursor - start;
+        }
+        if (black[black.length - 1]) {
+            out[count++] = 0;
+        }
+        return java.util.Arrays.copyOf(out, count);
+    }
+
     /** The binarized image, computed once. Null when a global threshold finds too little contrast. */
     public BlackMatrix getBlackMatrix() {
         if (!matrixDone) {
@@ -124,10 +210,9 @@ public final class BinaryBitmap {
         byte[] local = source.getMatrix();
         for (int y = 0; y < height; y++) {
             int offset = y * width;
+            boolean[] row = out.row(y);
             for (int x = 0; x < width; x++) {
-                if ((local[offset + x] & 0xff) < blackPoint) {
-                    out.set(x, y);
-                }
+                row[x] = (local[offset + x] & 0xff) < blackPoint;
             }
         }
         return out;
@@ -185,9 +270,10 @@ public final class BinaryBitmap {
     /** Blocks at the right and bottom edges overlap their neighbours; a pixel once black stays black. */
     private static void thresholdBlock(byte[] luminances, int xoffset, int yoffset, int threshold, int stride, BlackMatrix out) {
         for (int y = 0, offset = yoffset * stride + xoffset; y < BLOCK_SIZE; y++, offset += stride) {
+            boolean[] row = out.row(yoffset + y);
             for (int x = 0; x < BLOCK_SIZE; x++) {
                 if ((luminances[offset + x] & 0xFF) <= threshold) {
-                    out.set(xoffset + x, yoffset + y);
+                    row[xoffset + x] = true;
                 }
             }
         }

@@ -1,5 +1,7 @@
 package io.github.kamilkrzywanski.barcode.decode;
 
+import io.github.kamilkrzywanski.barcode.image.BinaryBitmap;
+
 /**
  * Run-length row for a 1D symbol, ported from zxing-cpp 3.1.1 {@code Pattern.h}
  * and the digit match in {@code ODRowReader.h}.
@@ -14,29 +16,7 @@ final class OneDRow {
 
     /** {@code true} is black. A black edge is closed with a zero-width white run. */
     static int[] runs(boolean[] black) {
-        if (black == null || black.length == 0) {
-            return new int[]{0};
-        }
-        int[] runs = new int[black.length + 2];
-        int count = 0;
-        if (black[0]) {
-            runs[count++] = 0;
-        }
-        int cursor = 0;
-        while (cursor < black.length) {
-            boolean color = black[cursor];
-            int start = cursor;
-            while (cursor < black.length && black[cursor] == color) {
-                cursor++;
-            }
-            runs[count++] = cursor - start;
-        }
-        if (black[black.length - 1]) {
-            runs[count++] = 0;
-        }
-        int[] out = new int[count];
-        System.arraycopy(runs, 0, out, 0, count);
-        return out;
+        return black == null ? new int[]{0} : BinaryBitmap.runLengths(black);
     }
 
     /**
