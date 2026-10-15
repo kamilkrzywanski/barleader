@@ -9,7 +9,7 @@
     <version>0.1.0-SNAPSHOT</version>
 
     <name>barcode-pro</name>
-    <description>Barcode reader in pure Java, with the read path of zxing-cpp ported to the JVM. No JNI and no native libraries.</description>
+    <description>Barcode reader and writer in pure Java: the read path of zxing-cpp ported to the JVM, and every symbology of the ZXing and Barcode-Lib4J writers. No JNI and no native libraries.</description>
     <url>https://github.com/kamilkrzywanski/barcode-pro</url>
     <inceptionYear>2026</inceptionYear>
     <licenses>

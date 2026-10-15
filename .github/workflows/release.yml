@@ -2,7 +2,7 @@ name: release
 
 # Push a tag such as v0.1.0. The version comes from the tag, the artifacts go to the Central
 # Portal as a deployment that waits for a manual publish, and the command line jar is attached
-# to the GitHub release.
+# to the GitHub release, whose notes are the tag's section of CHANGELOG.md.
 on:
   push:
     tags:
@@ -26,6 +26,11 @@ jobs:
           server-username: CENTRAL_USERNAME
           server-password: CENTRAL_TOKEN
           gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+      - name: Take the release notes from the changelog
+        # the section headed with the tag's version, up to the next one; none stops the release here
+        run: |
+          awk -v heading="## ${GITHUB_REF_NAME#v}" '$0 == heading {found = 1; next} /^## / {found = 0} found' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+          test -n "$(tr -d '[:space:]' < "$RUNNER_TEMP/release-notes.md")" || { echo "CHANGELOG.md has no section ## ${GITHUB_REF_NAME#v}"; exit 1; }
       - name: Take the version from the tag
         run: mvn -B versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false
       - name: Verify and publish
@@ -38,3 +43,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: target/barcode-pro.jar
+          body_path: ${{ runner.temp }}/release-notes.md
