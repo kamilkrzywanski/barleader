@@ -203,6 +203,26 @@
             </build>
         </profile>
         <!--
+            mvn -q -Pspeed test-compile exec:java -Dexec.args="datasets/artelab-medium-barcode-1d"
+            Wall and CPU time a photo of the default reader, fast and aggressive, without a time budget.
+        -->
+        <profile>
+            <id>speed</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.codehaus.mojo</groupId>
+                        <artifactId>exec-maven-plugin</artifactId>
+                        <version>3.6.3</version>
+                        <configuration>
+                            <mainClass>io.github.kamilkrzywanski.barcode.eval.Speed</mainClass>
+                            <classpathScope>test</classpathScope>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <!--
             mvn -P release deploy
             Sources, javadoc and GPG signatures, uploaded to the Central Portal as a deployment
             that waits for a manual publish.
