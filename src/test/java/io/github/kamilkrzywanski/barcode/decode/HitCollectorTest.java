@@ -25,6 +25,18 @@ class HitCollectorTest {
     }
 
     @Test
+    void aPartialPdf417DetectionOnTheOutlineIsTheSameSymbol() {
+        HitCollector hits = new HitCollector();
+        assertTrue(hits.add(new BarcodeHit("A larger PDF417", Symbology.PDF_417, List.of(new ImagePoint(157, 169), new ImagePoint(830, 169),
+                new ImagePoint(833, 266), new ImagePoint(165, 423)), 0, 0.92, "original-hybrid")));
+        assertFalse(hits.add(new BarcodeHit("A larger PDF417", Symbology.PDF_417, List.of(new ImagePoint(155, 169), new ImagePoint(158, 213)),
+                0, 0.74, "illumination")));
+        assertTrue(hits.add(new BarcodeHit("A larger PDF417", Symbology.PDF_417, List.of(new ImagePoint(1000, 169), new ImagePoint(1600, 169),
+                new ImagePoint(1600, 423), new ImagePoint(1000, 423)), 0, 0.92, "original-hybrid")));
+        assertEquals(2, hits.list().size());
+    }
+
+    @Test
     void theSameTextFarApartOrOfAnotherLengthStaysTwoHits() {
         HitCollector hits = new HitCollector();
         assertTrue(hits.add(line("A1", 0, 0, 200, 0)));

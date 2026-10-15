@@ -47,7 +47,40 @@ public final class HitCollector {
         }
         double dx = a.x() - b.x();
         double dy = a.y() - b.y();
-        return dx * dx + dy * dy <= MERGE_DISTANCE_SQ || sameLinearSymbol(left.corners(), right.corners());
+        return dx * dx + dy * dy <= MERGE_DISTANCE_SQ
+                || sameLinearSymbol(left.corners(), right.corners())
+                || sameMatrixSymbol(left.corners(), right.corners());
+    }
+
+    /**
+     * One 2D symbol found twice, as {@code Barcode::operator==} in zxing-cpp has it for matrix codes:
+     * the centre of one hit lies inside the other. A partial detection, such as the left row
+     * indicator of a PDF417 that the erasures still correct, sits on the outline rather than in it,
+     * so the outline here is the box around the corners grown by a twentieth of its larger side.
+     */
+    private static boolean sameMatrixSymbol(List<ImagePoint> left, List<ImagePoint> right) {
+        if (left.size() < 3 && right.size() < 3) {
+            return false;
+        }
+        return insideGrownBox(center(left), right) || insideGrownBox(center(right), left);
+    }
+
+    private static boolean insideGrownBox(ImagePoint point, List<ImagePoint> corners) {
+        if (corners.size() < 3) {
+            return false;
+        }
+        double minX = Double.MAX_VALUE;
+        double minY = Double.MAX_VALUE;
+        double maxX = -Double.MAX_VALUE;
+        double maxY = -Double.MAX_VALUE;
+        for (ImagePoint corner : corners) {
+            minX = Math.min(minX, corner.x());
+            minY = Math.min(minY, corner.y());
+            maxX = Math.max(maxX, corner.x());
+            maxY = Math.max(maxY, corner.y());
+        }
+        double margin = Math.max(maxX - minX, maxY - minY) / 20;
+        return point.x() >= minX - margin && point.x() <= maxX + margin && point.y() >= minY - margin && point.y() <= maxY + margin;
     }
 
     /**
@@ -69,15 +102,16 @@ public final class HitCollector {
     }
 
     private static ImagePoint center(BarcodeHit hit) {
-        if (hit.corners().isEmpty()) {
-            return null;
-        }
+        return hit.corners().isEmpty() ? null : center(hit.corners());
+    }
+
+    private static ImagePoint center(List<ImagePoint> corners) {
         double x = 0.0;
         double y = 0.0;
-        for (ImagePoint corner : hit.corners()) {
+        for (ImagePoint corner : corners) {
             x += corner.x();
             y += corner.y();
         }
-        return new ImagePoint(x / hit.corners().size(), y / hit.corners().size());
+        return new ImagePoint(x / corners.size(), y / corners.size());
     }
 }
