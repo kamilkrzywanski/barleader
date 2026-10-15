@@ -125,6 +125,8 @@ On KAIST's 788 photos without a barcode, ZXing reads something on 7, fast on non
 Barcode label = BarcodeWriter.encode(BarcodeType.GS1_128, "(01)09501101530003(17)250630(10)AB-123");
 ImageIO.write(label.toImage(2), "png", new File("label.png"));  // 2 pixels a module, bars 60 modules high
 Files.writeString(Path.of("label.svg"), label.toSvg());
+Files.write(Path.of("label.pdf"), label.toPdf(0.33));             // vector, 0.33 mm a module
+ImageIO.write(label.toImage(2, RenderOptions.defaults().barHeight(40).humanReadable(false)), "png", new File("bare.png"));
 
 Barcode book = BarcodeWriter.encode(BarcodeType.ISBN_13, "978-3-16-148410", WriteOptions.defaults().addOn("51299"));
 Barcode matrix = BarcodeWriter.encode(BarcodeType.DATA_MATRIX, "Zażółć gęślą jaźń",
@@ -134,7 +136,9 @@ Barcode ticket = BarcodeWriter.encode(BarcodeType.PDF_417, text,
 Barcode aztec = BarcodeWriter.encode(BarcodeType.AZTEC, text, WriteOptions.defaults().aztec(AztecOptions.defaults().layers(-2)));
 ```
 
-`BarcodeType` lists what it writes: QR Code and GS1 QR Code, Data Matrix and GS1 Data Matrix (square or rectangular), PDF417 (also truncated), Aztec (compact and full), Code 128 (code sets chosen as the text goes, or all A, B or C), GS1-128, EAN-14, SSCC-18, Code 39 (also extended, with the optional modulo 43 check character), PZN and PZN8, Code 93 (also extended), Codabar, Code 11, ITF, EAN-13, EAN-8, UPC-A and UPC-E with 2- and 5-digit add-ons, ISBN-13 and ISMN. That is every symbology of ZXing's writers and of [Barcode-Lib4J](https://github.com/vws-java/Barcode-Lib4J) 3.2.0. A `Barcode` is its modules, `isDark(x, y)`, `width()` and `height()`, and its quiet zones, which `toImage` and `toSvg` draw around it; a linear symbol is one row of modules that a drawing stretches to the bar height. The drawings have no human-readable line.
+`BarcodeType` lists what it writes: QR Code and GS1 QR Code, Data Matrix and GS1 Data Matrix (square or rectangular), PDF417 (also truncated), Aztec (compact and full), Code 128 (code sets chosen as the text goes, or all A, B or C), GS1-128, EAN-14, SSCC-18, Code 39 (also extended, with the optional modulo 43 check character), PZN and PZN8, Code 93 (also extended), Codabar, Code 11, ITF, EAN-13, EAN-8, UPC-A and UPC-E with 2- and 5-digit add-ons, ISBN-13 and ISMN. That is every symbology of ZXing's writers and of [Barcode-Lib4J](https://github.com/vws-java/Barcode-Lib4J) 3.2.0. A `Barcode` is its modules, `isDark(x, y)`, `width()` and `height()`, and its quiet zones, which `toImage`, `toSvg` and `toPdf` draw around it; a linear symbol is one row of modules that a drawing stretches to the bar height.
+
+A drawing of a linear symbol has its human-readable line, laid out as Barcode-Lib4J lays it out: centred under the bars, or for EAN and UPC as on a retail label, the digits in groups under the halves of the symbol and the first and last beside it, the guard bars reaching down between the groups, an add-on's digits above its shortened bars, and the ISBN or ISMN above the symbol. `RenderOptions` sets the bar height, the font and its size, or leaves the line out. The line is glyph outlines in the SVG and the PDF too, so they look the same everywhere and the PDF embeds no font; drawing it needs a font from AWT, which a headless JDK without fonts does not have. `toPdf(millimetres)` writes one vector page the size of the drawing, with no library behind it.
 
 GS1 content is element strings with each application identifier in parentheses, checked as Barcode-Lib4J checks them. A value of variable length that is not the last ends with GS (`\u001D`), and `#` as the check digit of AI 00, 01 or 02 has it computed. Text in a 2D symbol that fits ISO-8859-1 is written without an ECI, other text as UTF-8 with ECI 26, and `charset(...)` chooses another. `compact(true)` takes the minimal encoders of Code 128, QR Code and Data Matrix, and lets PDF417 split the text among character sets.
 
@@ -175,11 +179,12 @@ java -jar target/barcode-pro.jar qr --level=Q --module=8 --out=qr.png "https://e
 java -jar target/barcode-pro.jar qr "Zażółć gęślą jaźń" > qr.svg
 java -jar target/barcode-pro.jar write --type=CODE_128 --module=2 --out=code.png "ABC-123"
 java -jar target/barcode-pro.jar write --type=PDF_417 --level=4 --truncated --out=ticket.svg "Zażółć gęślą jaźń"
+java -jar target/barcode-pro.jar write --type=EAN_13 --add-on=12 --mm=0.33 --out=label.pdf 590123412345
 ```
 
 Plain output is one tab-separated line per symbol: file, symbology, text, attempt, orientation, corners and the EAN/UPC supplement (`-` when there is none). Tabs and line breaks in the text are escaped. `--json` prints one JSON object per symbol. The exit code is 0 when every image had a symbol, 1 when one had none, and 2 for wrong usage or an unreadable file.
 
-`qr` writes a QR Code instead: an image in the format of the `--out` extension, or SVG, also on standard output when there is no `--out`. `--level`, `--version`, `--mask`, `--charset`, `--gs1` and `--compact` are the `QrOptions`, `--module` the pixels a module and `--quiet` the quiet zone in modules. `write --type=...` writes any `BarcodeType` the same way, with the `WriteOptions` as options (`java -jar target/barcode-pro.jar write --help` lists them); `--level` is L, M, Q or H for QR Code, 0 to 8 for PDF417 and a percent for Aztec.
+`qr` writes a QR Code instead: an image in the format of the `--out` extension, or SVG, also on standard output when there is no `--out`. `--level`, `--version`, `--mask`, `--charset`, `--gs1` and `--compact` are the `QrOptions`, `--module` the pixels a module and `--quiet` the quiet zone in modules. `write --type=...` writes any `BarcodeType` the same way, also to a `.pdf`, with the `WriteOptions` and `RenderOptions` as options (`java -jar target/barcode-pro.jar write --help` lists them); `--level` is L, M, Q or H for QR Code, 0 to 8 for PDF417 and a percent for Aztec, and `--mm` the millimetres a module in a PDF.
 
 ## Building
 
@@ -197,7 +202,7 @@ This needs JDK 17 or later and Maven 3.9. CI builds on JDK 17, 21 and 25: [.gith
 
 | Package | Role |
 | --- | --- |
-| `io.github.kamilkrzywanski.barcode` | The API: `BarcodeReader`, `ReadOptions`, `BarcodeHit`, `Symbology` for reading; `BarcodeWriter`, `BarcodeType`, `WriteOptions`, `Barcode` and the settings of QR Code, Data Matrix, PDF417 and Aztec for writing. Also the attempt ladder (`Scan`) and the tilted-band finder. |
+| `io.github.kamilkrzywanski.barcode` | The API: `BarcodeReader`, `ReadOptions`, `BarcodeHit`, `Symbology` for reading; `BarcodeWriter`, `BarcodeType`, `WriteOptions`, `Barcode`, `RenderOptions` and the settings of QR Code, Data Matrix, PDF417 and Aztec for writing. Also the attempt ladder (`Scan`) and the tilted-band finder. |
 | `….image` | Luminance, rotations, scales, homographies, and the binarizers. |
 | `….ecc` | Reed-Solomon: decoding with errors and erasures as zxing-cpp's librscpp does it, and ZXing's encoder. |
 | `….qr` | The QR Code encoder and the version table the reader shares. |

@@ -98,6 +98,16 @@ class MainTest {
             }
         }
         assertTrue(run("write", "--type=CODE_39", "SVG").out.startsWith("<svg "));
+        assertEquals(1, run("write", "--type=CODE_39", "--no-text", "SVG").out.split("<path ", -1).length - 1);
+        Path pdf = Files.createTempFile("barcode-pro-write", ".pdf");
+        try {
+            Run write = run("write", "--type=EAN_13", "--add-on=12", "--mm=0.5", "--out=" + pdf, "590123412345");
+            assertEquals(0, write.status, write.err);
+            assertTrue(new String(Files.readAllBytes(pdf), StandardCharsets.ISO_8859_1).startsWith("%PDF-1.4"));
+        } finally {
+            Files.deleteIfExists(pdf);
+        }
+        assertEquals(2, run("write", "--mm=0", "x").status);
         assertEquals(2, run("write", "--type=NOPE", "x").status);
         assertEquals(2, run("write", "--type=EAN_8", "--level=2", "1234567").status);
         assertEquals(2, run("write", "--type=EAN_8", "12345").status);

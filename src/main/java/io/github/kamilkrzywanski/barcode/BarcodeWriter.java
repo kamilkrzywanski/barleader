@@ -226,7 +226,8 @@ public final class BarcodeWriter {
         int right = options.quietZone() >= 0 ? options.quietZone()
                 : options.addOn() != null ? UpcEanEncoder.ADDON_QUIET_ZONE : kind.quietRight;
         String shown = text == null ? bars.text() : options.addOn() == null ? text : text + " " + options.addOn();
-        return Barcode.linear(type, bars.modules(), shown, left, right);
+        String withCheckDigit = bars.text().split(" ", 2)[0];
+        return Barcode.linear(type, bars.modules(), shown, left, right, new Barcode.RetailLabel(kind, withCheckDigit, options.addOn(), text));
     }
 
     private static Barcode linear(BarcodeType type, Linear.Bars bars, WriteOptions options, int defaultQuietZone) {

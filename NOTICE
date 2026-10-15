@@ -69,7 +69,8 @@ version 3.2.0: the GS1 element string validator (de/vwsoft/barcodelib4j/oned/GS1
 the Code 11, PZN, PZN8, ISBN-13, ISMN, EAN-14 and SSCC-18 encodings, the Code 39 check character, the
 EAN/UPC add-ons and the quiet zones of ImplCode11.java, ImplPZN.java, ImplPZN8.java, ImplISBN13.java,
 ImplISMN.java, ImplEAN14.java, ImplSSCC18.java, ImplCode39.java and UPCEANFamily.java, and the
-GS1 mode of the Data Matrix high-level encoder (twod/datamatrix/HighLevelEncoder.java).
+GS1 mode of the Data Matrix high-level encoder (twod/datamatrix/HighLevelEncoder.java), and the
+layout of the human-readable line of oned/Barcode.java and oned/UPCEANFamily.java.
 Copyright (c) 2025 Viktor Wedel, https://www.vw-software.com/
 Licensed under the Apache License, Version 2.0.
 

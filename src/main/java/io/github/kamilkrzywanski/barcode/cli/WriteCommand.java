@@ -7,9 +7,11 @@ import io.github.kamilkrzywanski.barcode.BarcodeWriter;
 import io.github.kamilkrzywanski.barcode.DataMatrixShape;
 import io.github.kamilkrzywanski.barcode.Pdf417Options;
 import io.github.kamilkrzywanski.barcode.QrErrorCorrection;
+import io.github.kamilkrzywanski.barcode.RenderOptions;
 import io.github.kamilkrzywanski.barcode.WriteOptions;
 
 import javax.imageio.ImageIO;
+import java.awt.Font;
 import java.io.IOException;
 import java.io.PrintStream;
 import java.nio.charset.Charset;
@@ -26,6 +28,10 @@ import java.util.Locale;
  *   --type=TYPE         CODE_128, EAN_13, DATA_MATRIX, PDF_417, AZTEC, ... (QR_CODE by default)
  *   --module=N          pixels a module in an image, 4 by default
  *   --height=N          the bars of a linear symbol in modules, 60 by default
+ *   --no-text           no human-readable line under a linear symbol
+ *   --font=NAME         the font of the line, SansSerif by default
+ *   --font-size=N       its size in modules; fitted to the symbol by default
+ *   --mm=N              millimetres a module in a PDF, 0.33 by default
  *   --quiet=N           light modules on each side, the symbology's own by default
  *   --ratio=R           wide to narrow, 2.0 to 3.0, for Code 39, Codabar, Code 11 and ITF
  *   --checksum          the optional check characters of Code 39 and Code 11
@@ -39,7 +45,7 @@ import java.util.Locale;
  *   --row-height=N      PDF417 row height in modules, 3 by default
  *   --truncated         truncated PDF417
  *   --layers=N          Aztec layers, -1 to -4 compact, 1 to 32 full
- *   --out=FILE          an image in the format of its extension, or .svg; SVG on standard output without it
+ *   --out=FILE          an image in the format of its extension, .svg or .pdf; SVG on standard output without it
  *   --                  the next argument is the content, even when it starts with a dash
  * </pre>
  *
@@ -57,7 +63,8 @@ final class WriteCommand {
         AztecOptions aztec = AztecOptions.defaults();
         String level = null;
         int moduleSize = 4;
-        int barHeight = Barcode.DEFAULT_BAR_HEIGHT;
+        RenderOptions render = RenderOptions.defaults();
+        double moduleMillimetres = 0.33;
         Path output = null;
         String content = null;
         boolean optionsEnd = false;
@@ -79,7 +86,18 @@ final class WriteCommand {
                 } else if (arg.startsWith("--module=")) {
                     moduleSize = Integer.parseInt(value(arg));
                 } else if (arg.startsWith("--height=")) {
-                    barHeight = Integer.parseInt(value(arg));
+                    render = render.barHeight(Integer.parseInt(value(arg)));
+                } else if (arg.equals("--no-text")) {
+                    render = render.humanReadable(false);
+                } else if (arg.startsWith("--font=")) {
+                    render = render.font(new Font(value(arg), Font.PLAIN, 1));
+                } else if (arg.startsWith("--font-size=")) {
+                    render = render.fontSize(Double.parseDouble(value(arg)));
+                } else if (arg.startsWith("--mm=")) {
+                    moduleMillimetres = Double.parseDouble(value(arg));
+                    if (!(moduleMillimetres > 0) || Double.isInfinite(moduleMillimetres)) {
+                        throw new IllegalArgumentException("--mm must be > 0");
+                    }
                 } else if (arg.startsWith("--quiet=")) {
                     options = options.quietZone(Integer.parseInt(value(arg)));
                 } else if (arg.startsWith("--ratio=")) {
@@ -142,14 +160,17 @@ final class WriteCommand {
             return 2;
         }
         try {
+            String lower = output == null ? "" : output.getFileName().toString().toLowerCase(Locale.ROOT);
             if (output == null) {
-                out.print(code.toSvg(barHeight));
-            } else if (output.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".svg")) {
-                Files.writeString(output, code.toSvg(barHeight), StandardCharsets.UTF_8);
+                out.print(code.toSvg(render));
+            } else if (lower.endsWith(".svg")) {
+                Files.writeString(output, code.toSvg(render), StandardCharsets.UTF_8);
+            } else if (lower.endsWith(".pdf")) {
+                Files.write(output, code.toPdf(moduleMillimetres, render));
             } else {
                 String name = output.getFileName().toString();
                 String format = name.contains(".") ? name.substring(name.lastIndexOf('.') + 1) : "png";
-                if (!ImageIO.write(code.toImage(moduleSize, Math.multiplyExact(barHeight, moduleSize)), format, output.toFile())) {
+                if (!ImageIO.write(code.toImage(moduleSize, render), format, output.toFile())) {
                     err.println("No image writer for " + format);
                     return 2;
                 }
@@ -167,8 +188,8 @@ final class WriteCommand {
 
     static void usage(PrintStream stream) {
         stream.println("Usage: java -jar barcode-pro.jar write [--type=CODE_128|EAN_13|DATA_MATRIX|PDF_417|AZTEC|...]"
-                + " [--module=4] [--height=60] [--quiet=N] [--ratio=2.5] [--checksum] [--add-on=DIGITS] [--charset=NAME]"
+                + " [--module=4] [--height=60] [--no-text] [--font=NAME] [--font-size=N] [--mm=0.33] [--quiet=N] [--ratio=2.5] [--checksum] [--add-on=DIGITS] [--charset=NAME]"
                 + " [--compact] [--level=L] [--shape=ANY|SQUARE|RECTANGLE] [--columns=N] [--rows=N] [--row-height=3]"
-                + " [--truncated] [--layers=N] [--out=file.png|file.svg] [--] content");
+                + " [--truncated] [--layers=N] [--out=file.png|file.svg|file.pdf] [--] content");
     }
 }
