@@ -111,11 +111,11 @@ The aggressive ladder was tuned on these photos, so treat 378 as what the ladder
 | KAIST DEAL test split, EAN-13 photos (wrong texts) | 2000 | 1224 (73) | 1437 (38) | 1576 (46) | 1459 (18) |
 | KAIST DEAL EAN-8 photos | 90 | 70 | 80 | 88 | 81 |
 | BoofCV QR v3, QR codes found by place | 1232 | 149 | 410 | 429 | 1005 |
-| BarBeR without its Arte-Lab and KAIST parts, codes read | 5176 | 2450 | 3060 | 3348 | 3290 |
+| BarBeR without its Arte-Lab and KAIST parts, codes read | 5176 | 2450 | 3158 | 3480 | 3411 |
 
-On KAIST's 788 photos without a barcode, ZXing reads something on 7, fast on none and aggressive on one. BarBeR counts codes ZXing knows but barcode-pro reads only when asked, such as the Interleaved 2 of 5 of its SKUU DSP Lab part.
+On KAIST's 788 photos without a barcode, ZXing reads something on 7, fast on none and aggressive on one. On BarBeR's ParcelBar part, Code 128 on parcels with modules of about two pixels, fast reads 283 of the 1,142 codes and aggressive 368, where ZXing reads 228. BarBeR counts codes ZXing knows but barcode-pro reads only when asked, such as the Interleaved 2 of 5 of its SKUU DSP Lab part.
 
-**Speed.** A clean symbol is read on the first attempt in a few milliseconds. On 70 Arte-Lab photos (1152×864 to 2976×2232 pixels, most of them hard), fast mode took 0.12 s per photo and 0.32 s of CPU spread over the cores of a 12-thread laptop; aggressive mode took 0.41 s and 1.5 s of CPU. Numbers depend on the machine; the relative cost of the modes does not.
+**Speed.** A clean symbol is read on the first attempt in a few milliseconds. On the 430 Arte-Lab photos (1152×864 to 2976×2232 pixels, most of them hard), read one after another by the default reader on a 12-thread laptop, fast mode took 0.08 s a photo and 0.17 s of CPU spread over the cores; aggressive mode took 0.22 s and 0.79 s of CPU. `mvn -q -Pspeed test-compile exec:java -Dexec.args="datasets/artelab-medium-barcode-1d"` measures it again. Numbers depend on the machine; the relative cost of the modes does not.
 
 **Robustness.** 1,500 random, degenerate (from 1×1 pixel to 3 megapixels) and damaged images in every mode raise no exception.
 
