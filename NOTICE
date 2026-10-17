@@ -1,5 +1,5 @@
 barcode-pro
-Copyright 2026 Krzywanski
+Copyright 2026 Kamil Krzywański
 
 This product includes a Java port of read-path detectors from zxing-cpp
 (https://github.com/zxing-cpp/zxing-cpp), tag v3.1.1:
@@ -39,7 +39,8 @@ core/src/maxicode/MCBitMatrixParser.cpp), the Telepen row decoder
 (core/src/TextDecoder.cpp), the guess of the character set of text without an ECI
 (GuessTextEncoding in core/src/Content.cpp), the geometry those files use, the matrix binarizer in core/src/HybridBinarizer.cpp,
 the scanline histogram in core/src/GlobalHistogramBinarizer.cpp,
-the luminance pyramid in core/src/ReadBarcode.cpp, and the Reed-Solomon decoder with erasures of
+the luminance pyramid in core/src/ReadBarcode.cpp, the two-line rule of core/src/oned/ODReader.cpp,
+the comparison of two hits in core/src/Barcode.cpp, and the Reed-Solomon decoder with erasures of
 core/src/librscpp (decode.h, field.h, poly.h) with its fields in core/src/ReedSolomon.cpp.
 Shift-JIS pairs 0x815C and 0x815F, and the user-area leads F0-F9, follow libzueci
 (BSD-3-Clause, Copyright 2022 gitlost), which zxing-cpp embeds.
@@ -53,16 +54,29 @@ and HybridBinarizer.java, the Galois fields of the Reed-Solomon encoder
 encoder (qrcode/encoder/Encoder.java, MatrixUtil.java, MaskUtil.java, ByteMatrix.java,
 BlockPair.java, MinimalEncoder.java, qrcode/decoder/Mode.java and Version.java,
 common/reedsolomon/ReedSolomonEncoder.java, common/ECIEncoderSet.java, and the part of
-common/BitArray.java and common/CharacterSetECI.java it uses).
+common/BitArray.java and common/CharacterSetECI.java it uses, and qrcode/encoder/QRCode.java).
+The row scans of the linear readers follow oned/OneDReader.java, and the luminance of a colour image
+javase's client/j2se/BufferedImageLuminanceSource.java.
 The linear writers port ZXing's core/src/main/java/com/google/zxing/oned/Code128Writer.java,
 Code39Writer.java, Code93Writer.java, CodaBarWriter.java, ITFWriter.java, EAN13Writer.java,
-EAN8Writer.java, UPCAWriter.java and UPCEWriter.java, with the pattern tables of their readers.
+EAN8Writer.java, UPCAWriter.java and UPCEWriter.java, with OneDimensionalCodeWriter.java and the
+pattern tables of their readers.
 The Data Matrix writer ports datamatrix/DataMatrixWriter.java and the package datamatrix/encoder,
-with common/MinimalECIInput.java and ECIInput.java; its minimal encoder takes 22 codewords for the
+with common/MinimalECIInput.java, ECIInput.java and Dimension.java; its minimal encoder takes 22 codewords for the
 12x36 rectangle, where ZXing has 33, and writes the EDIFACT unlatch that ZXing leaves out.
 The PDF417 writer ports pdf417/PDF417Writer.java and the package pdf417/encoder, and the Aztec
 writer aztec/AztecWriter.java and the package aztec/encoder.
-Copyright 2007 ZXing authors. Licensed under the Apache License, Version 2.0.
+Copyright 2007-2021 ZXing authors. Licensed under the Apache License, Version 2.0.
+
+ZXing's NOTICE, for its Data Matrix and PDF417 encoders, which this product ports:
+
+  Barcode4J
+  Copyright 2002-2010 Jeremias Märki
+  Copyright 2005-2006 Dietmar Bürkle
+
+  Portions of this software were contributed under section 5 of the
+  Apache License. Contributors are listed under:
+  http://barcode4j.sourceforge.net/contributors.html
 
 This product also includes code ported from Barcode-Lib4J (https://github.com/vws-java/Barcode-Lib4J),
 version 3.2.0: the GS1 element string validator (de/vwsoft/barcodelib4j/oned/GS1Validator.java), and
@@ -74,12 +88,12 @@ layout of the human-readable line of oned/Barcode.java and oned/UPCEANFamily.jav
 Copyright (c) 2025 Viktor Wedel, https://www.vw-software.com/
 Licensed under the Apache License, Version 2.0.
 
-Copyright 2006 Jeremias Maerki
+Copyright 2006-2007 Jeremias Maerki
 Copyright 2016 Huy Cuong Nguyen
 Copyright 2016 ZXing authors
 Copyright 2016 Nu-book Inc.
-Copyright 2017, 2020, 2023, 2026 Axel Waggershauser
-Copyright 2022 gitlost
+Copyright 2017, 2019, 2020, 2022-2026 Axel Waggershauser
+Copyright 2022, 2023 gitlost
 Copyright 2023 Antoine Mérino
 Copyright 2025 wooyechan
 
@@ -89,6 +103,9 @@ The license text is at http://www.apache.org/licenses/LICENSE-2.0
 The test corpus in datasets/artelab-medium-barcode-1d/ is the Arte-Lab Medium
 Barcode 1D collection (Dataset1 with autofocus, Dataset2 without, 430 EAN-13
 photographs). It is not part of the 22-sample scan benchmark.
+The images and texts in src/test/resources/official/ and official-rows/ are zxing-cpp 3.1.1
+test/samples (Apache License 2.0); the eight photos in src/test/resources/artelab/ are
+Arte-Lab photographs (see below). Neither is part of the published JARs.
 Files in datasets/zxing-cpp-3.1.1/samples/ are the zxing-cpp 3.1.1
 test/samples images and texts whose bytes are not already under
 src/test/resources. They stay off the test classpath.

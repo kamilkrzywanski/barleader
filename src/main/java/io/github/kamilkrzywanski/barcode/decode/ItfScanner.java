@@ -1,3 +1,8 @@
+/*
+ * Copyright 2008 ZXing authors
+ * Copyright 2026 Kamil Krzywański
+ */
+// SPDX-License-Identifier: Apache-2.0
 package io.github.kamilkrzywanski.barcode.decode;
 
 import io.github.kamilkrzywanski.barcode.decode.ItfDecoder.Span;

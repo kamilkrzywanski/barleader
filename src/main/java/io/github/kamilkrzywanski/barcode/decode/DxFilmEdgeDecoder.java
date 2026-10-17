@@ -1,3 +1,9 @@
+/*
+ * Copyright 2023 Antoine Mérino
+ * Copyright 2023 Axel Waggershauser
+ * Copyright 2026 Kamil Krzywański
+ */
+// SPDX-License-Identifier: Apache-2.0
 package io.github.kamilkrzywanski.barcode.decode;
 
 import io.github.kamilkrzywanski.barcode.decode.OneDRow.View;

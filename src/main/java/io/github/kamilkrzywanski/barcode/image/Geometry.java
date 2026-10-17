@@ -1,3 +1,9 @@
+/*
+ * Copyright 2019 Axel Waggershauser
+ * Copyright 2020 Axel Waggershauser
+ * Copyright 2026 Kamil Krzywański
+ */
+// SPDX-License-Identifier: Apache-2.0
 package io.github.kamilkrzywanski.barcode.image;
 
 import io.github.kamilkrzywanski.barcode.ImagePoint;

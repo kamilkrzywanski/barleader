@@ -1,3 +1,6 @@
+/*
+ * Copyright 2026 Kamil Krzywański
+ */
 // SPDX-License-Identifier: Apache-2.0
 /**
  * Barcode reader in pure Java. {@link io.github.kamilkrzywanski.barcode.BarcodeReader} is the entry point.

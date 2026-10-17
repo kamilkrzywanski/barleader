@@ -1,3 +1,11 @@
+/*
+ * Copyright 2016 Nu-book Inc.
+ * Copyright 2022 gitlost
+ * Copyright 2025 Axel Waggershauser
+ * Copyright 2022 Axel Waggershauser
+ * Copyright 2026 Kamil Krzywański
+ */
+// SPDX-License-Identifier: Apache-2.0
 package io.github.kamilkrzywanski.barcode.decode;
 
 import java.nio.ByteBuffer;

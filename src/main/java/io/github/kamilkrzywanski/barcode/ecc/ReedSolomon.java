@@ -1,3 +1,10 @@
+/*
+ * Copyright 2016 ZXing authors
+ * Copyright 2017-2026 Axel Waggershauser
+ * Copyright 2026 Axel Waggershauser
+ * Copyright 2026 Kamil Krzywański
+ */
+// SPDX-License-Identifier: Apache-2.0
 package io.github.kamilkrzywanski.barcode.ecc;
 
 import java.util.Arrays;

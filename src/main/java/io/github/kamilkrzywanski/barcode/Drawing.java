@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2025 Viktor Wedel
+ * Copyright 2026 Kamil Krzywański
+ */
+// SPDX-License-Identifier: Apache-2.0
 package io.github.kamilkrzywanski.barcode;
 
 import io.github.kamilkrzywanski.barcode.encode.UpcEanEncoder.Kind;

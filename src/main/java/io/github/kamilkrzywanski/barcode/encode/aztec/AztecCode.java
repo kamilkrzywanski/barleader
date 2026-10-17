@@ -1,3 +1,8 @@
+/*
+ * Copyright 2013 ZXing authors
+ * Copyright 2026 Kamil Krzywański
+ */
+// SPDX-License-Identifier: Apache-2.0
 package io.github.kamilkrzywanski.barcode.encode.aztec;
 
 

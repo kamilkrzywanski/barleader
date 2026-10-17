@@ -1,4 +1,9 @@
 /*
+ * Copyright 2006 Jeremias Maerki in part, and ZXing Authors in part
+ * Copyright 2026 Kamil Krzywański
+ */
+// SPDX-License-Identifier: Apache-2.0
+/*
  * This file has been modified from its original form in Barcode4J.
  */
 

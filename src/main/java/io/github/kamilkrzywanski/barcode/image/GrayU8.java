@@ -1,3 +1,7 @@
+/*
+ * Copyright 2026 Kamil Krzywański
+ */
+// SPDX-License-Identifier: Apache-2.0
 package io.github.kamilkrzywanski.barcode.image;
 
 /** 8-bit grayscale. One row is {@link #stride} bytes starting at {@link #startIndex}. */

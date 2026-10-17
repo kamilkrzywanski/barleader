@@ -1,3 +1,11 @@
+/*
+ * Copyright 2016 Nu-book Inc.
+ * Copyright 2016 ZXing authors
+ * Copyright 2023 gitlost
+ * Copyright 2023 Axel Waggershauser
+ * Copyright 2026 Kamil Krzywański
+ */
+// SPDX-License-Identifier: Apache-2.0
 package io.github.kamilkrzywanski.barcode.locate.dm;
 
 import io.github.kamilkrzywanski.barcode.decode.Decoded;
