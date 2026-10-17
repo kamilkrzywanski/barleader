@@ -39,6 +39,10 @@ public final class BinaryBitmap {
     private int[][] runs;
     private int[][] reversedRuns;
     private static final boolean[] FLAT = new boolean[0];
+    private static final int[] NO_RUNS = new int[0];
+    private int fineScale;
+    private int[][] fineRuns;
+    private int[][] reversedFineRuns;
 
     private BinaryBitmap(GrayLuminanceSource source, boolean hybrid) {
         this.source = source;
@@ -157,13 +161,49 @@ public final class BinaryBitmap {
     }
 
     /**
+     * {@link #runs(int, boolean)} for {@code scale} 1, otherwise the same row with its edges in
+     * {@code 1 / scale} pixel, as {@link #fineRuns} has them. Shared; null when the row has too
+     * little contrast.
+     */
+    public int[] runs(int y, boolean reversed, int scale) {
+        if (scale == 1) {
+            return runs(y, reversed);
+        }
+        if (fineRuns == null || fineScale != scale) {
+            fineRuns = new int[source.getHeight()][];
+            reversedFineRuns = new int[source.getHeight()][];
+            fineScale = scale;
+        }
+        int[] forward = fineRuns[y];
+        if (forward == null) {
+            forward = fineRuns(y, scale);
+            fineRuns[y] = forward == null ? NO_RUNS : forward;
+        }
+        if (forward == null || forward == NO_RUNS) {
+            return null;
+        }
+        if (!reversed) {
+            return forward;
+        }
+        int[] backward = reversedFineRuns[y];
+        if (backward == null) {
+            backward = new int[forward.length];
+            for (int i = 0; i < forward.length; i++) {
+                backward[i] = forward[forward.length - 1 - i];
+            }
+            reversedFineRuns[y] = backward;
+        }
+        return backward;
+    }
+
+    /**
      * The runs of {@link #runs} with each edge where the sharpened row, linearly interpolated between
      * pixel centres, crosses the black point, in units of {@code 1 / scale} pixel. Where a module is
      * under two pixels, a whole-pixel edge is off by a third of a module or more, which is enough for
-     * the edge-to-edge widths of Code 128 to round to another symbol. The row starts and ends white,
+     * the edge-to-edge widths of Code 128 or the digit widths of EAN to round to another symbol. The row starts and ends white,
      * as {@link #getBlackRow} leaves its first and last pixel. Null when the row has too little contrast.
      */
-    public int[] fineRuns(int y, int scale) {
+    private int[] fineRuns(int y, int scale) {
         int width = source.getWidth();
         if (width < 3) {
             return null;

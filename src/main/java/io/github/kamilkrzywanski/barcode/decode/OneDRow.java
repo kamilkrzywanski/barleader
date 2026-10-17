@@ -18,6 +18,15 @@ import io.github.kamilkrzywanski.barcode.image.BinaryBitmap;
  * there counts the same runs. A view starts on a bar.
  */
 final class OneDRow {
+    /**
+     * The scale of the second scan of the Code 128, Code 39 and EAN/UPC rows: edges in quarters of a
+     * pixel. On BarBeR's ParcelBar photos fast mode then reads 269 instead of 99 of the 536 Code 128
+     * symbols with modules under two pixels, and 708 instead of 418 of all 1,110. On all of BarBeR it
+     * reads 4,296 instead of 4,109 of the 5,365 EAN/UPC symbols and 145 instead of 127 of the 198
+     * Code 39.
+     */
+    static final int FINE = 4;
+
     private OneDRow() {
     }
 

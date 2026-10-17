@@ -18,12 +18,6 @@ import java.util.function.Predicate;
  * their edges in quarter pixels.
  */
 final class Code128Scanner {
-    /**
-     * Quarters of a pixel. On BarBeR's ParcelBar photos fast mode then reads 269 instead of 99 of the
-     * 536 Code 128 symbols with modules under two pixels, and 708 instead of 418 of all 1,110.
-     */
-    private static final int FINE = 4;
-
     /** One Code 128. {@code left} and {@code right} are inclusive columns on {@code row}. */
     record Found(String text, int left, int right, int row, boolean upsideDown) {
     }
@@ -44,10 +38,10 @@ final class Code128Scanner {
             return null;
         }
         Found found = scan(image, accept, 1);
-        return found != null ? found : scan(image, accept, FINE);
+        return found != null ? found : scan(image, accept, OneDRow.FINE);
     }
 
-    /** {@code scale} 1 reads the shared whole-pixel runs, another scale {@link BinaryBitmap#fineRuns}. */
+    /** {@code scale} 1 reads the whole-pixel runs, another scale the runs with edges in {@code 1 / scale} pixel. */
     private static Found scan(BinaryBitmap image, Predicate<Found> accept, int scale) {
         int width = image.getWidth();
         int height = image.getHeight();
@@ -60,7 +54,7 @@ final class Code128Scanner {
             if (y < 0 || y >= height) {
                 break;
             }
-            int[] runs = scale == 1 ? image.runs(y, false) : image.fineRuns(y, scale);
+            int[] runs = image.runs(y, false, scale);
             if (runs == null) {
                 continue;
             }
@@ -68,20 +62,12 @@ final class Code128Scanner {
             if (forward != null && accept.test(forward)) {
                 return forward;
             }
-            Found reversed = decode(scale == 1 ? image.runs(y, true) : reverse(runs), image.getWidth(), y, true, scale);
+            Found reversed = decode(image.runs(y, true, scale), image.getWidth(), y, true, scale);
             if (reversed != null && accept.test(reversed)) {
                 return reversed;
             }
         }
         return null;
-    }
-
-    private static int[] reverse(int[] runs) {
-        int[] out = new int[runs.length];
-        for (int i = 0; i < runs.length; i++) {
-            out[i] = runs[runs.length - 1 - i];
-        }
-        return out;
     }
 
     /** {@code runs} in {@code 1 / scale} pixel; the found columns are whole pixels. */

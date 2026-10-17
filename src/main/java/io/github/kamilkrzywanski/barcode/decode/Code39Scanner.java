@@ -11,7 +11,8 @@ import io.github.kamilkrzywanski.barcode.image.BinaryBitmap;
 /**
  * Row scan for {@link Code39Decoder}, matching the middle-out loop in ZXing
  * {@code OneDReader} with {@code TRY_HARDER}. A reversed row is the upside-down
- * attempt. Orthogonal rotation stays on the scan ladder.
+ * attempt. Orthogonal rotation stays on the scan ladder. When no row reads, the rows are
+ * scanned again with their edges in quarter pixels, as {@link Code128Scanner} does.
  */
 final class Code39Scanner {
     /** One Code 39. {@code left} and {@code right} are inclusive columns on {@code row}. */
@@ -25,10 +26,12 @@ final class Code39Scanner {
         if (image == null || image.getWidth() < 2 || image.getHeight() < 2) {
             return null;
         }
-        return scan(image);
+        Found found = scan(image, 1);
+        return found != null ? found : scan(image, OneDRow.FINE);
     }
 
-    private static Found scan(BinaryBitmap image) {
+    /** {@code scale} 1 reads the whole-pixel runs, another scale the runs with edges in {@code 1 / scale} pixel. */
+    private static Found scan(BinaryBitmap image, int scale) {
         int width = image.getWidth();
         int height = image.getHeight();
         int rowStep = Math.max(1, height >> 8);
@@ -40,15 +43,15 @@ final class Code39Scanner {
             if (y < 0 || y >= height) {
                 break;
             }
-            int[] runs = image.runs(y, false);
+            int[] runs = image.runs(y, false, scale);
             if (runs == null) {
                 continue;
             }
-            Found forward = decode(runs, image.getWidth(), y, false);
+            Found forward = decode(runs, image.getWidth(), y, false, scale);
             if (forward != null) {
                 return forward;
             }
-            Found reversed = decode(image.runs(y, true), image.getWidth(), y, true);
+            Found reversed = decode(image.runs(y, true, scale), image.getWidth(), y, true, scale);
             if (reversed != null) {
                 return reversed;
             }
@@ -56,16 +59,17 @@ final class Code39Scanner {
         return null;
     }
 
-    private static Found decode(int[] runs, int width, int y, boolean upsideDown) {
+    /** {@code runs} in {@code 1 / scale} pixel; the found columns are whole pixels. */
+    private static Found decode(int[] runs, int width, int y, boolean upsideDown, int scale) {
         Span span = Code39Decoder.decodeSpan(runs);
         if (span == null || span.text() == null || span.text().isBlank()) {
             return null;
         }
-        int left = span.left();
-        int right = span.right();
+        int left = span.left() / scale;
+        int right = span.right() / scale;
         if (upsideDown) {
-            left = width - 1 - span.right();
-            right = width - 1 - span.left();
+            left = width - 1 - span.right() / scale;
+            right = width - 1 - span.left() / scale;
         }
         if (right < left) {
             return null;

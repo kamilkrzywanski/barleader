@@ -260,13 +260,13 @@ public final class BitmapDecoder {
         // The first row that confirms can be a short glitch while the same bitmap's real bars
         // span a much taller run. Foto(726) hybrid returned 2094297032262 on rows 5 px apart
         // and the labeled 8023222032262 on a 54 px run of the same crop.
-        if (attempt.startsWith("linear-band") && widerRival(image, found.text())) {
+        if (attempt.startsWith("linear-band") && widerRival(image, found.text(), found.scale())) {
             return List.of();
         }
         // A binary strip hit on one or two adjacent rows is a threshold glitch.
         // Four rows, or two rows at least 8 px apart, still required on a 48-row strip.
         // A taller crop may keep just two intact rows under glare.
-        if (binary && attempt.startsWith("linear-band") && !separatedEanRows(image, found.text())) {
+        if (binary && attempt.startsWith("linear-band") && !separatedEanRows(image, found.text(), found.scale())) {
             return List.of();
         }
         List<ImagePoint> corners = new ArrayList<>(2);
@@ -572,16 +572,17 @@ public final class BitmapDecoder {
     /**
      * True when the hit is a short run and another text on this bitmap covers a taller one.
      * A hit that already spans 8 px stays: that is the same separation the binary gate accepts.
+     * The rows are read at the {@code scale} of the hit.
      */
-    private static boolean widerRival(BinaryBitmap image, String text) {
+    private static boolean widerRival(BinaryBitmap image, String text, int scale) {
         Map<String, int[]> support = new HashMap<>();
         for (int y = 0; y < image.getHeight(); y++) {
-            int[] runs = image.runs(y, false);
+            int[] runs = image.runs(y, false, scale);
             if (runs == null) {
                 continue;
             }
             noteEanRow(support, runs, y);
-            noteEanRow(support, image.runs(y, true), y);
+            noteEanRow(support, image.runs(y, true, scale), y);
         }
         String hitKey = eanKey(text);
         int[] hit = support.get(hitKey);
@@ -631,16 +632,17 @@ public final class BitmapDecoder {
         return text;
     }
 
-    private static boolean separatedEanRows(BinaryBitmap image, String text) {
+    /** The rows are read at the {@code scale} of the hit. */
+    private static boolean separatedEanRows(BinaryBitmap image, String text, int scale) {
         int count = 0;
         int first = -1;
         int last = -1;
         for (int y = 0; y < image.getHeight(); y++) {
-            int[] runs = image.runs(y, false);
+            int[] runs = image.runs(y, false, scale);
             if (runs == null) {
                 continue;
             }
-            if (!eanRowMatches(runs, text) && !eanRowMatches(image.runs(y, true), text)) {
+            if (!eanRowMatches(runs, text) && !eanRowMatches(image.runs(y, true, scale), text)) {
                 continue;
             }
             count++;

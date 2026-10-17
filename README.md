@@ -99,21 +99,21 @@ When they are asked for, the opt-in symbologies read all of their samples: 245 o
 
 | | ZXing | fast | aggressive |
 | --- | ---: | ---: | ---: |
-| Labels read | 205 | 243 | 378 |
-| Wrong texts | 9 | 5 | 5 |
+| Labels read | 205 | 249 | 389 |
+| Wrong texts | 9 | 5 | 6 |
 
-The aggressive ladder was tuned on these photos, so treat 378 as what the ladder can reach on this kind of image, not as a measurement on unseen data.
+The aggressive ladder was tuned on these photos, so treat 389 as what the ladder can reach on this kind of image, not as a measurement on unseen data.
 
 **Public sets outside the repository.** `scripts/fetch-datasets.sh` and the snapshot run in [Measuring](#measuring) give these numbers, all with the default symbologies and no time budget. ZXing, fast and aggressive return one symbol an image; only `findAll` looks for the rest, which is what counts on images with many codes.
 
 | Set | Labelled | ZXing | fast | aggressive | fast, `findAll` |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| KAIST DEAL test split, EAN-13 photos (wrong texts) | 2000 | 1224 (73) | 1437 (38) | 1576 (47) | 1459 (18) |
+| KAIST DEAL test split, EAN-13 photos (wrong texts) | 2000 | 1224 (73) | 1574 (35) | 1695 (40) | 1596 (13) |
 | KAIST DEAL EAN-8 photos | 90 | 70 | 80 | 88 | 81 |
 | BoofCV QR v3, QR codes found by place | 1232 | 149 | 410 | 429 | 1005 |
-| BarBeR without its Arte-Lab and KAIST parts, codes read | 5176 | 2463 | 3453 | 3768 | 3750 |
+| BarBeR without its Arte-Lab and KAIST parts, codes read | 5176 | 2463 | 3488 | 3792 | 3794 |
 
-On KAIST's 788 photos without a barcode, ZXing reads something on 7, fast on none and aggressive on one. On BarBeR's ParcelBar part, Code 128 on parcels with modules of one to two and a half pixels, fast reads 532 of the 1,142 codes and aggressive 612, where ZXing reads 228; under about 1.3 pixels a module hardly any code reads. BarBeR counts codes ZXing knows but barcode-pro reads only when asked, such as the Interleaved 2 of 5 of its SKUU DSP Lab part. Its annotation tool saved the texts HTML-escaped (`&amp;` for `&` in 154 URLs and XML payloads), which the scorer undoes; a few binary PDF417 payloads labelled in hex or in code page 437 still count as wrong texts. A real Data Matrix that a set leaves unlabelled counts as a wrong text, and without `findAll` it can take the place of the labelled code on the same photo: that is the one code fewer on BarBeR and the one wrong text more on KAIST since large and bent Data Matrix symbols are read.
+On KAIST's 788 photos without a barcode, ZXing reads something on 7, fast on none and aggressive on one. On BarBeR's ParcelBar part, Code 128 on parcels with modules of one to two and a half pixels, fast reads 533 of the 1,142 codes and aggressive 613, where ZXing reads 228; under about 1.3 pixels a module hardly any code reads. BarBeR counts codes ZXing knows but barcode-pro reads only when asked, such as the Interleaved 2 of 5 of its SKUU DSP Lab part. Its annotation tool saved the texts HTML-escaped (`&amp;` for `&` in 154 URLs and XML payloads), which the scorer undoes; a few binary PDF417 payloads labelled in hex or in code page 437 still count as wrong texts. A real Data Matrix that a set leaves unlabelled counts as a wrong text, and without `findAll` it can take the place of the labelled code on the same photo: that is the one code fewer on BarBeR and the one wrong text more on KAIST since large and bent Data Matrix symbols are read.
 
 **Speed.** A clean symbol is read on the first attempt in a few milliseconds. On the 430 Arte-Lab photos (1152×864 to 2976×2232 pixels, most of them hard), read one after another by the default reader on a 12-thread laptop, fast mode took 0.08 s a photo and 0.17 s of CPU spread over the cores; aggressive mode took 0.22 s and 0.79 s of CPU. `mvn -q -Pspeed test-compile exec:java -Dexec.args="datasets/artelab-medium-barcode-1d"` measures it again. Numbers depend on the machine; the relative cost of the modes does not.
 

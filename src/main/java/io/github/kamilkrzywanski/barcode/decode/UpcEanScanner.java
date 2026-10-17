@@ -18,12 +18,18 @@ import java.util.Set;
  * {@code OneDReader} with {@code TRY_HARDER}. A reversed row is the upside-down
  * attempt. Orthogonal rotation stays on the scan ladder.
  *
+ * <p>When no row reads, the rows are scanned again with their edges in quarter pixels, as
+ * {@link Code128Scanner} does; the rows that confirm such a hit are read the same way.
+ *
  * <p>An EAN-13 whose first digit is {@code 0} is reported as UPC-A when that
  * format was requested, and the leading zero is removed. UPC-E stays eight digits.
  */
 final class UpcEanScanner {
-    /** One retail symbol. {@code left} and {@code right} are inclusive columns on {@code row}. */
-    record Found(Symbology symbology, String text, int left, int right, int row, boolean upsideDown, String addOn) {
+    /**
+     * One retail symbol. {@code left} and {@code right} are inclusive columns on {@code row};
+     * {@code scale} is that of the runs it was read from, 1 for whole pixels.
+     */
+    record Found(Symbology symbology, String text, int left, int right, int row, boolean upsideDown, String addOn, int scale) {
     }
 
     private UpcEanScanner() {
@@ -38,7 +44,8 @@ final class UpcEanScanner {
         if (image == null || image.getWidth() < 2 || image.getHeight() < 2 || !wanted(symbologies)) {
             return null;
         }
-        return scan(image, symbologies, addOn);
+        Found found = scan(image, symbologies, addOn, 1);
+        return found != null ? found : scan(image, symbologies, addOn, OneDRow.FINE);
     }
 
     private static boolean wanted(Set<Symbology> symbologies) {
@@ -68,13 +75,13 @@ final class UpcEanScanner {
             if (y == found.row()) {
                 continue;
             }
-            int[] runs = image.runs(y, false);
+            int[] runs = image.runs(y, false, found.scale());
             if (runs == null) {
                 continue;
             }
             for (Found again : new Found[]{
-                    decode(runs, image.getWidth(), y, false, symbologies, EanAddOn.IGNORE),
-                    decode(image.runs(y, true), image.getWidth(), y, true, symbologies, EanAddOn.IGNORE)}) {
+                    decode(runs, image.getWidth(), y, false, symbologies, EanAddOn.IGNORE, found.scale()),
+                    decode(image.runs(y, true, found.scale()), image.getWidth(), y, true, symbologies, EanAddOn.IGNORE, found.scale())}) {
                 if (again != null && again.symbology() == found.symbology() && again.text().equals(found.text())) {
                     return true;
                 }
@@ -83,7 +90,8 @@ final class UpcEanScanner {
         return false;
     }
 
-    private static Found scan(BinaryBitmap image, Set<Symbology> symbologies, EanAddOn addOn) {
+    /** {@code scale} 1 reads the whole-pixel runs, another scale the runs with edges in {@code 1 / scale} pixel. */
+    private static Found scan(BinaryBitmap image, Set<Symbology> symbologies, EanAddOn addOn, int scale) {
         int width = image.getWidth();
         int height = image.getHeight();
         int rowStep = Math.max(1, height >> 8);
@@ -95,15 +103,15 @@ final class UpcEanScanner {
             if (y < 0 || y >= height) {
                 break;
             }
-            int[] runs = image.runs(y, false);
+            int[] runs = image.runs(y, false, scale);
             if (runs == null) {
                 continue;
             }
-            Found forward = decode(runs, image.getWidth(), y, false, symbologies, addOn);
+            Found forward = decode(runs, image.getWidth(), y, false, symbologies, addOn, scale);
             if (forward != null) {
                 return withSupplement(image, symbologies, addOn, forward);
             }
-            Found reversed = decode(image.runs(y, true), image.getWidth(), y, true, symbologies, addOn);
+            Found reversed = decode(image.runs(y, true, scale), image.getWidth(), y, true, symbologies, addOn, scale);
             if (reversed != null) {
                 return withSupplement(image, symbologies, addOn, reversed);
             }
@@ -125,13 +133,13 @@ final class UpcEanScanner {
             if (y == found.row()) {
                 continue;
             }
-            int[] runs = image.runs(y, false);
+            int[] runs = image.runs(y, false, found.scale());
             if (runs == null) {
                 continue;
             }
             for (Found again : new Found[]{
-                    decode(runs, image.getWidth(), y, false, symbologies, EanAddOn.REQUIRE),
-                    decode(image.runs(y, true), image.getWidth(), y, true, symbologies, EanAddOn.REQUIRE)}) {
+                    decode(runs, image.getWidth(), y, false, symbologies, EanAddOn.REQUIRE, found.scale()),
+                    decode(image.runs(y, true, found.scale()), image.getWidth(), y, true, symbologies, EanAddOn.REQUIRE, found.scale())}) {
                 if (again != null && again.symbology() == found.symbology() && again.text().equals(found.text())) {
                     return again;
                 }
@@ -140,7 +148,8 @@ final class UpcEanScanner {
         return found;
     }
 
-    private static Found decode(int[] runs, int width, int y, boolean upsideDown, Set<Symbology> symbologies, EanAddOn addOn) {
+    /** {@code runs} in {@code 1 / scale} pixel; the found columns are whole pixels. */
+    private static Found decode(int[] runs, int width, int y, boolean upsideDown, Set<Symbology> symbologies, EanAddOn addOn, int scale) {
         Span span = UpcEanDecoder.decodeSpan(runs, addOn != EanAddOn.IGNORE, addOn == EanAddOn.REQUIRE);
         if (span == null) {
             return null;
@@ -169,16 +178,16 @@ final class UpcEanScanner {
         } else {
             return null;
         }
-        int left = span.left();
-        int right = span.right();
+        int left = span.left() / scale;
+        int right = span.right() / scale;
         if (upsideDown) {
-            left = width - 1 - span.right();
-            right = width - 1 - span.left();
+            left = width - 1 - span.right() / scale;
+            right = width - 1 - span.left() / scale;
         }
         if (right < left || text.isBlank()) {
             return null;
         }
-        return new Found(symbology, text, left, right, y, upsideDown, span.addOn());
+        return new Found(symbology, text, left, right, y, upsideDown, span.addOn(), scale);
     }
 
 }
