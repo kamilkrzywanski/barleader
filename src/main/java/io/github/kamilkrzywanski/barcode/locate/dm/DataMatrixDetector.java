@@ -20,9 +20,10 @@ import java.util.List;
  * <p>The image is binarized with the zxing-cpp local-average matrix binarizer.
  * The sampled module matrix is decoded by {@link DmDecoder}. There is no ZXing fallback on this path.
  * {@code DetectOld} runs only when the edge tracer yields no grid.
- * Alignment-pattern refinement from {@code LocalGrid} is not in this slice:
- * a flat symbol is sampled from the four border lines. When at least one side
- * is 42 modules or smaller, the symbol also gets the timing-pattern lookup table.
+ * A traced symbol is sampled region by region between the alignment patterns that
+ * {@link LocalGrid} finds, so a symbol that does not lie flat still samples. When at
+ * least one side is 42 modules or smaller, the symbol also gets the timing-pattern
+ * lookup table.
  */
 public final class DataMatrixDetector {
     private static final int MIN_SYMBOL_PIXELS = 16;
@@ -363,7 +364,7 @@ public final class DataMatrixDetector {
                 new P(0, 0), new P(dimT, 0), new P(dimT, dimR), new P(0, dimR)
         };
         Warp mod2Pix = Warp.between(rectangle, source);
-        Grid grid = sample(start.img, dimT, dimR, mod2Pix);
+        Grid grid = sampleAligned(start.img, dimT, dimR, mod2Pix);
         if (grid != null) {
             out.add(grid);
         }
@@ -412,32 +413,154 @@ public final class DataMatrixDetector {
         return P.add(a, P.mul(direction, distance));
     }
 
-    static Grid sample(Bits image, int width, int height, Warp mod2Pix) {
-        if (width <= 0 || height <= 0 || !mod2Pix.valid()) {
+    private static final int[] L = {-1, 0};
+    private static final int[] R = {1, 0};
+    private static final int[] U = {0, -1};
+    private static final int[] D = {0, 1};
+    private static final int[][] NONE = {};
+
+    /**
+     * The alignment-pattern sampling at the end of zxing-cpp's {@code Scan}: every corner and every
+     * crossing of the alignment patterns (the solid and the timing lines between data regions) is
+     * looked for with {@link LocalGrid#findPattern} around its {@code mod2Pix} estimate, and each
+     * region between four of them is sampled with its own transform. A crossing that is not found
+     * is projected with {@code mod2Pix}, so a flat symbol samples as before.
+     */
+    private static Grid sampleAligned(Bits image, int dimT, int dimR, Warp mod2Pix) {
+        int[] block = DmDecoder.dataBlockSize(dimR, dimT);
+        if (block == null || !mod2Pix.valid()) {
             return null;
         }
-        if (!inside(image, mod2Pix, 0, 0) || !inside(image, mod2Pix, width - 1, 0)
-                || !inside(image, mod2Pix, width - 1, height - 1) || !inside(image, mod2Pix, 0, height - 1)) {
+        int[] apX = new int[dimT / (block[0] + 2) + 1];
+        int[] apY = new int[dimR / (block[1] + 2) + 1];
+        for (int i = 0; i < apX.length; i++) {
+            apX[i] = i * (block[0] + 2);
+        }
+        for (int i = 0; i < apY.length; i++) {
+            apY[i] = i * (block[1] + 2);
+        }
+        apX[apX.length - 1] = dimT - 1;
+        apY[apY.length - 1] = dimR - 1;
+        int nx = apX.length - 1;
+        int ny = apY.length - 1;
+        P[][] ap = new P[apY.length][apX.length];
+        for (int y = 0; y <= ny; y++) {
+            for (int x = 0; x <= nx; x++) {
+                int mx = apX[x];
+                int my = apY[y];
+                P found;
+                if (x == 0 && y == 0) { // top-left
+                    found = findAlignment(image, mod2Pix, mx, my, dimT, dimR, 2, 0, 4, new int[]{1, 0}, new int[][]{R},
+                            new int[]{0, 0}, new int[][]{D}, new int[]{-1, -1}, new int[][]{D, R});
+                } else if (x == nx && y == 0) { // top-right
+                    found = findAlignment(image, mod2Pix, mx, my, dimT, dimR, -1, 1, 4, new int[]{0, 0}, new int[][]{L, D},
+                            new int[]{0, 0}, NONE, new int[]{1, -1}, new int[][]{D, L});
+                } else if (x == nx && y == ny) { // bottom-right
+                    found = findAlignment(image, mod2Pix, mx, my, dimT, dimR, 0, -2, 4, new int[]{0, -1}, new int[][]{U},
+                            new int[]{0, 0}, new int[][]{L}, new int[]{1, 1}, new int[][]{U, L});
+                } else if (x == 0 && y == ny) { // bottom-left
+                    found = findAlignment(image, mod2Pix, mx, my, dimT, dimR, 1, -1, 4, new int[]{0, 0}, NONE,
+                            new int[]{0, 0}, new int[][]{U, R}, new int[]{-1, 1}, new int[][]{U, R});
+                } else if (x == 0) { // left
+                    found = findAlignment(image, mod2Pix, mx, my, dimT, dimR, 2, 0, 3, new int[]{1, 0}, new int[][]{R},
+                            new int[]{0, -1}, new int[][]{U, D, R}, new int[]{0, 0}, NONE);
+                } else if (x == nx) { // right
+                    found = findAlignment(image, mod2Pix, mx, my, dimT, dimR, -1, 0, 3, new int[]{0, 0}, new int[][]{L, U, D},
+                            new int[]{0, -1}, new int[][]{L}, new int[]{0, 0}, NONE);
+                } else if (y == 0) { // top
+                    found = findAlignment(image, mod2Pix, mx, my, dimT, dimR, -1, 0, 3, new int[]{-1, 0}, new int[][]{L, R, D},
+                            new int[]{0, 0}, new int[][]{D}, new int[]{0, 0}, NONE);
+                } else if (y == ny) { // bottom
+                    found = findAlignment(image, mod2Pix, mx, my, dimT, dimR, -1, -1, 3, new int[]{-1, -1}, new int[][]{U},
+                            new int[]{0, 0}, new int[][]{L, R, U}, new int[]{0, 0}, NONE);
+                } else { // center
+                    found = findAlignment(image, mod2Pix, mx, my, dimT, dimR, -1, 0, 3, new int[]{-1, 0}, new int[][]{L, R, U, D},
+                            new int[]{0, -1}, new int[][]{L, R, U, D}, new int[]{0, 0}, NONE);
+                }
+                // A crossing that is not found falls back to the flat projection.
+                ap[y][x] = found != null ? found : mod2Pix.apply(P.centered(mx, my));
+            }
+        }
+        List<Roi> rois = new ArrayList<>();
+        for (int y = 0; y < ny; y++) {
+            for (int x = 0; x < nx; x++) {
+                int x0 = apX[x];
+                int x1 = apX[x + 1];
+                int y0 = apY[y];
+                int y1 = apY[y + 1];
+                P[] modules = {
+                        new P(x0 + 0.5, y0 + 0.5), new P(x1 + 0.5, y0 + 0.5),
+                        new P(x1 + 0.5, y1 + 0.5), new P(x0 + 0.5, y1 + 0.5)
+                };
+                P[] pixels = {ap[y][x], ap[y][x + 1], ap[y + 1][x + 1], ap[y + 1][x]};
+                rois.add(new Roi(x == 0 ? 0 : x0, x == nx - 1 ? dimT : x1, y == 0 ? 0 : y0, y == ny - 1 ? dimR : y1,
+                        Warp.between(modules, pixels)));
+            }
+        }
+        return sample(image, dimT, dimR, rois);
+    }
+
+    private static P findAlignment(Bits image, Warp mod2Pix, int mx, int my, int dimT, int dimR, int offsetX, int offsetY,
+                                   int radius, int[] timingStart, int[][] timingDirs, int[] blackStart, int[][] blackDirs,
+                                   int[] whiteStart, int[][] whiteDirs) {
+        LocalGrid grid = new LocalGrid(image, mod2Pix, mx, my, dimT, dimR, offsetX, offsetY);
+        if (!grid.findPattern(radius, timingStart, timingDirs, blackStart, blackDirs, whiteStart, whiteDirs)) {
             return null;
+        }
+        P at = grid.origin();
+        return finite(at) ? at : null;
+    }
+
+    /** Modules {@code [x0, x1) × [y0, y1)} and the transform that samples them, zxing-cpp's {@code ROI}. */
+    private record Roi(int x0, int x1, int y0, int y1, Warp mod2Pix) {
+    }
+
+    static Grid sample(Bits image, int width, int height, Warp mod2Pix) {
+        return sample(image, width, height, List.of(new Roi(0, width, 0, height, mod2Pix)));
+    }
+
+    /** {@code SampleGrid} over regions of interest. */
+    private static Grid sample(Bits image, int width, int height, List<Roi> rois) {
+        if (width <= 0 || height <= 0) {
+            return null;
+        }
+        for (Roi roi : rois) {
+            Warp m = roi.mod2Pix;
+            if (!m.valid() || !inside(image, m, roi.x0, roi.y0) || !inside(image, m, roi.x1 - 1, roi.y0)
+                    || !inside(image, m, roi.x1 - 1, roi.y1 - 1) || !inside(image, m, roi.x0, roi.y1 - 1)) {
+                return null;
+            }
         }
         Bits sampled = new Bits(width, height);
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                P at = mod2Pix.apply(P.centered(x, y));
-                if (!image.isIn(at)) {
-                    return null;
-                }
-                if (image.get(at)) {
-                    sampled.set(x, y);
+        for (Roi roi : rois) {
+            for (int y = roi.y0; y < roi.y1; y++) {
+                for (int x = roi.x0; x < roi.x1; x++) {
+                    P at = roi.mod2Pix.apply(P.centered(x, y));
+                    if (!image.isIn(at)) {
+                        return null;
+                    }
+                    if (image.get(at)) {
+                        sampled.set(x, y);
+                    }
                 }
             }
         }
         return new Grid(sampled, new P[]{
-                pixelCorner(mod2Pix, 0, 0),
-                pixelCorner(mod2Pix, width, 0),
-                pixelCorner(mod2Pix, width, height),
-                pixelCorner(mod2Pix, 0, height)
+                projectCorner(rois, 0, 0),
+                projectCorner(rois, width, 0),
+                projectCorner(rois, width, height),
+                projectCorner(rois, 0, height)
         });
+    }
+
+    /** The corner through the first region that contains it, as {@code projectCorner} in {@code SampleGrid}. */
+    private static P projectCorner(List<Roi> rois, int x, int y) {
+        for (Roi roi : rois) {
+            if (roi.x0 <= x && x <= roi.x1 && roi.y0 <= y && y <= roi.y1) {
+                return pixelCorner(roi.mod2Pix, x, y);
+            }
+        }
+        return new P(0, 0);
     }
 
     private static boolean inside(Bits image, Warp mod2Pix, int x, int y) {

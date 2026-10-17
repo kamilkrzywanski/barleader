@@ -11,7 +11,7 @@ The first release. Java 17 or later, no dependencies at run time; on the module 
 - QR Code, Micro QR, Data Matrix, Aztec, PDF417, Code 128, Code 39, Code 93, EAN-13, EAN-8, UPC-A and UPC-E with their 2- and 5-digit add-ons, ITF, Codabar, and GS1 DataBar, DataBar Limited and DataBar Expanded, from photos and scans.
 - The detectors and bit decoders are a Java port of the read path of zxing-cpp 3.1.1; the binarizers come from ZXing 3.5.4, and every decoder corrects errors and erasures with the Reed-Solomon decoder of zxing-cpp's librscpp.
 - `BarcodeReader` tries a ladder of image variants until one decodes: `ReadOptions.fast()` by default, `ReadOptions.aggressive()` for hard images, with `findAll`, a choice of symbologies, attempt and time budgets, and a parallel, a custom-executor or a sequential reader. `BarcodeHit` gives the text, the bytes, the corners, the orientation and the attempt that read it.
-- On the zxing-cpp sample images fast mode reads 458 of 464 symbols, where Java ZXing with `TRY_HARDER` reads 337; on the Arte-Lab EAN-13 photos fast reads 243 and aggressive 378 of 430, ZXing 205; on BarBeR, without its Arte-Lab and KAIST parts, fast reads 3,158 and aggressive 3,481 of 5,176 codes, ZXing 2,450. The README has the full tables and how to repeat them.
+- On the zxing-cpp sample images fast mode reads 460 of 464 symbols, where Java ZXing with `TRY_HARDER` reads 337; on the Arte-Lab EAN-13 photos fast reads 243 and aggressive 378 of 430, ZXing 205; on BarBeR, without its Arte-Lab and KAIST parts, fast reads 3,157 and aggressive 3,480 of 5,176 codes, ZXing 2,450. The README has the full tables and how to repeat them.
 
 ### Writing
 

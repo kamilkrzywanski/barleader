@@ -15,9 +15,8 @@ import java.util.List;
  * <p>The grid starts from a global module-to-pixel warp, then walks module edges
  * to pull the origin onto a module center and, when every sample agrees, to
  * update the step. {@link #findTimingPatternCross} is the Aztec reference-grid
- * search. The Data Matrix alignment search ({@code findPattern}) is not used:
- * that detector still samples without {@code LocalGrid}. The C++ debug prints
- * are omitted.
+ * search, {@link #findPattern} the Data Matrix alignment-pattern search. The C++
+ * debug prints are omitted.
  */
 final class LocalGrid {
     private final Bits image;
@@ -88,6 +87,73 @@ final class LocalGrid {
             origin = new P(savedX, savedY);
         }
         return null;
+    }
+
+    /** Current grid origin in pixels, {@code LocalGrid::getPos()}. */
+    P origin() {
+        return new P(origin.x, origin.y);
+    }
+
+    /**
+     * Data Matrix alignment-pattern search, {@code LocalGrid::findPattern}. Around each spiral
+     * candidate, the modules from {@code timingStart} along {@code timingDirs} must alternate
+     * (white first), those from {@code blackStart} along {@code blackDirs} be black and those from
+     * {@code whiteStart} along {@code whiteDirs} be white, for {@code radius} modules. On a match the
+     * origin moves there and is refined along the timing directions; when the pattern no longer
+     * matches after that refinement, the origin goes back to the match.
+     */
+    boolean findPattern(int radius, int[] timingStart, int[][] timingDirs, int[] blackStart, int[][] blackDirs,
+                        int[] whiteStart, int[][] whiteDirs) {
+        for (int[] point : spiral(3)) {
+            if (!isPatternAt(point[0], point[1], radius, timingStart, timingDirs, blackStart, blackDirs, whiteStart, whiteDirs)) {
+                continue;
+            }
+            origin = getPos(point[0], point[1]);
+            P match = new P(origin.x, origin.y);
+            List<P> stepsX = new ArrayList<>();
+            List<P> stepsY = new ArrayList<>();
+            for (int[] d : timingDirs) {
+                if (d[1] == 0) {
+                    stepsX.add(new P(d[0] * stepX.x, d[0] * stepX.y));
+                } else {
+                    stepsY.add(new P(d[1] * stepY.x, d[1] * stepY.y));
+                }
+            }
+            if (!stepsX.isEmpty()) {
+                adjustOriginAndStep(stepX, radius, stepsX.toArray(new P[0]));
+            }
+            if (!stepsY.isEmpty()) {
+                adjustOriginAndStep(stepY, radius, stepsY.toArray(new P[0]));
+            }
+            if ((!stepsX.isEmpty() || !stepsY.isEmpty())
+                    && !isPatternAt(0, 0, radius, timingStart, timingDirs, blackStart, blackDirs, whiteStart, whiteDirs)) {
+                origin = match;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private boolean isPatternAt(int px, int py, int radius, int[] timingStart, int[][] timingDirs, int[] blackStart,
+                                int[][] blackDirs, int[] whiteStart, int[][] whiteDirs) {
+        for (int r = 0; r <= radius; r++) {
+            for (int[] d : timingDirs) {
+                if (!findValue(px + timingStart[0] + r * d[0], py + timingStart[1] + r * d[1], d[0], d[1], r % 2 == 1)) {
+                    return false;
+                }
+            }
+            for (int[] d : blackDirs) {
+                if (!findValue(px + blackStart[0] + r * d[0], py + blackStart[1] + r * d[1], d[0], d[1], true)) {
+                    return false;
+                }
+            }
+            for (int[] d : whiteDirs) {
+                if (!findValue(px + whiteStart[0] + r * d[0], py + whiteStart[1] + r * d[1], d[0], d[1], false)) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     private void adjustOriginAndStep(P step, int radius, P[] offsets) {

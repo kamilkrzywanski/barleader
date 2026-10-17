@@ -200,6 +200,12 @@ final class DmDecoder {
         return out;
     }
 
+    /** {@code dataBlockWidth, dataBlockHeight} of the symbol size, or {@code null} for an unknown size. */
+    static int[] dataBlockSize(int height, int width) {
+        Version version = versionFor(height, width);
+        return version == null ? null : new int[]{version.blockWidth, version.blockHeight};
+    }
+
     private static Version versionFor(int height, int width) {
         if ((height & 1) != 0 || (width & 1) != 0 || height < 8 || height > 144) {
             return null;
