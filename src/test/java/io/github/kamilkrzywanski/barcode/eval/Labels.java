@@ -342,11 +342,26 @@ final class Labels {
                     if (string != null && (string.isBlank() || string.equals("-1") || string.equals("^"))) {
                         string = null;
                     }
+                    if (string != null) {
+                        string = unescapeVia(string);
+                    }
                     list.add(new Code(String.valueOf(attributes.get("Type")), string, polygon));
                 }
             }
         }
         return new Barber(codes, source);
+    }
+
+    /**
+     * VIA saves an attribute HTML-escaped, so a BarBeR text has {@code &amp;} where the symbol has
+     * {@code &}, and the same for {@code <} and {@code >}: 154, 413 and 418 times, in QR codes with
+     * URLs and in PDF417 with XML. {@code &amp;} goes last, so an escaped entity stays one.
+     */
+    static String unescapeVia(String text) {
+        if (text.indexOf('&') < 0) {
+            return text;
+        }
+        return text.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&#39;", "'").replace("&amp;", "&");
     }
 
     private static boolean ofKind(String symbology, String kind) {

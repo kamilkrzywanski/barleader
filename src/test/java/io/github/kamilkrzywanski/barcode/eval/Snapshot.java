@@ -43,7 +43,11 @@ import java.util.stream.Stream;
  * mvn -q -Psnapshot test-compile exec:java -Dexec.args="target/snapshot.tsv"
  * scripts/fetch-datasets.sh
  * mvn -q -Psnapshot test-compile exec:java -Dexec.args="target/snapshot.tsv --external ~/.cache/barcode-pro/datasets"
+ * mvn -q -Psnapshot test-compile exec:java -Dexec.args="--rescore target/snapshot.tsv --external ~/.cache/barcode-pro/datasets"
  * </pre>
+ *
+ * <p>{@code --rescore} reads nothing: it takes the reads of an earlier run from its TSV and writes
+ * the summary again against the labels as they are now, for a change to the scoring alone.
  *
  * <p>The sets in the repository are the Arte-Lab photos and the zxing-cpp samples. With
  * {@code --external} the sets {@code scripts/fetch-datasets.sh} unpacks there join them under
@@ -79,9 +83,12 @@ public final class Snapshot {
     public static void main(String[] args) throws Exception {
         Path out = null;
         Path external = null;
+        boolean rescore = false;
         int threads = Runtime.getRuntime().availableProcessors();
         for (int i = 0; i < args.length; i++) {
-            if (args[i].equals("--external") && i + 1 < args.length) {
+            if (args[i].equals("--rescore")) {
+                rescore = true;
+            } else if (args[i].equals("--external") && i + 1 < args.length) {
                 external = Path.of(args[++i].replaceFirst("^~", System.getProperty("user.home")));
             } else if (args[i].equals("--threads") && i + 1 < args.length) {
                 threads = Integer.parseInt(args[++i]);
@@ -92,8 +99,15 @@ public final class Snapshot {
             }
         }
         if (out == null) {
-            System.err.println("Usage: Snapshot <out.tsv> [--external <datasets dir>] [--threads n]");
+            System.err.println("Usage: Snapshot [--rescore] <out.tsv> [--external <datasets dir>] [--threads n]");
             System.exit(2);
+        }
+        if (rescore) {
+            List<Outcome> outcomes = parse(out, external);
+            String report = SnapshotReport.render(outcomes);
+            Files.writeString(out.resolveSibling(out.getFileName() + ".summary.md"), report, StandardCharsets.UTF_8);
+            System.out.print(report);
+            return;
         }
         List<Source> sources = sources(external);
         long start = System.nanoTime();
@@ -239,6 +253,62 @@ public final class Snapshot {
                 }
             }
             out.append('\n');
+        }
+        return out.toString();
+    }
+
+    /** The outcomes an earlier run wrote, the inverse of {@link #lines(Outcome)}. */
+    private static List<Outcome> parse(Path tsv, Path external) throws IOException {
+        Map<String, Map<String, List<Read>>> reads = new LinkedHashMap<>();
+        List<Outcome> outcomes = new ArrayList<>();
+        for (String line : Files.readAllLines(tsv, StandardCharsets.UTF_8)) {
+            String[] fields = line.split("\t", -1);
+            if (fields.length < 3) {
+                continue;
+            }
+            String name = fields[0];
+            if (fields[1].equals("-")) {
+                outcomes.add(new Outcome(new Source(file(name, external), name), Map.of(), true));
+                continue;
+            }
+            List<Read> list = new ArrayList<>();
+            for (int i = 3; i < fields.length; i++) {
+                list.add(read(fields[i]));
+            }
+            reads.computeIfAbsent(name, key -> new LinkedHashMap<>()).put(fields[1], list);
+        }
+        for (Map.Entry<String, Map<String, List<Read>>> entry : reads.entrySet()) {
+            outcomes.add(new Outcome(new Source(file(entry.getKey(), external), entry.getKey()), entry.getValue(), false));
+        }
+        return outcomes;
+    }
+
+    private static Path file(String name, Path external) {
+        return name.startsWith("external/") && external != null ? external.resolve(name.substring("external/".length())) : Path.of(name);
+    }
+
+    private static Read read(String field) {
+        String[] parts = field.split("\\|", -1);
+        List<ImagePoint> corners = new ArrayList<>();
+        for (String point : parts[5].trim().split(" ")) {
+            if (!point.isEmpty()) {
+                String[] xy = point.split(",");
+                corners.add(new ImagePoint(Double.parseDouble(xy[0]), Double.parseDouble(xy[1])));
+            }
+        }
+        return new Read(parts[0], unescape(parts[1]), parts[2], Integer.parseInt(parts[3]), Double.parseDouble(parts[4]), corners);
+    }
+
+    private static String unescape(String text) {
+        StringBuilder out = new StringBuilder(text.length());
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '\\' && i + 3 < text.length() && text.charAt(i + 1) == 'x') {
+                out.append((char) Integer.parseInt(text.substring(i + 2, i + 4), 16));
+                i += 3;
+            } else {
+                out.append(c);
+            }
         }
         return out.toString();
     }

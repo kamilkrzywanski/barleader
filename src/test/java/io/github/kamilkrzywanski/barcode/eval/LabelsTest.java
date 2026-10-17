@@ -78,6 +78,14 @@ class LabelsTest {
     }
 
     @Test
+    void barberTextsLoseTheEscapingOfVia() {
+        assertEquals("http://finland.fi/?culture=ru-RU&contentlan=15", Labels.unescapeVia("http://finland.fi/?culture=ru-RU&amp;contentlan=15"));
+        assertEquals("[)>06:AS:PN<x/>", Labels.unescapeVia("[)&gt;06:AS:PN&lt;x/&gt;"));
+        assertEquals("&lt;", Labels.unescapeVia("&amp;lt;"));
+        assertEquals("8005200006304", Labels.unescapeVia("8005200006304"));
+    }
+
+    @Test
     void jsonKeepsTheShapesTheLabelsUse() {
         Object parsed = Json.parse("{\"a\": [1, 2.5, -3e2], \"b\": {\"c\": \"x\\\"\\u0041\"}, \"d\": null, \"e\": true}");
         assertEquals("{a=[1.0, 2.5, -300.0], b={c=x\"A}, d=null, e=true}", parsed.toString());
