@@ -22,6 +22,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.EnumSet;
 import java.util.List;
@@ -99,6 +100,22 @@ class Pdf417ScanningDecoderTest {
     void readsASymbolWhoseRowsStepSideways() throws Exception {
         boolean[][] image = shear(scale(matrix("SHEAR", hints()), 3));
         assertEquals("SHEAR", Pdf417ScanningDecoder.decode(image, true));
+    }
+
+    /**
+     * ZXing's {@code pdf417-3/13} to {@code 15} are cut off at the left: no start pattern and no
+     * left row indicator. zxing-cpp looks for a stop pattern only after a start pattern; this
+     * detector then looks for stop patterns alone, as ZXing does.
+     */
+    @Test
+    void readsASymbolWithoutItsLeftGuards() throws Exception {
+        // 4 modules of margin, 17 of start pattern and 17 of left row indicator, 3 pixels a module
+        boolean[][] image = scale(matrix("NO START PATTERN", hints()), 3);
+        for (boolean[] row : image) {
+            Arrays.fill(row, 0, (4 + 17 + 17) * 3, false);
+        }
+        assertEquals("NO START PATTERN", Pdf417ScanningDecoder.decode(image, false));
+        assertEquals("NO START PATTERN", Pdf417ScanningDecoder.decode(rotate180(image), false));
     }
 
     @Test

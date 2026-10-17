@@ -16,6 +16,9 @@ import java.util.List;
  * PDF417 detector ported from zxing-cpp 3.1.1 {@code PDFDetector.cpp}.
  *
  * <p>The search is the compiled path: a stop pattern is looked for only after a start pattern.
+ * When that finds no symbol, a second pass looks for stop patterns alone, as ZXing's
+ * {@code Detector.findVertices} does, so a symbol whose left edge is cut off or damaged is still
+ * found by its right row indicator. zxing-cpp skips the image when no row has a start pattern.
  * Rotation follows {@code Detector::Detect}: upright, then 180 degrees, and 90 degrees when
  * {@code tryRotate} is set. The points are in the returned bitmap, which may be that rotation
  * of the input. The scan ladder reaches this detector through {@link Pdf417ScanningDecoder}
@@ -34,6 +37,9 @@ final class Pdf417Detector {
     private static final int ROW_STEP = 8;
     private static final int BARCODE_MIN_HEIGHT = 10;
     private static final int START_SUM = 17;
+    /** The stop pattern read from its right end, where its quiet zone is. */
+    private static final int[] STOP_REVERSED = {1, 2, 1, 1, 1, 3, 1, 1, 7};
+    private static final int STOP_SUM = 18;
     private static final int MIN_SYMBOL_WIDTH = 3 * 8 + 1;
 
     private Pdf417Detector() {
@@ -79,17 +85,22 @@ final class Pdf417Detector {
         if (!rectangular(image)) {
             return null;
         }
-        boolean[][] bits = image;
+        Result found = detect(image, multiple, tryRotate, false);
+        return found != null ? found : detect(image, multiple, tryRotate, true);
+    }
+
+    /** One pass over the orientations: from start patterns, or with {@code stopOnly} from stop patterns alone. */
+    private static Result detect(boolean[][] bits, boolean multiple, boolean tryRotate, boolean stopOnly) {
         for (int rotate90 = 0; rotate90 <= (tryRotate ? 1 : 0); rotate90++) {
-            if (!hasStartPattern(bits, rotate90 == 1)) {
+            if (!hasGuard(bits, rotate90 == 1, stopOnly)) {
                 continue;
             }
             boolean[][] oriented = rotate90 == 0 ? bits : rotate90(bits);
             int rotation = 90 * rotate90;
-            List<Symbol> symbols = detectBarcode(oriented, multiple);
+            List<Symbol> symbols = detectBarcode(oriented, multiple, stopOnly);
             if (symbols.isEmpty()) {
                 oriented = rotate180(oriented);
-                symbols = detectBarcode(oriented, multiple);
+                symbols = detectBarcode(oriented, multiple, stopOnly);
                 rotation += 180;
             }
             if (!symbols.isEmpty()) {
@@ -112,20 +123,24 @@ final class Pdf417Detector {
         return true;
     }
 
-    /** {@code HasStartPattern}. Both directions of the row are tried, so column order does not matter. */
-    private static boolean hasStartPattern(boolean[][] image, boolean rotate90) {
+    /**
+     * {@code HasStartPattern}, or with {@code stop} the same test for a stop pattern followed by
+     * its quiet zone. Both directions of the row are tried, so column order does not matter.
+     */
+    private static boolean hasGuard(boolean[][] image, boolean rotate90, boolean stop) {
         int end = rotate90 ? image[0].length : image.length;
         for (int row = ROW_STEP; row < end; row += ROW_STEP) {
             boolean[] line = rotate90 ? column(image, row) : image[row];
-            if (starts(line) || starts(reverse(line))) {
+            if (guard(line, stop) || guard(reverse(line), stop)) {
                 return true;
             }
         }
         return false;
     }
 
-    private static boolean starts(boolean[] line) {
-        return OneDRow.findLeftGuard(View.of(OneDRow.runs(line)), MIN_SYMBOL_WIDTH, START_PATTERN, START_SUM, 2) != null;
+    private static boolean guard(boolean[] line, boolean stop) {
+        return OneDRow.findLeftGuard(View.of(OneDRow.runs(line)), MIN_SYMBOL_WIDTH,
+                stop ? STOP_REVERSED : START_PATTERN, stop ? STOP_SUM : START_SUM, 2) != null;
     }
 
     private static boolean[] column(boolean[][] image, int x) {
@@ -136,13 +151,13 @@ final class Pdf417Detector {
         return line;
     }
 
-    private static List<Symbol> detectBarcode(boolean[][] image, boolean multiple) {
+    private static List<Symbol> detectBarcode(boolean[][] image, boolean multiple, boolean stopOnly) {
         int row = 0;
         int column = 0;
         boolean foundInRow = false;
         List<Symbol> symbols = new ArrayList<>();
         while (row < image.length) {
-            Point[] vertices = findVertices(image, row, column);
+            Point[] vertices = findVertices(image, row, column, stopOnly);
             if (vertices[0] == null && vertices[3] == null) {
                 if (!foundInRow) {
                     break;
@@ -176,8 +191,12 @@ final class Pdf417Detector {
         return symbols;
     }
 
-    private static Point[] findVertices(boolean[][] image, int startRow, int startColumn) {
+    private static Point[] findVertices(boolean[][] image, int startRow, int startColumn, boolean stopOnly) {
         Point[] result = new Point[8];
+        if (stopOnly) {
+            copy(result, findRows(image, image.length, image[0].length, startRow, startColumn, STOP_PATTERN), STOP_INDEXES);
+            return result;
+        }
         Point[] rows = findRows(image, image.length, image[0].length, startRow, startColumn, START_PATTERN);
         copy(result, rows, START_INDEXES);
         if (result[4] != null) {
