@@ -37,6 +37,26 @@ class HitCollectorTest {
     }
 
     @Test
+    void aUpcEReadFromTheLeftHalfOfAnEan13IsDropped() {
+        HitCollector hits = new HitCollector();
+        BarcodeHit ean = new BarcodeHit("4000492512476", Symbology.EAN_13, List.of(new ImagePoint(10, 50), new ImagePoint(300, 50)), -1, 0.92, "test");
+        BarcodeHit half = new BarcodeHit("10004924", Symbology.UPC_E, List.of(new ImagePoint(10, 60), new ImagePoint(150, 60)), -1, 0.7, "linear-band");
+        assertTrue(hits.add(ean));
+        assertFalse(hits.add(half));
+        assertEquals(List.of(ean), hits.list());
+
+        HitCollector reversed = new HitCollector();
+        assertTrue(reversed.add(half));
+        assertTrue(reversed.add(ean));
+        assertEquals(List.of(ean), reversed.list());
+
+        HitCollector other = new HitCollector();
+        assertTrue(other.add(ean));
+        assertTrue(other.add(new BarcodeHit("01234565", Symbology.UPC_E, List.of(new ImagePoint(400, 60), new ImagePoint(500, 60)), -1, 0.7, "test")));
+        assertEquals(2, other.list().size());
+    }
+
+    @Test
     void theSameTextFarApartOrOfAnotherLengthStaysTwoHits() {
         HitCollector hits = new HitCollector();
         assertTrue(hits.add(line("A1", 0, 0, 200, 0)));

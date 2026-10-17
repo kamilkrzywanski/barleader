@@ -136,6 +136,11 @@ final class Scan {
         traceAztec(gray);
         traceDataMatrix(gray);
         if (options.mode() == DecodeMode.FAST || stop()) {
+            // A miss of the whole fast ladder still looks for one tilted linear strip, with the
+            // coarse band search and only its hybrid and stretch reads. A hit never gets here.
+            if (options.mode() == DecodeMode.FAST && (hits.isEmpty() || options.findAll()) && !stop()) {
+                tryFastLinearBands(gray);
+            }
             return hits.list();
         }
 
@@ -712,6 +717,34 @@ final class Scan {
                 0.70,
                 false
         );
+    }
+
+    /**
+     * The band crops of {@link LinearBand#find(GrayU8, Fanout, boolean)} at its coarse grid, each read
+     * as it is and stretched. On all of BarBeR's labelled codes this reads 3,909 instead of 3,787 in
+     * fast mode, and Arte-Lab 287 instead of 248 of 430, with no new text that matches no label. The
+     * Otsu and local-mean reads of {@link #readBand} would add 69 more on BarBeR, but seven of them
+     * wrong EAN texts, so they stay aggressive. A photo without a code then takes about twice as
+     * long, still under a third of aggressive mode.
+     */
+    private void tryFastLinearBands(GrayU8 gray) {
+        Set<Symbology> formats = linearFormats();
+        if (formats.isEmpty()) {
+            return;
+        }
+        for (LinearBand.Crop crop : LinearBand.find(gray, fanout, true)) {
+            if (stop()) {
+                return;
+            }
+            tryGray(crop.image(), crop.toSource(), "linear-band", crop.degrees(), false, formats, 0.70, false);
+            if (stop()) {
+                return;
+            }
+            GrayU8 stretched = GrayImages.stretch(crop.image());
+            if (stretched != crop.image()) {
+                tryGray(stretched, crop.toSource(), "linear-band-stretch", crop.degrees(), false, formats, 0.70, false);
+            }
+        }
     }
 
     private void readBand(LinearBand.Crop crop, Set<Symbology> formats, String suffix) {

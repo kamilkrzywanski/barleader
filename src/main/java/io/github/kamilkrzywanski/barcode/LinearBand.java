@@ -15,7 +15,8 @@ import java.util.Arrays;
 import java.util.List;
 
 /**
- * Aggressive-only locator for one linear symbol that is not horizontal in the frame.
+ * Locator for one linear symbol that is not horizontal in the frame. Aggressive mode runs the
+ * full search; fast mode, after a miss, the coarse one of {@link #find(GrayU8, Fanout, boolean)}.
  * The search image is a short-side stretch of a ~420 px view. The crop is sampled from the
  * original so the decoder still sees the modules. Density bands are tried before a second
  * angle and before pitch-ranked bands: pitch alone locks onto text and drops a level code.
@@ -33,7 +34,16 @@ final class LinearBand {
     }
 
     static List<Crop> find(GrayU8 gray, Fanout fanout) {
-        int factor = Math.max(1, Math.max(gray.width, gray.height) / 420);
+        return find(gray, fanout, false);
+    }
+
+    /**
+     * {@code coarse} searches a ~280 px view every 6°, refined to ±3°, instead of a ~420 px view
+     * every 3°, refined to ±4°: about a third of the work. On Arte-Lab its crops read as many
+     * photos in fast mode as the full search does.
+     */
+    static List<Crop> find(GrayU8 gray, Fanout fanout, boolean coarse) {
+        int factor = Math.max(1, Math.max(gray.width, gray.height) / (coarse ? 280 : 420));
         if (gray.width / factor < 1 || gray.height / factor < 1) {
             return List.of();
         }
@@ -46,7 +56,7 @@ final class LinearBand {
         // Scores are merged in sweep order, so a tie stays with the earlier angle.
         int[] sweep = new int[64];
         int sweepCount = 0;
-        for (int degrees = -90; degrees < 90; degrees += 3) {
+        for (int degrees = -90; degrees < 90; degrees += coarse ? 6 : 3) {
             sweep[sweepCount++] = degrees;
         }
         Band[] densityBands = new Band[sweepCount];
@@ -82,8 +92,9 @@ final class LinearBand {
         }
         int winner = indexOfMax(densityScores, count);
         int pitchWinner = indexOfMax(pitchScores, count);
-        double bestAngle = refine(view, angles[winner], false, fanout);
-        double pitchAngle = refine(view, angles[pitchWinner], true, fanout);
+        int reach = coarse ? 3 : 4;
+        double bestAngle = refine(view, angles[winner], false, fanout, reach);
+        double pitchAngle = refine(view, angles[pitchWinner], true, fanout, reach);
         int second = -1;
         for (int i = 0; i < count; i++) {
             if (densityScores[i] < 0 || angleDistance(angles[i], bestAngle) < 12.0) {
@@ -167,15 +178,15 @@ final class LinearBand {
         return winner;
     }
 
-    private static double refine(GrayU8 view, double angle, boolean pitch, Fanout fanout) {
+    private static double refine(GrayU8 view, double angle, boolean pitch, Fanout fanout, int reach) {
         int rounded = (int) Math.round(angle);
-        int offsets = 9;
+        int offsets = 2 * reach + 1;
         int[] scores = new int[offsets];
         Arrays.fill(scores, -1);
         List<Runnable> tasks = new ArrayList<>(offsets);
         for (int i = 0; i < offsets; i++) {
             int index = i;
-            int degrees = rounded - 4 + i;
+            int degrees = rounded - reach + i;
             tasks.add(() -> {
                 Band band = topBand(Geometry.rotatePixels(view, degrees), pitch);
                 scores[index] = band == null ? -1 : active(band, pitch);
@@ -188,7 +199,7 @@ final class LinearBand {
         for (int i = 0; i < offsets; i++) {
             if (scores[i] > bestScore) {
                 bestScore = scores[i];
-                bestAngle = rounded - 4 + i;
+                bestAngle = rounded - reach + i;
             }
         }
         return bestAngle;

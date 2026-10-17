@@ -8,11 +8,15 @@ package io.github.kamilkrzywanski.barcode.decode;
 
 import io.github.kamilkrzywanski.barcode.BarcodeHit;
 import io.github.kamilkrzywanski.barcode.ImagePoint;
+import io.github.kamilkrzywanski.barcode.Symbology;
 
 import java.util.ArrayList;
 import java.util.List;
 
-/** Drops empty payloads and keeps one hit when the same payload sits on the same spot. */
+/**
+ * Drops empty payloads and keeps one hit when the same payload sits on the same spot. A UPC-E
+ * that is the left half of an EAN-13 or UPC-A also read is dropped, whichever came first.
+ */
 public final class HitCollector {
     private static final double MERGE_DISTANCE_SQ = 80.0 * 80.0;
 
@@ -22,6 +26,10 @@ public final class HitCollector {
         if (hit.text().isBlank()) {
             return false;
         }
+        if (hits.stream().anyMatch(existing -> leftHalf(hit, existing))) {
+            return false;
+        }
+        hits.removeIf(existing -> leftHalf(existing, hit));
         for (int i = 0; i < hits.size(); i++) {
             BarcodeHit existing = hits.get(i);
             if (existing.symbology() == hit.symbology()
@@ -35,6 +43,27 @@ public final class HitCollector {
         }
         hits.add(hit);
         return true;
+    }
+
+    /**
+     * The six L- and G-coded digits on the left of an EAN-13 are a UPC-E between its guards: a
+     * crop that cuts the symbol in the middle reads {@code 10004924} from {@code 4000492512476}.
+     * BarBeR's Muenster photos gave ten such texts in {@code findAll} once fast mode searched
+     * band crops. The six digits of the UPC-E are then digits 2 to 7 of the EAN-13.
+     */
+    private static boolean leftHalf(BarcodeHit upcE, BarcodeHit full) {
+        if (upcE.symbology() != Symbology.UPC_E || upcE.text().length() != 8) {
+            return false;
+        }
+        String ean;
+        if (full.symbology() == Symbology.EAN_13 && full.text().length() == 13) {
+            ean = full.text();
+        } else if (full.symbology() == Symbology.UPC_A && full.text().length() == 12) {
+            ean = "0" + full.text();
+        } else {
+            return false;
+        }
+        return ean.regionMatches(1, upcE.text(), 1, 6);
     }
 
     public boolean isEmpty() {
