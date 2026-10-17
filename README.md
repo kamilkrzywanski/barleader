@@ -4,7 +4,7 @@ A barcode reader in pure Java, with no JNI, no OpenCV and no native libraries, w
 
 barcode-pro reads QR Code, Micro QR, Data Matrix, Aztec, PDF417, Code 128, Code 39, Code 93, EAN-13, EAN-8, UPC-A, UPC-E, ITF, Codabar and the GS1 DataBar family from photos and scans. The detectors and bit decoders are a Java port of the read path of [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp) 3.1.1, and the binarizers and Reed-Solomon decoders a port of [ZXing](https://github.com/zxing/zxing) 3.5.4. Around them sits a ladder of image variants (inversion, contrast, illumination, thresholds, rotations, scales, a finder for tilted linear symbols) that is tried until one of them decodes. On hard images it reads far more than the usual Java ZXing call, and on clean images it stops after the first attempt.
 
-**Status: young.** The API is small and may still change before 1.0. [docs/PLAN.md](docs/PLAN.md) (in Polish) is the design document with the full attempt ladder and the measurements.
+**Status: young.** The API is small and may still change before 1.0. [docs/PLAN.md](docs/PLAN.md) is the design document with the full attempt ladder and the measurements.
 
 ## Getting started
 
