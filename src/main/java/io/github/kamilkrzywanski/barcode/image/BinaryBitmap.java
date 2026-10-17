@@ -157,6 +157,51 @@ public final class BinaryBitmap {
     }
 
     /**
+     * The runs of {@link #runs} with each edge where the sharpened row, linearly interpolated between
+     * pixel centres, crosses the black point, in units of {@code 1 / scale} pixel. Where a module is
+     * under two pixels, a whole-pixel edge is off by a third of a module or more, which is enough for
+     * the edge-to-edge widths of Code 128 to round to another symbol. The row starts and ends white,
+     * as {@link #getBlackRow} leaves its first and last pixel. Null when the row has too little contrast.
+     */
+    public int[] fineRuns(int y, int scale) {
+        int width = source.getWidth();
+        if (width < 3) {
+            return null;
+        }
+        initArrays(width);
+        byte[] local = source.getRow(y, luminances);
+        int[] localBuckets = buckets;
+        for (int x = 0; x < width; x++) {
+            localBuckets[(local[x] & 0xff) >> LUMINANCE_SHIFT]++;
+        }
+        int blackPoint = estimateBlackPoint(localBuckets);
+        if (blackPoint < 0) {
+            return null;
+        }
+        int[] runs = new int[width + 1];
+        int count = 0;
+        int previous = 0;
+        boolean black = false;
+        float before = 0;
+        for (int x = 1; x < width; x++) {
+            boolean edge = x == width - 1;
+            float value = edge ? 0 : ((local[x] & 0xff) * 4 - (local[x - 1] & 0xff) - (local[x + 1] & 0xff)) / 2f;
+            boolean next = !edge && value < blackPoint;
+            if (next != black) {
+                // between the centres of pixels x - 1 and x, or at the left edge of a forced white or black end pixel
+                float at = x == 1 || edge ? x : x - 0.5f + (blackPoint - before) / (value - before);
+                int position = Math.max(previous + 1, Math.round(at * scale));
+                runs[count++] = position - previous;
+                previous = position;
+                black = next;
+            }
+            before = value;
+        }
+        runs[count++] = Math.max(1, width * scale - previous);
+        return java.util.Arrays.copyOf(runs, count);
+    }
+
+    /**
      * The run lengths of a row, {@code true} black: a white run first, zero-width when the row starts
      * black, and a zero-width white run after a last black one.
      */

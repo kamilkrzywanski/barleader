@@ -83,16 +83,21 @@ final class Code128Decoder {
 
     /** {@link #decodeSpan(boolean[])} on the run lengths of a non-empty row. */
     static Span decodeSpan(int[] runs) {
+        return decodeSpan(runs, 1);
+    }
+
+    /** {@link #decodeSpan(int[])} on runs measured in {@code 1 / scale} pixel; the span is in those units too. */
+    static Span decodeSpan(int[] runs, int scale) {
         View next = View.of(runs);
         View[] stopped = new View[1];
         // ODReader's DoDecode with tryHarder: a failed try goes on from the bar after the one it stopped at,
         // so a start-like pattern in the text in front of the symbol does not cost the whole row.
         while (next.size() > 0) {
-            Span span = decodeAt(next, stopped, false);
+            Span span = decodeAt(next, stopped, false, scale);
             if (span != null || stopped[0] == null) {
                 return span;
             }
-            span = decodeAt(next, new View[1], true);
+            span = decodeAt(next, new View[1], true, scale);
             if (span != null) {
                 return span;
             }
@@ -104,7 +109,7 @@ final class Code128Decoder {
     }
 
     /** {@code Code128Reader::decodePattern}. {@code stopped} gets the view it failed at, null when no guard is left. */
-    private static Span decodeAt(View view, View[] stopped, boolean variance) {
+    private static Span decodeAt(View view, View[] stopped, boolean variance, int scale) {
         View guard = OneDRow.findLeftGuard(
                 view,
                 MIN_CHARS * CHAR_LEN,
@@ -171,7 +176,7 @@ final class Code128Decoder {
             return null;
         }
         // the start, the symbols with the check symbol, and the stop pattern of 13 modules
-        if (variance && right - left + 1 >= MAX_VARIANCE_MODULE * (CHAR_MODS * raw.size() + 13)) {
+        if (variance && right - left + 1 >= scale * MAX_VARIANCE_MODULE * (CHAR_MODS * raw.size() + 13)) {
             return null;
         }
         return new Span(value, left, right);
