@@ -138,6 +138,13 @@ public final class Geometry {
         return layers;
     }
 
+    /** {@link #boxDownscale} with the map back to {@code source}. */
+    public static Transformed boxDownscaled(GrayU8 source, int factor) {
+        GrayU8 smaller = boxDownscale(source, factor);
+        PixelMap map = (x, y) -> new ImagePoint(x * factor, y * factor);
+        return new Transformed(smaller, map, 0);
+    }
+
     /**
      * One box-average layer. {@code factor} is 2, 3, or 4. The caller guarantees both sides
      * are at least {@code factor}.

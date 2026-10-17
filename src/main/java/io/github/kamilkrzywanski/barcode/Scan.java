@@ -129,6 +129,19 @@ final class Scan {
                     return readImage(scaled.image(), scaled.toSource(), "scale-2", 0, false, variants, 0.80, false);
                 });
             }
+            // The other way round for a large photo: a symbol blurred over several pixels reads
+            // once a box average has shrunk the blur. On BarBeR this reads 47 more labelled codes
+            // in fast mode, EAN-13 on Muenster and ZVZ, ten ZVZ PDF417 and a few QR codes; the
+            // pyramid of aggressive mode, by threes, reads few of them.
+            for (int factor : new int[]{2, 4}) {
+                if (Math.min(gray.width, gray.height) >= (factor == 2 ? 1000 : 1400)) {
+                    jobs.add(() -> {
+                        Transformed smaller = Geometry.boxDownscaled(gray, factor);
+                        return readImage(smaller.image(), smaller.toSource(), "downscale-" + factor, 0, false,
+                                variants, 0.78, false);
+                    });
+                }
+            }
             runAttempts(jobs);
         }
         traceQr(gray);
@@ -722,17 +735,21 @@ final class Scan {
     /**
      * The band crops of {@link LinearBand#find(GrayU8, Fanout, boolean)} at its coarse grid, each read
      * as it is and stretched. On all of BarBeR's labelled codes this reads 3,909 instead of 3,787 in
-     * fast mode, and Arte-Lab 287 instead of 248 of 430, with no new text that matches no label. The
-     * Otsu and local-mean reads of {@link #readBand} would add 69 more on BarBeR, but seven of them
-     * wrong EAN texts, so they stay aggressive. A photo without a code then takes about twice as
-     * long, still under a third of aggressive mode.
+     * fast mode, and Arte-Lab 287 instead of 248 of 430, with no new text that matches no label. A
+     * photo without a code then takes about twice as long, still under a third of aggressive mode.
+     *
+     * <p>When every crop misses, each is read again through Otsu and a local mean, for the longer
+     * symbologies only: 48 more of BarBeR's labels, one wrong EAN-13. With UPC-E and EAN-8 these
+     * reads had returned six wrong texts in 69, mostly a short code inside a longer one, so those
+     * two stay with aggressive mode.
      */
     private void tryFastLinearBands(GrayU8 gray) {
         Set<Symbology> formats = linearFormats();
         if (formats.isEmpty()) {
             return;
         }
-        for (LinearBand.Crop crop : LinearBand.find(gray, fanout, true)) {
+        bandCrops = LinearBand.find(gray, fanout, true);
+        for (LinearBand.Crop crop : bandCrops) {
             if (stop()) {
                 return;
             }
@@ -744,6 +761,30 @@ final class Scan {
             if (stretched != crop.image()) {
                 tryGray(stretched, crop.toSource(), "linear-band-stretch", crop.degrees(), false, formats, 0.70, false);
             }
+        }
+        Set<Symbology> longer = EnumSet.noneOf(Symbology.class);
+        for (Symbology symbology : formats) {
+            if (symbology == Symbology.EAN_13 || symbology == Symbology.UPC_A
+                    || symbology == Symbology.CODE_128 || symbology == Symbology.CODE_39) {
+                longer.add(symbology);
+            }
+        }
+        // Only on an image nothing has read: in find-all mode, beside a symbol already read, the
+        // mean threshold returned 60 EAN-13 with the right half of that symbol and a wrong left.
+        if (longer.isEmpty() || !hits.isEmpty()) {
+            return;
+        }
+        for (LinearBand.Crop crop : bandCrops) {
+            if (stop()) {
+                return;
+            }
+            tryGray(GrayImages.binaryToLuma(Thresholds.otsu(crop.image())), crop.toSource(), "linear-band-otsu",
+                    crop.degrees(), true, longer, 0.70, false);
+            if (stop()) {
+                return;
+            }
+            tryGray(GrayImages.binaryToLuma(Thresholds.mean(crop.image())), crop.toSource(), "linear-band-mean",
+                    crop.degrees(), true, longer, 0.70, false);
         }
     }
 
