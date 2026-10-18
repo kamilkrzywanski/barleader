@@ -445,9 +445,8 @@ final class LinearBand {
                 gap++;
                 if (x == width || gap > gapLimit) {
                     int x1 = x - gap;
-                    double gapCv = spacingCv(column, runX0, x1);
                     best = better(best, scoreRun(
-                            image, prefix, prefixStride, y0, bandHeight, runX0, x1, runChanges, gapCv));
+                            image, prefix, prefixStride, column, y0, bandHeight, runX0, x1, runChanges));
                     runX0 = -1;
                     gap = 0;
                 }
@@ -460,12 +459,12 @@ final class LinearBand {
             GrayU8 image,
             int[] prefix,
             int prefixStride,
+            int[] column,
             int y0,
             int bandHeight,
             int x0,
             int x1,
-            int runChanges,
-            double gapCv
+            int runChanges
     ) {
         int y1 = y0 + bandHeight;
         int bandWidth = x1 - x0;
@@ -498,6 +497,8 @@ final class LinearBand {
         double density = mean / (double) bandWidth;
         int rows = Math.min(bandHeight, 32);
         int densityScore = (int) Math.round(density * 10000.0 * rows * regularity);
+        // Only a run that passed every other test pays for the spacing of its peaks.
+        double gapCv = spacingCv(column, x0, x1);
         int pitchScore = (int) Math.round(densityScore / (0.35 + gapCv));
         return new Band(y0, y1, x0, x1, densityScore, pitchScore);
     }

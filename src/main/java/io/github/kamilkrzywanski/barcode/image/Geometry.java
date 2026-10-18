@@ -279,48 +279,123 @@ public final class Geometry {
         );
     }
 
-    /** Every destination pixel is written. The formula matches {@link #sample}. */
+    /**
+     * Every destination pixel is written. The formula matches {@link #sample}. Along a destination
+     * row the source point moves monotonically, so the pixels inside the source form one run: it is
+     * found per row, the pixels outside it are filled white, and those inside are sampled without
+     * bounds checks.
+     */
     private static void paint(GrayU8 source, GrayU8 dest, Rotation rotation) {
-        byte[] src = source.data;
-        int sourceBase = source.startIndex;
-        int sourceStride = source.stride;
-        int limitX = source.width - 1;
-        int limitY = source.height - 1;
         byte[] out = dest.data;
         int destStride = dest.stride;
         int destBase = dest.startIndex;
         int width = dest.width;
         int height = dest.height;
+        double limitX = source.width - 1;
+        double limitY = source.height - 1;
         for (int y = 0; y < height; y++) {
             double dy = y - rotation.dstCy;
             double sinDy = rotation.sin * dy;
             double cosDy = rotation.cos * dy;
             int row = destBase + y * destStride;
-            for (int x = 0; x < width; x++) {
-                double dx = x - rotation.dstCx;
-                double sx = rotation.srcCx + rotation.cos * dx + sinDy;
-                double sy = rotation.srcCy - rotation.sin * dx + cosDy;
-                int value = 255;
-                if (Double.isFinite(sx) && Double.isFinite(sy) && sx >= 0 && sy >= 0 && sx <= limitX && sy <= limitY) {
-                    int x0 = (int) Math.floor(sx);
-                    int y0 = (int) Math.floor(sy);
-                    int x1 = Math.min(x0 + 1, limitX);
-                    int y1 = Math.min(y0 + 1, limitY);
-                    double fx = sx - x0;
-                    double fy = sy - y0;
-                    int row0 = sourceBase + y0 * sourceStride;
-                    int row1 = sourceBase + y1 * sourceStride;
-                    int p00 = src[row0 + x0] & 255;
-                    int p10 = src[row0 + x1] & 255;
-                    int p01 = src[row1 + x0] & 255;
-                    int p11 = src[row1 + x1] & 255;
-                    double sampled = p00 * (1.0 - fx) * (1.0 - fy)
-                            + p10 * fx * (1.0 - fy)
-                            + p01 * (1.0 - fx) * fy
-                            + p11 * fx * fy;
-                    value = GrayImages.clamp((int) Math.round(sampled));
-                }
-                out[row + x] = (byte) value;
+            // The estimate from the bounds is a pixel short on each side; the exact test then settles the ends.
+            int first = (int) Math.max(0, Math.ceil(rowBound(rotation, sinDy, cosDy, limitX, limitY, true)) + 1);
+            int last = (int) Math.min(width - 1, Math.floor(rowBound(rotation, sinDy, cosDy, limitX, limitY, false)) - 1);
+            while (first <= last && !inside(rotation, first, sinDy, cosDy, limitX, limitY)) {
+                first++;
+            }
+            while (last >= first && !inside(rotation, last, sinDy, cosDy, limitX, limitY)) {
+                last--;
+            }
+            if (first > last) {
+                paintChecked(source, out, row, width, rotation, sinDy, cosDy);
+                continue;
+            }
+            while (first > 0 && inside(rotation, first - 1, sinDy, cosDy, limitX, limitY)) {
+                first--;
+            }
+            while (last < width - 1 && inside(rotation, last + 1, sinDy, cosDy, limitX, limitY)) {
+                last++;
+            }
+            Arrays.fill(out, row, row + first, (byte) 255);
+            paintInside(source, out, row, first, last + 1, rotation, sinDy, cosDy);
+            Arrays.fill(out, row + last + 1, row + width, (byte) 255);
+        }
+    }
+
+    /** About the lowest ({@code lower}) or the highest x of a destination row whose source point is inside. */
+    private static double rowBound(Rotation rotation, double sinDy, double cosDy, double limitX, double limitY, boolean lower) {
+        double bound = lower ? -1e9 : 1e9;
+        bound = narrow(bound, rotation.cos, rotation.srcCx + sinDy, limitX, rotation.dstCx, lower);
+        return narrow(bound, -rotation.sin, rotation.srcCy + cosDy, limitY, rotation.dstCx, lower);
+    }
+
+    /**
+     * {@code bound} narrowed to the x where {@code offset + slope * (x - center)} lies in 0 to
+     * {@code limit}. A flat line gives no bound; the exact test finds a row it keeps out.
+     */
+    private static double narrow(double bound, double slope, double offset, double limit, double center, boolean lower) {
+        if (Math.abs(slope) < 1e-9) {
+            return bound;
+        }
+        double a = center - offset / slope;
+        double b = center + (limit - offset) / slope;
+        return lower ? Math.max(bound, Math.min(a, b)) : Math.min(bound, Math.max(a, b));
+    }
+
+    private static boolean inside(Rotation rotation, int x, double sinDy, double cosDy, double limitX, double limitY) {
+        double dx = x - rotation.dstCx;
+        double sx = rotation.srcCx + rotation.cos * dx + sinDy;
+        double sy = rotation.srcCy - rotation.sin * dx + cosDy;
+        return sx >= 0 && sy >= 0 && sx <= limitX && sy <= limitY;
+    }
+
+    /** Pixels {@code from} to {@code to} of a row, all with their source point inside the source. */
+    private static void paintInside(GrayU8 source, byte[] out, int row, int from, int to, Rotation rotation, double sinDy, double cosDy) {
+        byte[] src = source.data;
+        int sourceBase = source.startIndex;
+        int sourceStride = source.stride;
+        int limitX = source.width - 1;
+        int limitY = source.height - 1;
+        double srcCx = rotation.srcCx;
+        double srcCy = rotation.srcCy;
+        double dstCx = rotation.dstCx;
+        double cos = rotation.cos;
+        double sin = rotation.sin;
+        for (int x = from; x < to; x++) {
+            double dx = x - dstCx;
+            double sx = srcCx + cos * dx + sinDy;
+            double sy = srcCy - sin * dx + cosDy;
+            // Neither is negative, so truncation is the floor.
+            int x0 = (int) sx;
+            int y0 = (int) sy;
+            int x1 = Math.min(x0 + 1, limitX);
+            int y1 = Math.min(y0 + 1, limitY);
+            double fx = sx - x0;
+            double fy = sy - y0;
+            int row0 = sourceBase + y0 * sourceStride;
+            int row1 = sourceBase + y1 * sourceStride;
+            int p00 = src[row0 + x0] & 255;
+            int p10 = src[row0 + x1] & 255;
+            int p01 = src[row1 + x0] & 255;
+            int p11 = src[row1 + x1] & 255;
+            double sampled = p00 * (1.0 - fx) * (1.0 - fy)
+                    + p10 * fx * (1.0 - fy)
+                    + p01 * (1.0 - fx) * fy
+                    + p11 * fx * fy;
+            out[row + x] = (byte) GrayImages.clamp((int) Math.round(sampled));
+        }
+    }
+
+    /** A row whose run inside the source the estimate missed, every pixel tested. */
+    private static void paintChecked(GrayU8 source, byte[] out, int row, int width, Rotation rotation, double sinDy, double cosDy) {
+        double limitX = source.width - 1;
+        double limitY = source.height - 1;
+        for (int x = 0; x < width; x++) {
+            if (inside(rotation, x, sinDy, cosDy, limitX, limitY)) {
+                paintInside(source, out, row, x, x + 1, rotation, sinDy, cosDy);
+            } else {
+                out[row + x] = (byte) 255;
             }
         }
     }
