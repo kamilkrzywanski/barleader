@@ -55,7 +55,7 @@ final class Code128Decoder {
                     + "241112134111111242121142121241114212124112124211411212421112421211"
                     + "212141214121412121111143111341131141114113114311411113411311113141"
                     + "114131311141411131211412211214211232233111";
-    private static final int[][] PATTERNS = patterns();
+    static final int[][] PATTERNS = patterns();
     private static final int[] E2E = e2eCodes();
 
     private Code128Decoder() {

@@ -661,7 +661,7 @@ final class LinearBand {
         return new ImagePoint((low.x() + 0.5) * factor - 0.5, (low.y() + 0.5) * factor - 0.5);
     }
 
-    private static int bilinear(GrayU8 source, double x, double y) {
+    static int bilinear(GrayU8 source, double x, double y) {
         if (!Double.isFinite(x) || !Double.isFinite(y) || x < 0 || y < 0
                 || x > source.width - 1 || y > source.height - 1) {
             return 255;

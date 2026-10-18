@@ -6,6 +6,7 @@ package io.github.kamilkrzywanski.barcode;
 
 import io.github.kamilkrzywanski.barcode.decode.HitCollector;
 import io.github.kamilkrzywanski.barcode.decode.BitmapDecoder;
+import io.github.kamilkrzywanski.barcode.decode.Code128Fit;
 import io.github.kamilkrzywanski.barcode.image.Geometry;
 import io.github.kamilkrzywanski.barcode.image.GrayImages;
 import io.github.kamilkrzywanski.barcode.image.GrayLuminanceSource;
@@ -55,6 +56,8 @@ final class Scan {
      * cheap and stay behind the same gate.
      */
     private static final long BAND_EXTRA_PIXELS = 1_000_000L;
+    /** Strips of {@link BarStrips} that {@link Code128Fit} reads, the most energy first. */
+    private static final int MAX_FIT_STRIPS = 8;
 
     Scan(ReadOptions options, Fanout fanout) {
         this.options = options;
@@ -154,6 +157,7 @@ final class Scan {
             if (options.mode() == DecodeMode.FAST && (hits.isEmpty() || options.findAll()) && !stop()) {
                 tryFastLinearBands(gray);
             }
+            tryCode128Fit(gray);
             return hits.list();
         }
 
@@ -248,6 +252,7 @@ final class Scan {
             traceAztec(inverted);
             traceDataMatrix(inverted);
         }
+        tryCode128Fit(gray);
         return hits.list();
     }
 
@@ -743,6 +748,39 @@ final class Scan {
      * reads had returned six wrong texts in 69, mostly a short code inside a longer one, so those
      * two stay with aggressive mode.
      */
+    /**
+     * Code 128 with modules of about a pixel, fitted on the strips of {@link BarStrips}, as the last
+     * step of a read that found nothing. It decodes no variant of the image, so the attempt budget
+     * does not stop it and it takes no attempt from the ladder: on BarBeR's ParcelBar photos the
+     * band reads of fast mode use up all forty. The time budget still stops it.
+     */
+    private void tryCode128Fit(GrayU8 gray) {
+        if (!hits.isEmpty() || !symbologies.contains(Symbology.CODE_128) || outOfTime()) {
+            return;
+        }
+        for (LinearBand.Crop strip : BarStrips.find(gray, MAX_FIT_STRIPS)) {
+            if (outOfTime()) {
+                return;
+            }
+            Code128Fit.Found found = Code128Fit.read(strip.image());
+            if (found == null) {
+                continue;
+            }
+            PixelMap map = strip.toSource();
+            hits.add(new BarcodeHit(
+                    found.text(),
+                    Symbology.CODE_128,
+                    List.of(map.toSource(found.left(), found.y()), map.toSource(found.right(), found.y())),
+                    Math.floorMod(strip.degrees() + (found.upsideDown() ? 180 : 0), 360),
+                    0.60,
+                    "code128-fit"
+            ));
+            if (!options.findAll()) {
+                return;
+            }
+        }
+    }
+
     private void tryFastLinearBands(GrayU8 gray) {
         Set<Symbology> formats = linearFormats();
         if (formats.isEmpty()) {
@@ -1649,13 +1687,14 @@ final class Scan {
     }
 
     private boolean stop() {
-        if (Thread.currentThread().isInterrupted()) {
-            return true;
-        }
         if (!options.findAll() && !hits.isEmpty()) {
             return true;
         }
-        if (attempts >= options.maxAttempts()) {
+        return attempts >= options.maxAttempts() || outOfTime();
+    }
+
+    private boolean outOfTime() {
+        if (Thread.currentThread().isInterrupted()) {
             return true;
         }
         return budgetNanos != Long.MAX_VALUE && System.nanoTime() - startNanos >= budgetNanos;
