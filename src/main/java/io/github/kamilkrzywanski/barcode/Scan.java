@@ -58,6 +58,14 @@ final class Scan {
     private static final long BAND_EXTRA_PIXELS = 1_000_000L;
     /** Strips of {@link BarStrips} that {@link Code128Fit} reads, the most energy first. */
     private static final int MAX_FIT_STRIPS = 8;
+    /**
+     * Strips of {@link BarStrips} that the linear readers read, the most energy first. Each is an
+     * attempt: with eight, the thresholded band crops after them lost 20 of BarBeR's codes to the
+     * forty attempts of fast mode, with four 5, and the eight read one code more.
+     */
+    private static final int MAX_READ_STRIPS = 4;
+    /** {@link BarStrips} of the image, found once for the readers and for {@link Code128Fit}. */
+    private List<LinearBand.Crop> barStrips;
 
     Scan(ReadOptions options, Fanout fanout) {
         this.options = options;
@@ -152,10 +160,14 @@ final class Scan {
         traceAztec(gray);
         traceDataMatrix(gray);
         if (options.mode() == DecodeMode.FAST || stop()) {
-            // A miss of the whole fast ladder still looks for one tilted linear strip, with the
-            // coarse band search and only its hybrid and stretch reads. A hit never gets here.
+            // A miss of the whole fast ladder still looks for one tilted linear strip: first the
+            // patches of bars of BarStrips at their own angle, then the coarse band search with
+            // only its hybrid and stretch reads. A hit never gets here.
             if (options.mode() == DecodeMode.FAST && (hits.isEmpty() || options.findAll()) && !stop()) {
-                tryFastLinearBands(gray);
+                tryBarStrips(gray);
+                if (!stop()) {
+                    tryFastLinearBands(gray);
+                }
             }
             tryCode128Fit(gray);
             return hits.list();
@@ -758,7 +770,7 @@ final class Scan {
         if (!hits.isEmpty() || !symbologies.contains(Symbology.CODE_128) || outOfTime()) {
             return;
         }
-        for (LinearBand.Crop strip : BarStrips.find(gray, MAX_FIT_STRIPS)) {
+        for (LinearBand.Crop strip : barStrips(gray)) {
             if (outOfTime()) {
                 return;
             }
@@ -778,6 +790,31 @@ final class Scan {
             if (!options.findAll()) {
                 return;
             }
+        }
+    }
+
+    private List<LinearBand.Crop> barStrips(GrayU8 gray) {
+        if (barStrips == null) {
+            barStrips = BarStrips.find(gray, MAX_FIT_STRIPS);
+        }
+        return barStrips;
+    }
+
+    /**
+     * The patches of parallel bars of {@link BarStrips}, sampled at the angle of their own
+     * gradients, for the linear readers. The band search tries a few angles and ranks bands of
+     * edges, so a symbol between its angles, or beside a block of printed text, is cut badly or
+     * not at all.
+     */
+    private void tryBarStrips(GrayU8 gray) {
+        Set<Symbology> formats = linearFormats();
+        if (formats.isEmpty() || stop()) {
+            return;
+        }
+        List<LinearBand.Crop> strips = barStrips(gray);
+        for (int i = 0; i < Math.min(MAX_READ_STRIPS, strips.size()) && !stop(); i++) {
+            LinearBand.Crop strip = strips.get(i);
+            tryGray(strip.image(), strip.toSource(), "bar-strip", strip.degrees(), false, formats, 0.70, false);
         }
     }
 

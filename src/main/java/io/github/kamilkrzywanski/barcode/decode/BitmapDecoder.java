@@ -260,13 +260,13 @@ public final class BitmapDecoder {
         // The first row that confirms can be a short glitch while the same bitmap's real bars
         // span a much taller run. Foto(726) hybrid returned 2094297032262 on rows 5 px apart
         // and the labeled 8023222032262 on a 54 px run of the same crop.
-        if (attempt.startsWith("linear-band") && widerRival(image, found.text(), found.scale())) {
+        if (stripCrop(attempt) && widerRival(image, found.text(), found.scale())) {
             return List.of();
         }
         // A binary strip hit on one or two adjacent rows is a threshold glitch.
         // Four rows, or two rows at least 8 px apart, still required on a 48-row strip.
         // A taller crop may keep just two intact rows under glare.
-        if (binary && attempt.startsWith("linear-band") && !separatedEanRows(image, found.text(), found.scale())) {
+        if (binary && stripCrop(attempt) && !separatedEanRows(image, found.text(), found.scale())) {
             return List.of();
         }
         List<ImagePoint> corners = new ArrayList<>(2);
@@ -681,7 +681,15 @@ public final class BitmapDecoder {
 
 
     private static boolean fullResolution(String attempt) {
-        return !attempt.startsWith("linear-band") && !attempt.startsWith("downscale") && !attempt.equals("scale-0.5");
+        return !stripCrop(attempt) && !attempt.startsWith("downscale") && !attempt.equals("scale-0.5");
+    }
+
+    /**
+     * A crop resampled along a strip of bars, by the band search or by {@code BarStrips}. Its
+     * neighbouring rows are near copies, so a row of it confirms nothing that another row read.
+     */
+    private static boolean stripCrop(String attempt) {
+        return attempt.startsWith("linear-band") || attempt.startsWith("bar-strip");
     }
 
     private static boolean fullRetail(Symbology symbology) {

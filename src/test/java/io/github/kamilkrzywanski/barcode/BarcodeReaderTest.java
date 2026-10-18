@@ -48,14 +48,18 @@ class BarcodeReaderTest {
         }
     }
 
-    /** No upright row crosses a Code 128 at 30° or 45°; fast finds its strip once the ladder misses. */
+    /**
+     * No upright row crosses a Code 128 at 30° or 45°; fast finds its strip once the ladder misses,
+     * from the patches of bars or from the band search.
+     */
     @Test
-    void fastReadsATiltedCode128FromItsBandCrop() {
+    void fastReadsATiltedCode128FromItsStrip() {
         for (String name : List.of("code128-rotated-30", "code128-rotated-45")) {
             Sample sample = sample(name);
             List<BarcodeHit> hits = reader.read(sample.image(), ReadOptions.fast());
             assertCovers(sample, texts(hits));
-            assertTrue(hits.get(0).attempt().startsWith("linear-band"), name + " used " + hits.get(0).attempt());
+            String attempt = hits.get(0).attempt();
+            assertTrue(attempt.startsWith("bar-strip") || attempt.startsWith("linear-band"), name + " used " + attempt);
         }
     }
 
