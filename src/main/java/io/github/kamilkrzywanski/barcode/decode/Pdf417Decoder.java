@@ -361,7 +361,12 @@ final class Pdf417Decoder {
         if (erasures.length > numEc - 2 || numEc > MAX_EC_CODEWORDS) {
             throw new ReedSolomonException("PDF417 error correction failed");
         }
-        ReedSolomon.correct(ReedSolomon.PDF417, codewords, numEc, erasures);
+        int used = ReedSolomon.correct(ReedSolomon.PDF417, codewords, numEc, erasures);
+        // The two have to stay after the errors found beside the erasures too: with every
+        // codeword spent, a misread row corrects to some other codeword just as well.
+        if (erasures.length > 0 && used > numEc - 2) {
+            throw new ReedSolomonException("PDF417 error correction failed");
+        }
         if (!verifyCount(codewords, numEc)) {
             return null;
         }

@@ -110,17 +110,20 @@ final class Scan {
         Set<Symbology> variants = variantFormats();
         if (!stop() && !variants.isEmpty()) {
             List<Callable<List<BarcodeHit>>> jobs = new ArrayList<>();
-            jobs.add(() -> readImage(GrayImages.invert(gray), PixelMap.IDENTITY, "inverted-luma", 0, false, variants, 0.86, false));
+            // With findAll every variant returns all it reads, as the original does: on a label
+            // with a Data Matrix and a PDF417 one symbol a variant would always be the Data Matrix.
+            boolean all = options.findAll();
+            jobs.add(() -> readImage(GrayImages.invert(gray), PixelMap.IDENTITY, "inverted-luma", 0, false, variants, 0.86, all));
             jobs.add(() -> {
                 Transformed shifted = Geometry.pad(gray, 4);
-                return readImage(shifted.image(), shifted.toSource(), "pad-4", 0, false, variants, 0.82, false);
+                return readImage(shifted.image(), shifted.toSource(), "pad-4", 0, false, variants, 0.82, all);
             });
             GrayU8 stretched = GrayImages.stretch(gray);
             if (stretched != gray) {
-                jobs.add(() -> readImage(stretched, PixelMap.IDENTITY, "contrast-stretch", 0, false, variants, 0.74, false));
+                jobs.add(() -> readImage(stretched, PixelMap.IDENTITY, "contrast-stretch", 0, false, variants, 0.74, all));
             }
             jobs.add(() -> readImage(
-                    GrayImages.flattenIllumination(gray), PixelMap.IDENTITY, "illumination", 0, false, variants, 0.74, false));
+                    GrayImages.flattenIllumination(gray), PixelMap.IDENTITY, "illumination", 0, false, variants, 0.74, all));
             Set<Symbology> turned = rotationFormats();
             for (int angle : turned.isEmpty() ? new int[0] : new int[]{90, 180, 270}) {
                 jobs.add(() -> {
@@ -131,14 +134,14 @@ final class Scan {
             }
             jobs.add(() -> readImage(
                     GrayImages.binaryToLuma(Thresholds.mean(gray)),
-                    PixelMap.IDENTITY, "adaptive-mean", 0, true, variants, 0.68, false));
+                    PixelMap.IDENTITY, "adaptive-mean", 0, true, variants, 0.68, all));
             jobs.add(() -> readImage(
                     GrayImages.binaryToLuma(Thresholds.otsu(gray)),
-                    PixelMap.IDENTITY, "otsu", 0, true, variants, 0.68, false));
+                    PixelMap.IDENTITY, "otsu", 0, true, variants, 0.68, all));
             if (Math.min(gray.width, gray.height) <= 900 && Geometry.withinPixelBudget(gray.width, gray.height, 2.0)) {
                 jobs.add(() -> {
                     Transformed scaled = Geometry.scale(gray, 2.0);
-                    return readImage(scaled.image(), scaled.toSource(), "scale-2", 0, false, variants, 0.80, false);
+                    return readImage(scaled.image(), scaled.toSource(), "scale-2", 0, false, variants, 0.80, all);
                 });
             }
             // The other way round for a large photo: a symbol blurred over several pixels reads
@@ -150,7 +153,7 @@ final class Scan {
                     jobs.add(() -> {
                         Transformed smaller = Geometry.boxDownscaled(gray, factor);
                         return readImage(smaller.image(), smaller.toSource(), "downscale-" + factor, 0, false,
-                                variants, 0.78, false);
+                                variants, 0.78, all);
                     });
                 }
             }
