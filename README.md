@@ -4,7 +4,7 @@ A pure-Java barcode reader that reads what others miss, and writes every common 
 
 Barleader reads QR Code, Micro QR, Data Matrix, Aztec, PDF417, Code 128, Code 39, Code 93, EAN-13, EAN-8, UPC-A, UPC-E, ITF, Codabar and the GS1 DataBar family from photos and scans. The detectors and bit decoders are a Java port of the read path of [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp) 3.1.1, and the binarizers and Reed-Solomon decoders a port of [ZXing](https://github.com/zxing/zxing) 3.5.4. Around them sits a ladder of image variants (inversion, contrast, illumination, thresholds, rotations, scales, a finder for tilted linear symbols) that is tried until one of them decodes. On hard images it reads far more than the usual Java ZXing call, and on clean images it stops after the first attempt.
 
-**Status: young.** The API is small and may still change before 1.0. [docs/PLAN.md](docs/PLAN.md) is the design document with the full attempt ladder and the measurements.
+**Status: young.** The API is small and may still change before 1.0. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) describes the attempt ladder, the packages and how the measurements are made.
 
 ## Getting started
 
@@ -28,7 +28,7 @@ for (BarcodeHit hit : reader.read(ImageIO.read(new File("label.jpg")))) {
 
 `read` never throws for an image without a barcode. It returns an empty list. One `BarcodeReader` can be shared by any number of threads.
 
-Java 17 or later, and nothing else at run time. On the module path the module is `io.github.kamilkrzywanski.barcode`. Only the package `io.github.kamilkrzywanski.barcode` is exported; everything else is internal.
+Java 17 or later, and nothing else at run time. On the module path the module is `io.github.kamilkrzywanski.barleader`. Only the package `io.github.kamilkrzywanski.barleader` is exported; everything else is internal.
 
 ## Options
 
@@ -74,7 +74,7 @@ A clean symbol is read on the first attempt in either mode, so `aggressive()` on
 
 ## Accuracy
 
-All numbers come from this repository and its `datasets` submodule, [barleader-datasets](https://github.com/kamilkrzywanski/barleader-datasets) (`git submodule update --init datasets`), and can be repeated with the commands in [docs/PLAN.md](docs/PLAN.md). "ZXing" is the call most Java code makes: `MultiFormatReader` with `HybridBinarizer`, `BufferedImageLuminanceSource` and `TRY_HARDER`.
+All numbers come from this repository and its `datasets` submodule, [barleader-datasets](https://github.com/kamilkrzywanski/barleader-datasets) (`git submodule update --init datasets`), and can be repeated with the commands in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). "ZXing" is the call most Java code makes: `MultiFormatReader` with `HybridBinarizer`, `BufferedImageLuminanceSource` and `TRY_HARDER`.
 
 **zxing-cpp 3.1.1 sample images.** The 464 labelled images of the zxing-cpp test suite that ImageIO can open and whose symbology both libraries read by default:
 
@@ -204,7 +204,7 @@ This needs JDK 17 or later and Maven 3.9. CI builds on JDK 17, 21 and 25: [.gith
 
 | Package | Role |
 | --- | --- |
-| `io.github.kamilkrzywanski.barcode` | The API: `BarcodeReader`, `ReadOptions`, `BarcodeHit`, `Symbology` for reading; `BarcodeWriter`, `BarcodeType`, `WriteOptions`, `Barcode`, `RenderOptions` and the settings of QR Code, Data Matrix, PDF417 and Aztec for writing. Also the attempt ladder (`Scan`) and the tilted-band finder. |
+| `io.github.kamilkrzywanski.barleader` | The API: `BarcodeReader`, `ReadOptions`, `BarcodeHit`, `Symbology` for reading; `BarcodeWriter`, `BarcodeType`, `WriteOptions`, `Barcode`, `RenderOptions` and the settings of QR Code, Data Matrix, PDF417 and Aztec for writing. Also the attempt ladder (`Scan`) and the tilted-band finder. |
 | `….image` | Luminance, rotations, scales, homographies, and the binarizers. |
 | `….ecc` | Reed-Solomon: decoding with errors and erasures as zxing-cpp's librscpp does it, and ZXing's encoder. |
 | `….qr` | The QR Code encoder and the version table the reader shares. |

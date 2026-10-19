@@ -4,7 +4,7 @@ The release workflow takes the section of the tagged version as the notes of its
 
 ## 0.1.0
 
-The first release. Java 17 or later, no dependencies at run time; on the module path the module is `io.github.kamilkrzywanski.barcode`, and only its package of that name is exported.
+The first release. Java 17 or later, no dependencies at run time; on the module path the module is `io.github.kamilkrzywanski.barleader`, and only its package of that name is exported.
 
 ### Reading
 
