@@ -4,6 +4,7 @@ import io.github.kamilkrzywanski.barcode.ImagePoint;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -43,6 +44,7 @@ final class Labels {
     /** BarBeR types no reader here decodes: postal codes, IATA 2 of 5 and a lone EAN-2. */
     private static final Set<String> UNREAD = Set.of("ROYALMAILCODE", "KIX", "JAPANPOST", "POSTNET", "INTELLIGENTMAIL", "IATA25", "2-DIGIT");
     private static final Map<Path, Barber> BARBER = new ConcurrentHashMap<>();
+    private static final Charset CP437 = Charset.forName("IBM437");
 
     private Labels() {
     }
@@ -293,7 +295,41 @@ final class Labels {
         if (code.type().equals("C39") && text.length() > 2 && text.startsWith("*") && text.endsWith("*")) {
             text = text.substring(1, text.length() - 1);
         }
-        return sameText(read, text);
+        return sameText(read, text) || sameBarberText(read.text(), text);
+    }
+
+    /**
+     * BarBeR's annotation tool did not keep every text as the symbol stores it: some texts break a
+     * line where the symbol has none or has a carriage return, and binary payloads are written with
+     * NUL as {@code ^} as the hex of their UTF-16 code units, in ISO-8859-1 for Aztec and Data Matrix
+     * ({@code 00C2} for the byte {@code C2}) and in code page 437 for PDF417 ({@code 00FC} for the
+     * byte {@code 81}), or as the code page 437 text itself. A read here is ISO-8859-1 when it is
+     * not UTF-8, so its characters up to U+00FF are those bytes.
+     */
+    static boolean sameBarberText(String read, String label) {
+        if (withoutLineBreaks(read).equals(withoutLineBreaks(label))) {
+            return true;
+        }
+        if (!read.chars().allMatch(c -> c <= 0xFF)) {
+            return false;
+        }
+        String cp437 = new String(read.getBytes(StandardCharsets.ISO_8859_1), CP437).replace('\0', '^');
+        if (withoutLineBreaks(cp437).equals(withoutLineBreaks(label))) {
+            return true;
+        }
+        return label.matches("[0-9A-F]+") && (hex(read.replace('\0', '^')).equals(label) || hex(cp437).equals(label));
+    }
+
+    private static String hex(String text) {
+        StringBuilder hex = new StringBuilder(text.length() * 4);
+        for (int i = 0; i < text.length(); i++) {
+            hex.append(String.format("%04X", (int) text.charAt(i)));
+        }
+        return hex.toString();
+    }
+
+    private static String withoutLineBreaks(String text) {
+        return text.replace("\r", "").replace("\n", "").strip();
     }
 
     private static Barber barber(Path images) {

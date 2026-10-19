@@ -15,6 +15,8 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LabelsTest {
     private static Read read(String symbology, String text, ImagePoint... corners) {
@@ -75,6 +77,17 @@ class LabelsTest {
         List<Read> reads = List.of(read("EAN_13", "8005200006304"), read("CODE_39", "S015610095C"),
                 read("EAN_13", "0734646964449"), read("QR_CODE", "elsewhere"));
         assertEquals(new RegionScore(3, 3, 1), Labels.judgeCodes(codes, reads));
+    }
+
+    @Test
+    void barberTextsMatchTheirLineBreaksAndCodePage437() {
+        assertTrue(Labels.sameBarberText("22N00001CPZL59NU3RF3TG75", "22N00001CPZL59NU3RF3\nTG75"));
+        assertTrue(Labels.sameBarberText("DEMO\n\r<?xml", "DEMO\n\n<?xml"));
+        assertTrue(Labels.sameBarberText("\u0081\u0001H\u0000\u00d1", "00FC00010048005E2564"));
+        assertTrue(Labels.sameBarberText(" \u0014\u00c2\u0000", "0020001400C2005E"));
+        assertTrue(Labels.sameBarberText("PD4Nalog|\u00c3\u00f3", "PD4Nalog|\u251c\u2264"));
+        assertFalse(Labels.sameBarberText("\u0081\u0001H", "00FC00010049"));
+        assertFalse(Labels.sameBarberText("8005200006304", "8005200006305"));
     }
 
     @Test
