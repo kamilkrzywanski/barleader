@@ -16,8 +16,6 @@ Barleader reads QR Code, Micro QR, Data Matrix, Aztec, PDF417, Code 128, Code 39
 </dependency>
 ```
 
-The first release is not on Maven Central yet. Until then, `mvn install` and depend on `0.1.0-SNAPSHOT`.
-
 ```java
 BarcodeReader reader = new BarcodeReader();
 
