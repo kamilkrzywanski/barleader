@@ -2,7 +2,7 @@ name: release
 
 # Push a tag such as v0.1.0. The version comes from the tag, the artifacts go to the Central
 # Portal as a deployment that waits for a manual publish, and the command line jar is attached
-# to the GitHub release, whose notes are the tag's section of CHANGELOG.md.
+# to the GitHub release, whose notes are how to get it and the tag's section of CHANGELOG.md.
 on:
   push:
     tags:
@@ -31,6 +31,16 @@ jobs:
         run: |
           awk -v heading="## ${GITHUB_REF_NAME#v}" '$0 == heading {found = 1; next} /^## / {found = 0} found' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
           test -n "$(tr -d '[:space:]' < "$RUNNER_TEMP/release-notes.md")" || { echo "CHANGELOG.md has no section ## ${GITHUB_REF_NAME#v}"; exit 1; }
+      - name: Put how to get it above the notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          {
+            printf '## Get it\n\nMaven Central, Java 17 or later, no dependencies at run time:\n\n'
+            printf '```xml\n<dependency>\n    <groupId>io.github.kamilkrzywanski</groupId>\n    <artifactId>barleader</artifactId>\n    <version>%s</version>\n</dependency>\n```\n\n' "$version"
+            printf '```kotlin\nimplementation("io.github.kamilkrzywanski:barleader:%s")\n```\n\n' "$version"
+            printf 'The command line is `barleader.jar` below: `java -jar barleader.jar image...`\n\n'
+            cat "$RUNNER_TEMP/release-notes.md"
+          } > "$RUNNER_TEMP/release-body.md"
       - name: Take the version from the tag
         run: mvn -B versions:set -DnewVersion="${GITHUB_REF_NAME#v}" -DgenerateBackupPoms=false
       - name: Verify and publish
@@ -39,8 +49,9 @@ jobs:
           CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
           CENTRAL_TOKEN: ${{ secrets.CENTRAL_TOKEN }}
           MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-      - name: Attach the command line jar to the release
+      - name: Publish the GitHub release with the command line jar
         uses: softprops/action-gh-release@v2
         with:
+          name: Barleader ${{ github.ref_name }}
           files: target/barleader.jar
-          body_path: ${{ runner.temp }}/release-notes.md
+          body_path: ${{ runner.temp }}/release-body.md
