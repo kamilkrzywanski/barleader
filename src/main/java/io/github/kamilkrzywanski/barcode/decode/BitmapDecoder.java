@@ -167,6 +167,8 @@ public final class BitmapDecoder {
                 || symbologies.contains(Symbology.MAXICODE)
                 || symbologies.contains(Symbology.TELEPEN)
                 || symbologies.contains(Symbology.DX_FILM_EDGE)
+                || symbologies.contains(Symbology.ROYAL_MAIL)
+                || symbologies.contains(Symbology.JAPAN_POST)
                 || symbologies.contains(Symbology.CODE_128)
                 || symbologies.contains(Symbology.CODE_39)
                 || symbologies.contains(Symbology.CODE_93)
@@ -604,7 +606,9 @@ public final class BitmapDecoder {
         boolean maxi = symbologies.contains(Symbology.MAXICODE);
         boolean dx = symbologies.contains(Symbology.DX_FILM_EDGE);
         boolean telepen = symbologies.contains(Symbology.TELEPEN);
-        if (!maxi && !dx && !telepen || image == null) {
+        boolean royalMail = symbologies.contains(Symbology.ROYAL_MAIL);
+        boolean japanPost = symbologies.contains(Symbology.JAPAN_POST);
+        if (!maxi && !dx && !telepen && !royalMail && !japanPost || image == null) {
             return List.of();
         }
         List<BarcodeHit> hits = new ArrayList<>();
@@ -629,6 +633,16 @@ public final class BitmapDecoder {
                         hits.add(new BarcodeHit(text, Symbology.DX_FILM_EDGE, corners, rotationDegrees, confidence, attempt));
                     }
                 }
+            }
+        }
+        if (royalMail || japanPost) {
+            for (FourStateReader.Found found : FourStateReader.read(image.getBlackMatrix(), royalMail, japanPost)) {
+                List<ImagePoint> outline = new ArrayList<>(4);
+                for (ImagePoint corner : found.corners()) {
+                    addCorner(outline, toSource.toSource(corner.x(), corner.y()));
+                }
+                Symbology symbology = found.kind() == FourStateReader.Kind.ROYAL_MAIL ? Symbology.ROYAL_MAIL : Symbology.JAPAN_POST;
+                hits.add(new BarcodeHit(found.text(), symbology, outline, linearOrientation(found.upsideDown(), rotationDegrees), confidence, attempt));
             }
         }
         if (telepen) {

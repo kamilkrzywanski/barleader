@@ -41,7 +41,7 @@ final class Labels {
     private static final Pattern BOX = Pattern.compile(
             "<xmin>\\s*([\\d.]+)\\s*</xmin>\\s*<ymin>\\s*([\\d.]+)\\s*</ymin>\\s*<xmax>\\s*([\\d.]+)\\s*</xmax>\\s*<ymax>\\s*([\\d.]+)\\s*</ymax>");
 
-    /** BarBeR types no reader here decodes: postal codes, IATA 2 of 5 and a lone EAN-2. */
+    /** BarBeR types the default reader does not read: postal codes, of which Royal Mail and Japan Post only when asked, IATA 2 of 5 and a lone EAN-2. */
     private static final Set<String> UNREAD = Set.of("ROYALMAILCODE", "KIX", "JAPANPOST", "POSTNET", "INTELLIGENTMAIL", "IATA25", "2-DIGIT");
     private static final Map<Path, Barber> BARBER = new ConcurrentHashMap<>();
     private static final Charset CP437 = Charset.forName("IBM437");

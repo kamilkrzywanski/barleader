@@ -59,7 +59,17 @@ public enum Symbology {
      * Experimental and lightly tested: tried on three samples, one of which reads a different
      * frame number than zxing-cpp's test expects; the corners of a hit are those of the whole image.
      */
-    DX_FILM_EDGE(true);
+    DX_FILM_EDGE(true),
+    /**
+     * The Royal Mail 4-State Customer Code (RM4SCC), with its check character at the end of the
+     * text. Experimental and lightly tested: read only when asked for, from the rows of each attempt.
+     */
+    ROYAL_MAIL(true),
+    /**
+     * The Japan Post customer barcode, its letters decoded and its padding dropped. Experimental and
+     * lightly tested: read only when asked for, from the rows of each attempt.
+     */
+    JAPAN_POST(true);
 
     private static final EnumSet<Symbology> DEFAULTS = EnumSet.of(
             QR_CODE,
@@ -86,7 +96,8 @@ public enum Symbology {
      * Code 128, Code 39, EAN-13, EAN-8, UPC-A and UPC-E. Code 93, ITF and Codabar are read
      * only when asked for, because short random bars match them more easily. The DataBar
      * family is read only when asked for too: it scans every row of every attempt. MaxiCode,
-     * Telepen, DX film edge, rMQR and MicroPDF417 are experimental and read only when asked for.
+     * Telepen, DX film edge, rMQR, MicroPDF417, Royal Mail and Japan Post are experimental and read
+     * only when asked for.
      */
     public static Set<Symbology> defaults() {
         return EnumSet.copyOf(DEFAULTS);
