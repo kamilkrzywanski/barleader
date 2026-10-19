@@ -21,7 +21,7 @@ import java.util.Locale;
  * Writes a QR Code.
  *
  * <pre>
- * java -jar barcode-pro.jar qr [options] text
+ * java -jar barleader.jar qr [options] text
  *   --level=L|M|Q|H     error correction, M by default
  *   --module=N          pixels a module in an image, 8 by default
  *   --quiet=N           light modules around the symbol, 4 by default
@@ -125,7 +125,7 @@ final class QrCommand {
     }
 
     static void usage(PrintStream stream) {
-        stream.println("Usage: java -jar barcode-pro.jar qr [--level=L|M|Q|H] [--module=8] [--quiet=4] [--version=N]"
+        stream.println("Usage: java -jar barleader.jar qr [--level=L|M|Q|H] [--module=8] [--quiet=4] [--version=N]"
                 + " [--mask=N] [--charset=NAME] [--gs1] [--compact] [--out=file.png|file.svg] [--] text");
     }
 }

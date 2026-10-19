@@ -42,5 +42,5 @@ jobs:
       - name: Attach the command line jar to the release
         uses: softprops/action-gh-release@v2
         with:
-          files: target/barcode-pro.jar
+          files: target/barleader.jar
           body_path: ${{ runner.temp }}/release-notes.md

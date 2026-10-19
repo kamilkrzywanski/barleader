@@ -1,8 +1,8 @@
-# barcode-pro
+# Barleader
 
-A barcode reader in pure Java, with no JNI, no OpenCV and no native libraries, which also writes every symbology of the ZXing and Barcode-Lib4J writers. Apache License 2.0.
+A pure-Java barcode reader that reads what others miss, and writes every common symbology too: every one of the ZXing and Barcode-Lib4J writers. No JNI, no OpenCV and no native libraries. Apache License 2.0.
 
-barcode-pro reads QR Code, Micro QR, Data Matrix, Aztec, PDF417, Code 128, Code 39, Code 93, EAN-13, EAN-8, UPC-A, UPC-E, ITF, Codabar and the GS1 DataBar family from photos and scans. The detectors and bit decoders are a Java port of the read path of [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp) 3.1.1, and the binarizers and Reed-Solomon decoders a port of [ZXing](https://github.com/zxing/zxing) 3.5.4. Around them sits a ladder of image variants (inversion, contrast, illumination, thresholds, rotations, scales, a finder for tilted linear symbols) that is tried until one of them decodes. On hard images it reads far more than the usual Java ZXing call, and on clean images it stops after the first attempt.
+Barleader reads QR Code, Micro QR, Data Matrix, Aztec, PDF417, Code 128, Code 39, Code 93, EAN-13, EAN-8, UPC-A, UPC-E, ITF, Codabar and the GS1 DataBar family from photos and scans. The detectors and bit decoders are a Java port of the read path of [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp) 3.1.1, and the binarizers and Reed-Solomon decoders a port of [ZXing](https://github.com/zxing/zxing) 3.5.4. Around them sits a ladder of image variants (inversion, contrast, illumination, thresholds, rotations, scales, a finder for tilted linear symbols) that is tried until one of them decodes. On hard images it reads far more than the usual Java ZXing call, and on clean images it stops after the first attempt.
 
 **Status: young.** The API is small and may still change before 1.0. [docs/PLAN.md](docs/PLAN.md) is the design document with the full attempt ladder and the measurements.
 
@@ -11,7 +11,7 @@ barcode-pro reads QR Code, Micro QR, Data Matrix, Aztec, PDF417, Code 128, Code 
 ```xml
 <dependency>
     <groupId>io.github.kamilkrzywanski</groupId>
-    <artifactId>barcode-pro</artifactId>
+    <artifactId>barleader</artifactId>
     <version>0.1.0</version>
 </dependency>
 ```
@@ -74,7 +74,7 @@ A clean symbol is read on the first attempt in either mode, so `aggressive()` on
 
 ## Accuracy
 
-All numbers come from this repository and its `datasets` submodule, [barcode-pro-datasets](https://github.com/kamilkrzywanski/barcode-pro-datasets) (`git submodule update --init datasets`), and can be repeated with the commands in [docs/PLAN.md](docs/PLAN.md). "ZXing" is the call most Java code makes: `MultiFormatReader` with `HybridBinarizer`, `BufferedImageLuminanceSource` and `TRY_HARDER`.
+All numbers come from this repository and its `datasets` submodule, [barleader-datasets](https://github.com/kamilkrzywanski/barleader-datasets) (`git submodule update --init datasets`), and can be repeated with the commands in [docs/PLAN.md](docs/PLAN.md). "ZXing" is the call most Java code makes: `MultiFormatReader` with `HybridBinarizer`, `BufferedImageLuminanceSource` and `TRY_HARDER`.
 
 **zxing-cpp 3.1.1 sample images.** The 464 labelled images of the zxing-cpp test suite that ImageIO can open and whose symbology both libraries read by default:
 
@@ -113,7 +113,7 @@ The aggressive ladder was tuned on these photos, so treat 389 as what the ladder
 | BoofCV QR v3, QR codes found by place | 1232 | 149 | 442 | 455 | 1068 |
 | BarBeR without its Arte-Lab and KAIST parts, codes read | 5176 | 2484 | 3857 | 3920 | 4360 |
 
-On KAIST's 788 photos without a barcode, ZXing reads something on 7, fast on none and aggressive on one. On BarBeR's ParcelBar part, Code 128 on parcels with modules of one to two and a half pixels, fast reads 680 of the 1,142 codes and aggressive 683, where ZXing reads 228; under about 1.3 pixels a module a threshold hardly reads any code, and what fast mode reads there comes from the fit of the gray profile. BarBeR counts codes ZXing knows but barcode-pro reads only when asked, such as the Interleaved 2 of 5 of its SKUU DSP Lab part. Its annotation tool saved the texts HTML-escaped (`&amp;` for `&` in 154 URLs and XML payloads), broke some lines where the symbol has none, and wrote binary payloads with NUL as `^`, as the hex of their characters in ISO-8859-1 (Aztec, Data Matrix) or in code page 437 (PDF417), or as code page 437 text; the scorer undoes all of it. A real Data Matrix or QR Code that a set leaves unlabelled counts as a wrong text, and without `findAll` it can take the place of the labelled code on the same photo: that is the one code fewer on BarBeR since large and bent Data Matrix symbols are read, and two of KAIST's wrong texts are QR codes on packages, read since the QR grid bends onto the module edges, each in place of the labelled EAN-13.
+On KAIST's 788 photos without a barcode, ZXing reads something on 7, fast on none and aggressive on one. On BarBeR's ParcelBar part, Code 128 on parcels with modules of one to two and a half pixels, fast reads 680 of the 1,142 codes and aggressive 683, where ZXing reads 228; under about 1.3 pixels a module a threshold hardly reads any code, and what fast mode reads there comes from the fit of the gray profile. BarBeR counts codes ZXing knows but Barleader reads only when asked, such as the Interleaved 2 of 5 of its SKUU DSP Lab part. Its annotation tool saved the texts HTML-escaped (`&amp;` for `&` in 154 URLs and XML payloads), broke some lines where the symbol has none, and wrote binary payloads with NUL as `^`, as the hex of their characters in ISO-8859-1 (Aztec, Data Matrix) or in code page 437 (PDF417), or as code page 437 text; the scorer undoes all of it. A real Data Matrix or QR Code that a set leaves unlabelled counts as a wrong text, and without `findAll` it can take the place of the labelled code on the same photo: that is the one code fewer on BarBeR since large and bent Data Matrix symbols are read, and two of KAIST's wrong texts are QR codes on packages, read since the QR grid bends onto the module edges, each in place of the labelled EAN-13.
 
 **Speed.** A clean symbol is read on the first attempt in a few milliseconds. On the 430 Arte-Lab photos (1152×864 to 2976×2232 pixels, most of them hard), read one after another by the default reader on a 20-thread desktop, fast mode took 0.13 s a photo and 0.28 s of CPU spread over the cores; aggressive mode took 0.20 s and 0.86 s of CPU. On KAIST's 788 photos without a barcode, where every mode runs to its end, fast took 0.16 s a photo and aggressive 0.45 s. `mvn -q -Pspeed test-compile exec:java -Dexec.args="datasets/artelab-medium-barcode-1d"` measures it again. Numbers depend on the machine; the relative cost of the modes does not.
 
@@ -175,18 +175,18 @@ The text is one segment in the most compact mode that holds all of it: numeric, 
 
 ```bash
 mvn -DskipTests package
-java -jar target/barcode-pro.jar label.jpg
-java -jar target/barcode-pro.jar --aggressive --all --formats=QR_CODE,EAN_13 --addon=read --json scans/*.png
-java -jar target/barcode-pro.jar qr --level=Q --module=8 --out=qr.png "https://example.com"
-java -jar target/barcode-pro.jar qr "Zażółć gęślą jaźń" > qr.svg
-java -jar target/barcode-pro.jar write --type=CODE_128 --module=2 --out=code.png "ABC-123"
-java -jar target/barcode-pro.jar write --type=PDF_417 --level=4 --truncated --out=ticket.svg "Zażółć gęślą jaźń"
-java -jar target/barcode-pro.jar write --type=EAN_13 --add-on=12 --mm=0.33 --out=label.pdf 590123412345
+java -jar target/barleader.jar label.jpg
+java -jar target/barleader.jar --aggressive --all --formats=QR_CODE,EAN_13 --addon=read --json scans/*.png
+java -jar target/barleader.jar qr --level=Q --module=8 --out=qr.png "https://example.com"
+java -jar target/barleader.jar qr "Zażółć gęślą jaźń" > qr.svg
+java -jar target/barleader.jar write --type=CODE_128 --module=2 --out=code.png "ABC-123"
+java -jar target/barleader.jar write --type=PDF_417 --level=4 --truncated --out=ticket.svg "Zażółć gęślą jaźń"
+java -jar target/barleader.jar write --type=EAN_13 --add-on=12 --mm=0.33 --out=label.pdf 590123412345
 ```
 
 Plain output is one tab-separated line per symbol: file, symbology, text, attempt, orientation, corners and the EAN/UPC supplement (`-` when there is none). Tabs and line breaks in the text are escaped. `--json` prints one JSON object per symbol. The exit code is 0 when every image had a symbol, 1 when one had none, and 2 for wrong usage or an unreadable file.
 
-`qr` writes a QR Code instead: an image in the format of the `--out` extension, or SVG, also on standard output when there is no `--out`. `--level`, `--version`, `--mask`, `--charset`, `--gs1` and `--compact` are the `QrOptions`, `--module` the pixels a module and `--quiet` the quiet zone in modules. `write --type=...` writes any `BarcodeType` the same way, also to a `.pdf`, with the `WriteOptions` and `RenderOptions` as options (`java -jar target/barcode-pro.jar write --help` lists them); `--level` is L, M, Q or H for QR Code, 0 to 8 for PDF417 and a percent for Aztec, and `--mm` the millimetres a module in a PDF.
+`qr` writes a QR Code instead: an image in the format of the `--out` extension, or SVG, also on standard output when there is no `--out`. `--level`, `--version`, `--mask`, `--charset`, `--gs1` and `--compact` are the `QrOptions`, `--module` the pixels a module and `--quiet` the quiet zone in modules. `write --type=...` writes any `BarcodeType` the same way, also to a `.pdf`, with the `WriteOptions` and `RenderOptions` as options (`java -jar target/barleader.jar write --help` lists them); `--level` is L, M, Q or H for QR Code, 0 to 8 for PDF417 and a percent for Aztec, and `--mm` the millimetres a module in a PDF.
 
 ## Building
 
@@ -198,7 +198,7 @@ This needs JDK 17 or later and Maven 3.9. CI builds on JDK 17, 21 and 25: [.gith
 
 ## Measuring
 
-`mvn -q -Psnapshot test-compile exec:java -Dexec.args="target/snapshot.tsv"` reads every image of the sets in the repository and its `datasets` submodule with plain ZXing and in each mode, without a time budget, and writes every read plus a scored summary (`target/snapshot.tsv.summary.md`). Two runs of the same code give the same bytes, so a `diff` between runs before and after a change lists exactly the reads it moved. `scripts/fetch-datasets.sh` downloads more public sets that need no account (KAIST DEAL, the ZXing test images, BoofCV QR v3) to `~/.cache/barcode-pro/datasets`, checking their SHA-256, and unpacks BarBeR from `BARBER_ZIP=<archive>` (it needs an account, so it is not downloaded); `--external <that dir>` adds them to the run. `--rescore` before the file name scores an existing run again with the current labels (give it the same `--external`), without reading an image.
+`mvn -q -Psnapshot test-compile exec:java -Dexec.args="target/snapshot.tsv"` reads every image of the sets in the repository and its `datasets` submodule with plain ZXing and in each mode, without a time budget, and writes every read plus a scored summary (`target/snapshot.tsv.summary.md`). Two runs of the same code give the same bytes, so a `diff` between runs before and after a change lists exactly the reads it moved. `scripts/fetch-datasets.sh` downloads more public sets that need no account (KAIST DEAL, the ZXing test images, BoofCV QR v3) to `~/.cache/barleader/datasets`, checking their SHA-256, and unpacks BarBeR from `BARBER_ZIP=<archive>` (it needs an account, so it is not downloaded); `--external <that dir>` adds them to the run. `--rescore` before the file name scores an existing run again with the current labels (give it the same `--external`), without reading an image.
 
 ## Packages
 

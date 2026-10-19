@@ -5,7 +5,7 @@
 #   scripts/fetch-datasets.sh [dir]
 #   mvn -q -Psnapshot test-compile exec:java -Dexec.args="target/snapshot.tsv --external <dir>"
 #
-# The directory defaults to $BARCODE_PRO_DATASETS, else ~/.cache/barcode-pro/datasets. Nothing goes
+# The directory defaults to $BARLEADER_DATASETS, else ~/.cache/barleader/datasets. Nothing goes
 # into the repository: the licences differ, and the archives take about 1.7 GB, BarBeR 6 GB more.
 #
 #   kaist-deal      Do and Kim, KAIST: phone photos of EAN-13 and EAN-8 with the code in each file
@@ -21,7 +21,7 @@
 # Zenodo serves one connection slowly, so a large file is fetched in parallel ranges.
 set -eu
 
-DEST=${1:-${BARCODE_PRO_DATASETS:-$HOME/.cache/barcode-pro/datasets}}
+DEST=${1:-${BARLEADER_DATASETS:-$HOME/.cache/barleader/datasets}}
 PARTS=${PARTS:-8}
 ZENODO=https://zenodo.org/records/13586402/files
 mkdir -p "$DEST/downloads"

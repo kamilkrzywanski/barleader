@@ -28,7 +28,7 @@ import java.util.Locale;
  * Writes a barcode of any {@link BarcodeType}.
  *
  * <pre>
- * java -jar barcode-pro.jar write --type=TYPE [options] content
+ * java -jar barleader.jar write --type=TYPE [options] content
  *   --type=TYPE         CODE_128, EAN_13, DATA_MATRIX, PDF_417, AZTEC, ... (QR_CODE by default)
  *   --module=N          pixels a module in an image, 4 by default
  *   --height=N          the bars of a linear symbol in modules, 60 by default
@@ -191,7 +191,7 @@ final class WriteCommand {
     }
 
     static void usage(PrintStream stream) {
-        stream.println("Usage: java -jar barcode-pro.jar write [--type=CODE_128|EAN_13|DATA_MATRIX|PDF_417|AZTEC|...]"
+        stream.println("Usage: java -jar barleader.jar write [--type=CODE_128|EAN_13|DATA_MATRIX|PDF_417|AZTEC|...]"
                 + " [--module=4] [--height=60] [--no-text] [--font=NAME] [--font-size=N] [--mm=0.33] [--quiet=N] [--ratio=2.5] [--checksum] [--add-on=DIGITS] [--charset=NAME]"
                 + " [--compact] [--level=L] [--shape=ANY|SQUARE|RECTANGLE] [--columns=N] [--rows=N] [--row-height=3]"
                 + " [--truncated] [--layers=N] [--out=file.png|file.svg|file.pdf] [--] content");

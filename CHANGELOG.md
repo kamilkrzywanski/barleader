@@ -22,7 +22,7 @@ The first release. Java 17 or later, no dependencies at run time; on the module 
 
 ### Command line
 
-- `java -jar barcode-pro.jar image...` prints one line or one JSON object per symbol; `write --type=...` and `qr` write a PNG, an SVG or a PDF.
+- `java -jar barleader.jar image...` prints one line or one JSON object per symbol; `write --type=...` and `qr` write a PNG, an SVG or a PDF.
 
 ### Known limitations
 

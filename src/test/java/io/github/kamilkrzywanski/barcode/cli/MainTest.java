@@ -54,7 +54,7 @@ class MainTest {
 
     @Test
     void writesAQrCodeThatReadsBack() throws Exception {
-        Path png = Files.createTempFile("barcode-pro-qr", ".png");
+        Path png = Files.createTempFile("barleader-qr", ".png");
         try {
             Run write = run("qr", "--level=Q", "--module=4", "--out=" + png, "Zażółć gęślą jaźń");
             assertEquals(0, write.status, write.err);
@@ -83,7 +83,7 @@ class MainTest {
                 new Case(new String[]{"--type=PDF_417", "--level=4", "--truncated"}, "Zażółć gęślą jaźń", "Zażółć gęślą jaźń"),
                 new Case(new String[]{"--type=AZTEC", "--level=50", "--quiet=2"}, "Aztec", "Aztec"),
                 new Case(new String[]{"--level=H"}, "QR", "QR"))) {
-            Path png = Files.createTempFile("barcode-pro-write", ".png");
+            Path png = Files.createTempFile("barleader-write", ".png");
             try {
                 List<String> args = new ArrayList<>(List.of("write", "--out=" + png));
                 args.addAll(List.of(c.options()));
@@ -99,7 +99,7 @@ class MainTest {
         }
         assertTrue(run("write", "--type=CODE_39", "SVG").out.startsWith("<svg "));
         assertEquals(1, run("write", "--type=CODE_39", "--no-text", "SVG").out.split("<path ", -1).length - 1);
-        Path pdf = Files.createTempFile("barcode-pro-write", ".pdf");
+        Path pdf = Files.createTempFile("barleader-write", ".pdf");
         try {
             Run write = run("write", "--type=EAN_13", "--add-on=12", "--mm=0.5", "--out=" + pdf, "590123412345");
             assertEquals(0, write.status, write.err);

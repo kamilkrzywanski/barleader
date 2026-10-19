@@ -30,7 +30,7 @@ import java.util.Locale;
  * ({@link QrCommand}).
  *
  * <pre>
- * java -jar barcode-pro.jar [options] image...
+ * java -jar barleader.jar [options] image...
  *   --aggressive        the full ladder: small-angle rotations, band search, thresholds
  *   --all               every symbol, not only the first
  *   --formats=A,B,...   only these symbologies, for example QR_CODE,EAN_13
@@ -138,7 +138,7 @@ public final class Main {
     }
 
     private static void usage(PrintStream stream) {
-        stream.println("Usage: java -jar barcode-pro.jar [--aggressive] [--all] [--formats=QR_CODE,EAN_13,...]"
+        stream.println("Usage: java -jar barleader.jar [--aggressive] [--all] [--formats=QR_CODE,EAN_13,...]"
                 + " [--addon=read|require] [--json] image...");
         WriteCommand.usage(stream);
         QrCommand.usage(stream);

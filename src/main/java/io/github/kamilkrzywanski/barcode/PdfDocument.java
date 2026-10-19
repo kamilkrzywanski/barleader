@@ -90,7 +90,7 @@ final class PdfDocument {
         ascii(out, "4 0 obj\n<< /Length " + stream.length + " /Filter /FlateDecode >>\nstream\n");
         out.writeBytes(stream);
         ascii(out, "\nendstream\nendobj\n");
-        object(out, offsets, "<< /Producer (barcode-pro) /Title " + textString(title) + " >>");
+        object(out, offsets, "<< /Producer (Barleader) /Title " + textString(title) + " >>");
         int xref = out.size();
         StringBuilder table = new StringBuilder("xref\n0 " + (offsets.size() + 1) + "\n0000000000 65535 f \n");
         for (int offset : offsets) {

@@ -42,8 +42,8 @@ import java.util.stream.Stream;
  * <pre>
  * mvn -q -Psnapshot test-compile exec:java -Dexec.args="target/snapshot.tsv"
  * scripts/fetch-datasets.sh
- * mvn -q -Psnapshot test-compile exec:java -Dexec.args="target/snapshot.tsv --external ~/.cache/barcode-pro/datasets"
- * mvn -q -Psnapshot test-compile exec:java -Dexec.args="--rescore target/snapshot.tsv --external ~/.cache/barcode-pro/datasets"
+ * mvn -q -Psnapshot test-compile exec:java -Dexec.args="target/snapshot.tsv --external ~/.cache/barleader/datasets"
+ * mvn -q -Psnapshot test-compile exec:java -Dexec.args="--rescore target/snapshot.tsv --external ~/.cache/barleader/datasets"
  * </pre>
  *
  * <p>{@code --rescore} reads nothing: it takes the reads of an earlier run from its TSV and writes

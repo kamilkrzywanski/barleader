@@ -1,4 +1,4 @@
-# barcode-pro — specification
+# Barleader — specification
 
 A pure Java library for reading barcodes. The read algorithms are ported from [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp) 3.1.1 (Apache 2.0) to plain Java bytecode. The C++ library is not a dependency: no JNI, no native OpenCV, no zint and no other platform binaries.
 
@@ -49,7 +49,7 @@ Order:
 
 ## State of the scaffolding
 
-Date: 2026-10-12, the same day as the measurement in [Measurement](#measurement). The repository started from a Maven skeleton (`org.krzywanski:barcode-pro`).
+Date: 2026-10-12, the same day as the measurement in [Measurement](#measurement). The repository started from a Maven skeleton (`org.krzywanski:barcode-pro`; the project was called barcode-pro until it was published as Barleader).
 
 | Phase | Scope | State in the code |
 | --- | --- | --- |
@@ -266,7 +266,7 @@ diff target/snapshot-before.tsv target/snapshot-after.tsv
 
 `Snapshot` reads all 1225 images (Arte-Lab and the zxing-cpp samples in the `datasets/` submodule and the samples in `src/test/resources`) with plain ZXing (`zxing`) and in FAST, AGGRESSIVE and FAST with `findAll`, without a time budget. The output has no timings, so two runs of the same code give the same bytes on every machine, and `diff` shows every read whose text, symbology, attempt, orientation, confidence or corners changed. A purely performance change must give an empty `diff`. Next to the TSV comes `<file>.summary.md`: for each set and folder the number of images read in line with the label, the number read wrong, reads on images without a code, and for QR known only by corners the number of codes found.
 
-Sets from outside the repository are fetched by `scripts/fetch-datasets.sh` (by default to `~/.cache/barcode-pro/datasets`, it checks SHA-256 and unpacks). None needs an account:
+Sets from outside the repository are fetched by `scripts/fetch-datasets.sh` (by default to `~/.cache/barleader/datasets`, it checks SHA-256 and unpacks). None needs an account:
 
 - KAIST DEAL (Do and Kim, Zenodo 13586402, CC BY 4.0): the standard set `barcode_bb` (EAN-13, the code in the file name; the test split `single_test` with 2000 photos and the training split `rec` with 1200), `e8_bb` (EAN-8), `multi_bb` (20 photos with several codes each, the labels are only boxes, so an EAN/UPC read with its centre in a box counts) and `background` (photos without a code). `rec` has 482 photos in the camera resolutions of Arte-Lab, including photos of GTINs from Arte-Lab labels, and AGGRESSIVE was tuned on Arte-Lab, so the report shows it separately and does not count it in the totals; `single_test` has 6 such photos. The authors' older archive `real.zip` contains crops of Arte-Lab photos and the script does not fetch it.
 - The ZXing 3.5.4 test images with their expected text (Apache 2.0).
@@ -274,7 +274,7 @@ Sets from outside the repository are fetched by `scripts/fetch-datasets.sh` (by 
 
 ```
 scripts/fetch-datasets.sh
-mvn -q -Psnapshot test-compile exec:java -Dexec.args="target/snapshot.tsv --external $HOME/.cache/barcode-pro/datasets"
+mvn -q -Psnapshot test-compile exec:java -Dexec.args="target/snapshot.tsv --external $HOME/.cache/barleader/datasets"
 ```
 
 Zenodo serves one connection slowly (about 60 KB/s), so the script fetches a large file in eight ranges at once and resumes an interrupted part on the next run. BarBeR (Vezzali et al., Modena: 8748 photos from 12 sets, every code with its type, polygon and text) needs an account, so the script does not fetch it, it only checks and unpacks the given archive: `BARBER_ZIP=<path> scripts/fetch-datasets.sh`. A code counts as read when one of the reads has its text; codes without text (the authors wrote `-1` or `^`) and types that no reader here reads (postal codes, IATA 2 of 5, a lone EAN-2) are not in the denominator. The report shows the subsets `Artelab`, `Artelab Extended` and `Deal Kaist` separately, outside the totals: they are the same Arte-Lab and KAIST photos that are already above.
@@ -301,7 +301,7 @@ The scaffolding of phases 1–2 beats plain ZXing on inversion, QR and Data Matr
 | `io.github.kamilkrzywanski.barcode.preprocess` | Thresholds and morphology: Otsu, local mean, Gauss, Sauvola, erosion, dilation, denoising |
 | `io.github.kamilkrzywanski.barcode.decode` | Bit reading and deduplication. Every symbology is our own; `BitmapDecoder` reads them from one binarized attempt |
 | `io.github.kamilkrzywanski.barcode.locate` | QR, Micro QR, Aztec and Data Matrix finders and `blob-quad` |
-| `io.github.kamilkrzywanski.barcode.cli` | CLI: `java -jar barcode-pro.jar <file> [--aggressive] [--all]` |
+| `io.github.kamilkrzywanski.barcode.cli` | CLI: `java -jar barleader.jar <file> [--aggressive] [--all]` |
 
 The tests in `src/test/java` generate the set and compare it with the baseline.
 
@@ -359,7 +359,7 @@ Stress (1 px module, 5×5 blur, a mild gradient) is read by the baseline and FAS
 
 ## Arte-Lab
 
-The Medium Barcode 1D set lives in `datasets/artelab-medium-barcode-1d/` (Dataset1 with autofocus, Dataset2 without, 215 JPEGs each). `datasets/` is a submodule with the [barcode-pro-datasets](https://github.com/kamilkrzywanski/barcode-pro-datasets) repository (`git submodule update --init datasets`), so that the project history does not drag 224 MB of photos along. The files are not part of `Samples.all()` nor on the test classpath. `mvn test` does not need the submodule: eight photos of frozen false reads are copied to `src/test/resources/artelab`, and the presence and labels of the whole set are checked by `ArteLabCorpusTest` in the `artelab` profile.
+The Medium Barcode 1D set lives in `datasets/artelab-medium-barcode-1d/` (Dataset1 with autofocus, Dataset2 without, 215 JPEGs each). `datasets/` is a submodule with the [barleader-datasets](https://github.com/kamilkrzywanski/barleader-datasets) repository (`git submodule update --init datasets`), so that the project history does not drag 224 MB of photos along. The files are not part of `Samples.all()` nor on the test classpath. `mvn test` does not need the submodule: eight photos of frozen false reads are copied to `src/test/resources/artelab`, and the presence and labels of the whole set are checked by `ArteLabCorpusTest` in the `artelab` profile.
 
 The named set, whose text is a contract, runs separately:
 

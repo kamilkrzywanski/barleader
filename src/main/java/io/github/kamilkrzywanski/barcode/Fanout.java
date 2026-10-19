@@ -140,7 +140,7 @@ final class Fanout {
         static final ExecutorService EXECUTOR = Executors.newFixedThreadPool(
                 Math.max(1, Runtime.getRuntime().availableProcessors() - 1),
                 runnable -> {
-                    Thread thread = new Thread(runnable, "barcode-pro");
+                    Thread thread = new Thread(runnable, "barleader");
                     thread.setDaemon(true);
                     return thread;
                 });

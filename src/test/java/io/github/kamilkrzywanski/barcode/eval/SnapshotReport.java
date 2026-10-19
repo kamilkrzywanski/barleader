@@ -97,7 +97,7 @@ final class SnapshotReport {
         StringBuilder out = new StringBuilder();
         out.append("# Snapshot summary\n\n");
         out.append("Cells are labelled images read right, then the number read wrong in brackets. ")
-                .append("`zxing` is MultiFormatReader with HybridBinarizer and TRY_HARDER; the others are barcode-pro ")
+                .append("`zxing` is MultiFormatReader with HybridBinarizer and TRY_HARDER; the others are Barleader ")
                 .append("without a time budget. Folders marked *apart* are shown but kept out of the totals: ")
                 .append("KAIST's `rec` split holds photos like Arte-Lab's, which the aggressive ladder was tuned on.\n\n");
         out.append(header("set", "images", "labelled"));
