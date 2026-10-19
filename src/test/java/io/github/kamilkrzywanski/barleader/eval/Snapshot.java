@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.regex.Matcher;
 import java.util.stream.Stream;
 
 /**
@@ -89,7 +90,8 @@ public final class Snapshot {
             if (args[i].equals("--rescore")) {
                 rescore = true;
             } else if (args[i].equals("--external") && i + 1 < args.length) {
-                external = Path.of(args[++i].replaceFirst("^~", System.getProperty("user.home")));
+                // quoted, or the backslashes of a Windows home are read as escapes and dropped
+                external = Path.of(args[++i].replaceFirst("^~", Matcher.quoteReplacement(System.getProperty("user.home"))));
             } else if (args[i].equals("--threads") && i + 1 < args.length) {
                 threads = Integer.parseInt(args[++i]);
             } else if (out == null) {
@@ -100,6 +102,11 @@ public final class Snapshot {
         }
         if (out == null) {
             System.err.println("Usage: Snapshot [--rescore] <out.tsv> [--external <datasets dir>] [--threads n]");
+            System.exit(2);
+        }
+        if (external != null && !Files.isDirectory(external)) {
+            // a missing directory used to drop every external set without a word
+            System.err.println("No datasets directory at " + external.toAbsolutePath());
             System.exit(2);
         }
         if (rescore) {

@@ -2,6 +2,16 @@
 
 The release workflow takes the section of the tagged version as the notes of its GitHub release.
 
+## 0.1.1
+
+### Fixed
+
+- With `findAll`, a linear symbol read on two rows far apart, or along a slant through the bars another attempt read straight, came back twice: a tall Code 93 read at its bottom row and at its top, 173 px apart on a 272 px symbol. Two scan lines of the same text are now one symbol when they cross or nearly touch, or when the bars run unbroken from one to the other. Two symbols of the same text side by side or stacked stay two. On the public sets the README measures, fast mode with `findAll` returns 348 duplicates fewer on 331 photos; every other mode and every score is unchanged.
+
+### Build
+
+- Releases are published with central-publishing 0.12.0. Under Maven 3.10.0 the 0.10.0 plugin put `maven-metadata-local.xml` into the bundle, which Central rejects; 0.1.0 was published by hand.
+
 ## 0.1.0
 
 The first release. Java 17 or later, no dependencies at run time; on the module path the module is `io.github.kamilkrzywanski.barleader`, and only its package of that name is exported.
