@@ -3,6 +3,7 @@ package io.github.kamilkrzywanski.barleader.decode;
 import io.github.kamilkrzywanski.barleader.BarcodeHit;
 import io.github.kamilkrzywanski.barleader.ImagePoint;
 import io.github.kamilkrzywanski.barleader.Symbology;
+import io.github.kamilkrzywanski.barleader.image.GrayU8;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -54,6 +55,58 @@ class HitCollectorTest {
         assertTrue(other.add(ean));
         assertTrue(other.add(new BarcodeHit("01234565", Symbology.UPC_E, List.of(new ImagePoint(400, 60), new ImagePoint(500, 60)), -1, 0.7, "test")));
         assertEquals(2, other.list().size());
+    }
+
+    /** White, with bars of widths 2 to 5 px from x = 20 to 300 in each band of rows. */
+    private static GrayU8 bars(int[]... rows) {
+        GrayU8 image = new GrayU8(320, 240);
+        for (int y = 0; y < image.height; y++) {
+            for (int x = 0; x < image.width; x++) {
+                image.set(x, y, 255);
+            }
+        }
+        for (int[] band : rows) {
+            for (int y = band[0]; y < band[1]; y++) {
+                int x = 20;
+                for (int bar = 0; x < 300; bar++) {
+                    int width = 2 + (bar * 7) % 4;
+                    for (int i = 0; i < width && x + i < 300; i++) {
+                        image.set(x + i, y, bar % 2 == 0 ? 0 : 255);
+                    }
+                    x += width;
+                }
+            }
+        }
+        return image;
+    }
+
+    @Test
+    void scanLinesFarApartOnUnbrokenBarsAreOneSymbol() {
+        // The ladder read a Code 93 on its bottom row, the band search on its top, 173 px apart.
+        HitCollector hits = new HitCollector(bars(new int[]{10, 220}));
+        assertTrue(hits.add(line("CODE93", 20, 200, 300, 200)));
+        assertFalse(hits.add(line("CODE93", 20.4, 26.8, 300.6, 29.7)));
+        assertEquals(1, hits.list().size());
+    }
+
+    @Test
+    void aSlantedLineAcrossTheSameBarsIsOneSymbol() {
+        // Arte-Lab 05102009146: the ladder reads the row, a band crop a slant through it.
+        HitCollector hits = new HitCollector();
+        assertTrue(hits.add(line("8004020587048", 325, 564, 1244, 564)));
+        assertFalse(hits.add(line("8004020587048", 371, 635, 996, 190)));
+        // 05102009081: two slants from the same left end
+        assertTrue(hits.add(line("4902030187590", 1590, 472, 2019, 795)));
+        assertFalse(hits.add(line("4902030187590", 1595, 465, 2110, 663)));
+        assertEquals(2, hits.list().size());
+    }
+
+    @Test
+    void stackedSymbolsOfTheSameTextStayTwoHits() {
+        HitCollector hits = new HitCollector(bars(new int[]{10, 100}, new int[]{130, 220}));
+        assertTrue(hits.add(line("A1", 20, 30, 300, 30)));
+        assertTrue(hits.add(line("A1", 20, 200, 300, 200)));
+        assertEquals(2, hits.list().size());
     }
 
     @Test

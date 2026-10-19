@@ -35,7 +35,8 @@ import java.util.concurrent.Callable;
 final class Scan {
     private final ReadOptions options;
     private final Set<Symbology> symbologies;
-    private final HitCollector hits = new HitCollector();
+    /** Set by {@link #run(GrayU8, GrayU8)}, which knows the image the corners are in. */
+    private HitCollector hits = new HitCollector();
     private final RegionLocalizer localizer = new RegionLocalizer();
     private final Fanout fanout;
     private final long startNanos;
@@ -94,6 +95,7 @@ final class Scan {
         if (gray.width < 2 || gray.height < 2) {
             return List.of();
         }
+        hits = new HitCollector(gray);
         tryOriginals(new GrayLuminanceSource(original));
         return ladder(gray);
     }
