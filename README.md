@@ -108,10 +108,10 @@ The aggressive ladder was tuned on these photos, so treat 389 as what the ladder
 
 | Set | Labelled | ZXing | fast | aggressive | fast, `findAll` |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| KAIST DEAL test split, EAN-13 photos (wrong texts) | 2000 | 1224 (73) | 1710 (38) | 1719 (42) | 1740 (8) |
+| KAIST DEAL test split, EAN-13 photos (wrong texts) | 2000 | 1224 (73) | 1718 (38) | 1728 (42) | 1748 (8) |
 | KAIST DEAL EAN-8 photos | 90 | 70 | 83 | 88 | 84 |
 | BoofCV QR v3, QR codes found by place | 1232 | 149 | 442 | 455 | 1068 |
-| BarBeR without its Arte-Lab and KAIST parts, codes read | 5176 | 2484 | 3855 | 3919 | 4358 |
+| BarBeR without its Arte-Lab and KAIST parts, codes read | 5176 | 2484 | 3857 | 3920 | 4360 |
 
 On KAIST's 788 photos without a barcode, ZXing reads something on 7, fast on none and aggressive on one. On BarBeR's ParcelBar part, Code 128 on parcels with modules of one to two and a half pixels, fast reads 680 of the 1,142 codes and aggressive 683, where ZXing reads 228; under about 1.3 pixels a module a threshold hardly reads any code, and what fast mode reads there comes from the fit of the gray profile. BarBeR counts codes ZXing knows but barcode-pro reads only when asked, such as the Interleaved 2 of 5 of its SKUU DSP Lab part. Its annotation tool saved the texts HTML-escaped (`&amp;` for `&` in 154 URLs and XML payloads), broke some lines where the symbol has none, and wrote binary payloads with NUL as `^`, as the hex of their characters in ISO-8859-1 (Aztec, Data Matrix) or in code page 437 (PDF417), or as code page 437 text; the scorer undoes all of it. A real Data Matrix or QR Code that a set leaves unlabelled counts as a wrong text, and without `findAll` it can take the place of the labelled code on the same photo: that is the one code fewer on BarBeR since large and bent Data Matrix symbols are read, and two of KAIST's wrong texts are QR codes on packages, read since the QR grid bends onto the module edges, each in place of the labelled EAN-13.
 

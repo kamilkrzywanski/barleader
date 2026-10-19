@@ -17,7 +17,8 @@ import java.util.List;
  * digit beside it, for the blur and a quarter pixel at a time; every digit position of the best
  * geometries gets the least-squares residual of each of its 20 or 10 patterns, and a search over
  * the parity of the left half and the weighted sum modulo 10 finds the cheapest digits whose
- * check digit is right.
+ * check digit is right. When no fit counts, the best few geometries are fitted again with each
+ * digit shifted to where it fits best.
  *
  * <p>A read counts when its mean residual is small, every other set of digits with a right check
  * costs clearly more, and a second band of rows of the strip fits the same digits: a texture or a
@@ -34,6 +35,10 @@ public final class EanFit {
     private static final double[] SIGMAS = {0.6, 0.8, 1.0, 1.2};
     /** Screened geometries that get the full fit. */
     private static final int KEEP = 12;
+    /** The best screened geometries that are aligned digit by digit when no fit counts. */
+    private static final int ALIGN = 4;
+    /** Shifts of one digit from where a constant module puts it, in modules. */
+    private static final double[] OFFSETS = {-0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75};
     /** The outer edges are where the profile drops this far toward its darkest. */
     private static final double DEPTH = 0.3;
     private static final double MAX_COST = 0.28;
@@ -236,12 +241,104 @@ public final class EanFit {
             if (geometry == null) {
                 continue;
             }
-            Fit fit = fit(g, geometry[1], geometry[2], geometry[0]);
+            Fit fit = fit(g, geometry[1], geometry[2], geometry[0], null);
+            if (fit != null && better(fit, best)) {
+                best = fit;
+            }
+        }
+        if (best != null && best.accepted()) {
+            return best;
+        }
+        // A slight perspective gives the two halves different modules, which the ends alone do not see.
+        for (int i = 0; i < ALIGN && kept[i] != null; i++) {
+            double[] geometry = kept[i];
+            double[] digits = align(g, geometry[1], geometry[2], geometry[0]);
+            Fit fit = digits == null ? null : fit(g, geometry[1], geometry[2], geometry[0], digits);
             if (fit != null && better(fit, best)) {
                 best = fit;
             }
         }
         return best;
+    }
+
+    /**
+     * Each digit's shift from {@link #OFFSETS}, neighbours at most one step apart and the outer
+     * digits at most one step from the ends the screen fitted, that minimises the sum of every
+     * digit's cheapest pattern at its shift. Null when a window leaves the profile.
+     */
+    private static double[] align(double[] g, double left, double right, double sigma) {
+        double w = (right - left) / MODULES;
+        int n = OFFSETS.length;
+        int centre = n / 2;
+        double[][] total = new double[12][n];
+        int[][] from = new int[12][n];
+        for (int p = 0; p < 12; p++) {
+            for (int o = 0; o < n; o++) {
+                total[p][o] = Double.POSITIVE_INFINITY;
+                boolean outer = p == 0 || p == 11;
+                if (outer && Math.abs(o - centre) > 1) {
+                    continue;
+                }
+                double[] costs = digitCosts(g, left, w, sigma, p, OFFSETS[o]);
+                if (costs == null) {
+                    return null;
+                }
+                double cheapest = Double.POSITIVE_INFINITY;
+                for (double cost : costs) {
+                    cheapest = Math.min(cheapest, cost);
+                }
+                if (p == 0) {
+                    total[p][o] = cheapest;
+                    continue;
+                }
+                for (int q = Math.max(0, o - 1); q <= Math.min(n - 1, o + 1); q++) {
+                    if (total[p - 1][q] + cheapest < total[p][o]) {
+                        total[p][o] = total[p - 1][q] + cheapest;
+                        from[p][o] = q;
+                    }
+                }
+            }
+        }
+        int o = centre;
+        for (int i = centre - 1; i <= centre + 1; i++) {
+            if (total[11][i] < total[11][o]) {
+                o = i;
+            }
+        }
+        if (total[11][o] == Double.POSITIVE_INFINITY) {
+            return null;
+        }
+        double[] shifts = new double[12];
+        for (int p = 11; p >= 0; p--) {
+            shifts[p] = OFFSETS[o];
+            o = from[p][o];
+        }
+        return shifts;
+    }
+
+    /**
+     * The cost of every option of digit position {@code p}, shifted by {@code shift} modules:
+     * options 0 to 9 are L codes and 10 to 19 G codes on the left half, 0 to 9 R codes on the
+     * right. Null when the window leaves the profile.
+     */
+    private static double[] digitCosts(double[] g, double left, double w, double sigma, int p, double shift) {
+        boolean leftHalf = p < 6;
+        double x = left + ((leftHalf ? 3 + 7 * p : 3 + 42 + 5 + 7 * (p - 6)) + shift) * w;
+        Window window = Window.of(g, x, w, sigma, 7);
+        if (window == null) {
+            return null;
+        }
+        double[] costs = new double[leftHalf ? 20 : 10];
+        for (int o = 0; o < costs.length; o++) {
+            boolean[] code = leftHalf ? (o < 10 ? L[o] : G[o - 10]) : R[o];
+            // A left digit follows a bar and precedes a space, a right digit the other way round.
+            boolean[] dark = new boolean[9];
+            dark[0] = leftHalf;
+            System.arraycopy(code, 0, dark, 1, 7);
+            dark[8] = !leftHalf;
+            costs[o] = window.cost(dark);
+        }
+        return costs;
     }
 
     /** The start guard and the cheapest first digit, from the quiet zone to the next digit. */
@@ -293,33 +390,22 @@ public final class EanFit {
     }
 
     /**
-     * The 12 encoded digits between the guards: options 0 to 9 are L codes and 10 to 19 G codes
-     * on the left half, 0 to 9 R codes on the right.
+     * The 12 encoded digits between the guards, each shifted by {@code shifts} modules when given;
+     * the middle guard then moves halfway between the shifts of the digits beside it.
      */
-    private static Fit fit(double[] g, double left, double right, double sigma) {
+    private static Fit fit(double[] g, double left, double right, double sigma, double[] shifts) {
         double w = (right - left) / MODULES;
         double[][] costs = new double[12][];
         for (int p = 0; p < 12; p++) {
-            boolean leftHalf = p < 6;
-            double x = left + (leftHalf ? 3 + 7 * p : 3 + 42 + 5 + 7 * (p - 6)) * w;
-            Window window = Window.of(g, x, w, sigma, 7);
-            if (window == null) {
+            costs[p] = digitCosts(g, left, w, sigma, p, shifts == null ? 0 : shifts[p]);
+            if (costs[p] == null) {
                 return null;
-            }
-            costs[p] = new double[leftHalf ? 20 : 10];
-            for (int o = 0; o < costs[p].length; o++) {
-                boolean[] code = leftHalf ? (o < 10 ? L[o] : G[o - 10]) : R[o];
-                // A left digit follows a bar and precedes a space, a right digit the other way round.
-                boolean[] dark = new boolean[9];
-                dark[0] = leftHalf;
-                System.arraycopy(code, 0, dark, 1, 7);
-                dark[8] = !leftHalf;
-                costs[p][o] = window.cost(dark);
             }
         }
         double guardCost = 0;
         boolean[][] guards = {START_GUARD, MIDDLE_GUARD, END_GUARD};
-        double[] at = {left, left + MIDDLE * w, left + (MODULES - 3) * w};
+        double middleShift = shifts == null ? 0 : (shifts[5] + shifts[6]) / 2;
+        double[] at = {left, left + (MIDDLE + middleShift) * w, left + (MODULES - 3) * w};
         int[] modules = {3, 5, 3};
         for (int k = 0; k < 3; k++) {
             Window window = Window.of(g, at[k], w, sigma, modules[k]);
