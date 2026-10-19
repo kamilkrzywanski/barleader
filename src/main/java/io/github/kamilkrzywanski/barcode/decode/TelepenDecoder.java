@@ -10,7 +10,7 @@ import io.github.kamilkrzywanski.barcode.decode.OneDRow.View;
 /**
  * Telepen row decoder ported from zxing-cpp 3.1.1 {@code ODTelepenReader.cpp}.
  *
- * <p>Not called from the scan ladder, and Telepen is not a {@code Symbology}. A checksum or
+ * <p>{@code BitmapDecoder} calls it on rows of every attempt when {@code Symbology.TELEPEN} is asked for. A checksum or
  * format failure returns null. The text is the raw symbol content: a control stays a control,
  * rather than the escaped {@code <SI>} form {@code Barcode::text()} prints for binary content.
  */

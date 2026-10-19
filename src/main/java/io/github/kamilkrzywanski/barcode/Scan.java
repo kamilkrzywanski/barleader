@@ -7,6 +7,7 @@ package io.github.kamilkrzywanski.barcode;
 import io.github.kamilkrzywanski.barcode.decode.HitCollector;
 import io.github.kamilkrzywanski.barcode.decode.BitmapDecoder;
 import io.github.kamilkrzywanski.barcode.decode.Code128Fit;
+import io.github.kamilkrzywanski.barcode.decode.EanFit;
 import io.github.kamilkrzywanski.barcode.image.Geometry;
 import io.github.kamilkrzywanski.barcode.image.GrayImages;
 import io.github.kamilkrzywanski.barcode.image.GrayLuminanceSource;
@@ -170,6 +171,7 @@ final class Scan {
                 }
             }
             tryCode128Fit(gray);
+            tryEanFit(gray);
             return hits.list();
         }
 
@@ -265,6 +267,7 @@ final class Scan {
             traceDataMatrix(inverted);
         }
         tryCode128Fit(gray);
+        tryEanFit(gray);
         return hits.list();
     }
 
@@ -786,6 +789,47 @@ final class Scan {
                     Math.floorMod(strip.degrees() + (found.upsideDown() ? 180 : 0), 360),
                     0.60,
                     "code128-fit"
+            ));
+            if (!options.findAll()) {
+                return;
+            }
+        }
+    }
+
+    /**
+     * EAN-13 and UPC-A with modules of about a pixel, fitted on the strips of {@link BarStrips} as
+     * {@link #tryCode128Fit} fits Code 128, as the last step of a read that found nothing.
+     */
+    private void tryEanFit(GrayU8 gray) {
+        boolean ean13 = symbologies.contains(Symbology.EAN_13);
+        boolean upcA = symbologies.contains(Symbology.UPC_A);
+        if (!hits.isEmpty() || !ean13 && !upcA || outOfTime()) {
+            return;
+        }
+        for (LinearBand.Crop strip : barStrips(gray)) {
+            if (outOfTime()) {
+                return;
+            }
+            EanFit.Found found = EanFit.read(strip.image());
+            if (found == null) {
+                continue;
+            }
+            Symbology symbology = Symbology.EAN_13;
+            String text = found.text();
+            if (text.charAt(0) == '0' && upcA) {
+                symbology = Symbology.UPC_A;
+                text = text.substring(1);
+            } else if (!ean13) {
+                continue;
+            }
+            PixelMap map = strip.toSource();
+            hits.add(new BarcodeHit(
+                    text,
+                    symbology,
+                    List.of(map.toSource(found.left(), found.y()), map.toSource(found.right(), found.y())),
+                    Math.floorMod(strip.degrees() + (found.upsideDown() ? 180 : 0), 360),
+                    0.60,
+                    "ean-fit"
             ));
             if (!options.findAll()) {
                 return;
@@ -1644,7 +1688,7 @@ final class Scan {
      */
     private Set<Symbology> rotationFormats() {
         EnumSet<Symbology> formats = EnumSet.copyOf(symbologies);
-        formats.removeAll(EnumSet.of(Symbology.QR_CODE, Symbology.MICRO_QR, Symbology.AZTEC, Symbology.DATA_MATRIX));
+        formats.removeAll(EnumSet.of(Symbology.QR_CODE, Symbology.MICRO_QR, Symbology.RMQR, Symbology.AZTEC, Symbology.DATA_MATRIX));
         return formats;
     }
 

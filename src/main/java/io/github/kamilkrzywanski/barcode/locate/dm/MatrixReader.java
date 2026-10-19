@@ -61,7 +61,8 @@ public final class MatrixReader {
         return symbologies.contains(Symbology.QR_CODE)
                 || symbologies.contains(Symbology.DATA_MATRIX)
                 || symbologies.contains(Symbology.AZTEC)
-                || symbologies.contains(Symbology.MICRO_QR);
+                || symbologies.contains(Symbology.MICRO_QR)
+                || symbologies.contains(Symbology.RMQR);
     }
 
     private static List<BarcodeHit> decode(
@@ -94,6 +95,12 @@ public final class MatrixReader {
         if (symbologies.contains(Symbology.MICRO_QR)) {
             for (MicroQrDetector.Found found : MicroQrDetector.read(bits)) {
                 add(hits, found.text(), found.bytes(), Symbology.MICRO_QR, found.corners(), found.orientationDegrees(),
+                        toSource, attempt, rotationDegrees, confidence);
+            }
+        }
+        if (symbologies.contains(Symbology.RMQR)) {
+            for (RmqrDetector.Found found : RmqrDetector.read(bits)) {
+                add(hits, found.text(), found.bytes(), Symbology.RMQR, found.corners(), found.orientationDegrees(),
                         toSource, attempt, rotationDegrees, confidence);
             }
         }

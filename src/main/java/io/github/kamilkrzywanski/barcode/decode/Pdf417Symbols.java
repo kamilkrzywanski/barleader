@@ -412,6 +412,16 @@ final class Pdf417Symbols {
     private Pdf417Symbols() {
     }
 
+    /** The {@code i}-th symbol of the table, without its leading bar bit. */
+    static int symbolAt(int i) {
+        return SYMBOLS[i];
+    }
+
+    /** The codeword of the {@code i}-th symbol of the table. */
+    static int codewordAt(int i) {
+        return Math.floorMod(CODEWORDS[i] - 1, MODULUS);
+    }
+
     /** {@code GetCodeword(int)}. A symbol that is not in the table returns -1. */
     static int codeword(int symbol) {
         if ((symbol & 0xFFFF0000) != 0x10000) {

@@ -397,7 +397,14 @@ final class QrDecoder {
 
     /** Deinterleave, correct each block, and concatenate the data codewords. */
     private static byte[] correct(int[] raw, int version, int ecLevel) {
-        int[] level = LEVELS[version][ecLevel];
+        return correct(raw, LEVELS[version][ecLevel]);
+    }
+
+    /**
+     * {@code GetDataBlocks} and the Reed-Solomon correction of each block. {@code level} is
+     * {ec codewords per block, count, data, count, data}, as rMQR's levels are too.
+     */
+    static byte[] correct(int[] raw, int[] level) {
         int ec = level[0];
         int count1 = level[1];
         int data1 = level[2];
@@ -476,11 +483,20 @@ final class QrDecoder {
 
     /** {@link #decodeStream} with the content bytes. */
     static Decoded decodeStreamContent(byte[] data, int version) {
+        return decodeStreamContent(data, version, false);
+    }
+
+    /**
+     * {@code DecodeBitStream} for a model-2 version or, with {@code rmqr}, an rMQR version: its
+     * mode indicators and terminator are three bits, the modes in another order, and the
+     * character-count widths of ISO/IEC 23941 Table 3.
+     */
+    static Decoded decodeStreamContent(byte[] data, int version, boolean rmqr) {
         try {
             BitReader bits = new BitReader(data);
             Content content = new Content();
-            while (!endOfStream(bits)) {
-                int mode = bits.read(4);
+            while (!endOfStream(bits, rmqr ? 3 : 4)) {
+                int mode = rmqr ? RMQR_MODES[bits.read(3)] : bits.read(4);
                 switch (mode) {
                     case 0x05 -> content.fnc1 = true;
                     case 0x09 -> {
@@ -523,7 +539,7 @@ final class QrDecoder {
                         }
                     }
                     case 0x01, 0x02, 0x04, 0x08 -> {
-                        int count = bits.read(countBits(mode, version));
+                        int count = bits.read(rmqr ? rmqrCountBits(mode, version) : countBits(mode, version));
                         if (!content.segment(mode, bits, count)) {
                             return null;
                         }
@@ -540,12 +556,30 @@ final class QrDecoder {
         }
     }
 
-    private static boolean endOfStream(BitReader bits) {
+    private static boolean endOfStream(BitReader bits, int terminator) {
         int available = bits.available();
         if (available == 0) {
             return true;
         }
-        return bits.peek(Math.min(available, 4)) == 0;
+        return bits.peek(Math.min(available, terminator)) == 0;
+    }
+
+    /** rMQR's three mode bits as model-2 mode values: terminator, numeric, alphanumeric, byte, Kanji, FNC1 first, FNC1 second, ECI. */
+    private static final int[] RMQR_MODES = {0x00, 0x01, 0x02, 0x04, 0x08, 0x05, 0x09, 0x07};
+    private static final int[] RMQR_NUMERIC_COUNT = {4, 5, 6, 7, 7, 5, 6, 7, 7, 8, 4, 6, 7, 7, 8, 8, 5, 6, 7, 7, 8, 8, 7, 7, 8, 8, 9, 7, 8, 8, 8, 9};
+    private static final int[] RMQR_ALPHANUMERIC_COUNT = {3, 5, 5, 6, 6, 5, 5, 6, 6, 7, 4, 5, 6, 6, 7, 7, 5, 6, 6, 7, 7, 8, 6, 7, 7, 7, 8, 6, 7, 7, 8, 8};
+    private static final int[] RMQR_BYTE_COUNT = {3, 4, 5, 5, 6, 4, 5, 5, 6, 6, 3, 5, 5, 6, 6, 7, 4, 5, 6, 6, 7, 7, 6, 6, 7, 7, 7, 6, 6, 7, 7, 8};
+    private static final int[] RMQR_KANJI_COUNT = {2, 3, 4, 5, 5, 3, 4, 5, 5, 6, 2, 4, 5, 5, 6, 6, 3, 5, 5, 6, 6, 7, 5, 5, 6, 6, 7, 5, 6, 6, 6, 7};
+
+    /** Character-count width of an rMQR version, ISO/IEC 23941 Table 3. */
+    static int rmqrCountBits(int mode, int version) {
+        return switch (mode) {
+            case 0x01 -> RMQR_NUMERIC_COUNT[version - 1];
+            case 0x02 -> RMQR_ALPHANUMERIC_COUNT[version - 1];
+            case 0x04 -> RMQR_BYTE_COUNT[version - 1];
+            case 0x08 -> RMQR_KANJI_COUNT[version - 1];
+            default -> 0;
+        };
     }
 
     /** Character-count width from ISO 18004. Hanzi uses the Kanji width. */

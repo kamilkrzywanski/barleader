@@ -6,9 +6,7 @@ package io.github.kamilkrzywanski.barcode.decode;
 
 import io.github.kamilkrzywanski.barcode.image.GrayU8;
 
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
 
 /**
  * Code 128 with modules of about one pixel, read by fitting the gray profile of a strip whose
@@ -26,14 +24,8 @@ import java.util.List;
  * reads nothing.
  */
 public final class Code128Fit {
-    /** Profile samples per pixel. */
-    private static final int FINE = 4;
-    private static final double STEP = 1.0 / FINE;
-    /** A quiet zone of a span is at least this many pixels of flat, light profile. */
-    private static final double QUIET = 8;
-    private static final double MARGIN = 6;
-    private static final double MIN_SPAN = 40;
-    private static final double MAX_SPAN = 1200;
+    private static final double STEP = GrayProfile.STEP;
+    private static final double MIN_SPAN = GrayProfile.MIN_SPAN;
     private static final double MIN_MODULE = 0.6;
     private static final double MAX_MODULE = 3.5;
     private static final double[] SIGMAS = {0.7, 0.9, 1.1};
@@ -46,7 +38,6 @@ public final class Code128Fit {
     private static final int[] STOP_PATTERN = {2, 3, 3, 1, 1, 1, 2};
     /** Dark modules of each pattern, then the first bar of the next symbol. */
     private static final boolean[][] DARK = darkModules();
-    private static final double[] PHI = phiTable();
 
     private Code128Fit() {
     }
@@ -62,9 +53,9 @@ public final class Code128Fit {
         for (double at : new double[]{0.5, 0.3, 0.7}) {
             int y = (int) (strip.height * at);
             int half = Math.max(2, strip.height / 10);
-            double slope = shear(strip, y, Math.max(3, strip.height / 5), half);
-            double[] profile = profile(strip, y, half, slope);
-            for (int[] span : spans(profile)) {
+            double slope = GrayProfile.shear(strip, y, Math.max(3, strip.height / 5), half);
+            double[] profile = GrayProfile.profile(strip, y, half, slope);
+            for (int[] span : GrayProfile.spans(profile)) {
                 Found found = readSpan(profile, span[0], span[1], y);
                 if (found != null) {
                     return found;
@@ -353,7 +344,7 @@ public final class Code128Fit {
             for (int j = 0; j <= modules + 1; j++) {
                 double at = x + j * width;
                 for (int i = 0; i < count; i++) {
-                    edge[j][i] = phi((at - (first + i) * STEP) / sigma);
+                    edge[j][i] = GrayProfile.phi((at - (first + i) * STEP) / sigma);
                 }
             }
             double[][] blurred = new double[modules + 1][count];
@@ -408,128 +399,6 @@ public final class Code128Fit {
         }
     }
 
-    /** Horizontal shift of the bars per row, from the profiles {@code distance} rows above and below. */
-    private static double shear(GrayU8 strip, int y, int distance, int half) {
-        int above = y - distance;
-        int below = y + distance;
-        if (above - half < 0 || below + half >= strip.height) {
-            return 0;
-        }
-        double[] a = profile(strip, above, half, 0);
-        double[] b = profile(strip, below, half, 0);
-        int reach = (int) Math.ceil(Math.min(2 * distance * 0.07, 12) * FINE);
-        double[] score = new double[2 * reach + 1];
-        int bestShift = 0;
-        for (int shift = -reach; shift <= reach; shift++) {
-            int from = Math.max(0, -shift);
-            int to = Math.min(a.length, b.length - shift);
-            if (to - from < 2) {
-                return 0;
-            }
-            double meanA = 0;
-            double meanB = 0;
-            for (int i = from; i < to; i++) {
-                meanA += a[i];
-                meanB += b[i + shift];
-            }
-            meanA /= to - from;
-            meanB /= to - from;
-            double covariance = 0;
-            for (int i = from; i < to; i++) {
-                covariance += (a[i] - meanA) * (b[i + shift] - meanB);
-            }
-            score[shift + reach] = covariance / (to - from);
-            if (score[shift + reach] > score[bestShift + reach]) {
-                bestShift = shift;
-            }
-        }
-        double fraction = 0;
-        int at = bestShift + reach;
-        if (at > 0 && at < score.length - 1) {
-            double curvature = score[at - 1] - 2 * score[at] + score[at + 1];
-            if (curvature < 0) {
-                fraction = 0.5 * (score[at - 1] - score[at + 1]) / curvature;
-            }
-        }
-        return (bestShift + fraction) * STEP / (below - above);
-    }
-
-    /** The mean of rows {@code y - half} to {@code y + half}, each shifted by its distance times {@code slope}. */
-    private static double[] profile(GrayU8 strip, int y, int half, double slope) {
-        int count = (strip.width - 1) * FINE;
-        double[] out = new double[count];
-        int top = Math.max(0, y - half);
-        int bottom = Math.min(strip.height - 1, y + half);
-        for (int i = 0; i < count; i++) {
-            double x = i * STEP;
-            double sum = 0;
-            int rows = 0;
-            for (int row = top; row <= bottom; row++) {
-                double shifted = x + (row - y) * slope;
-                int x0 = (int) Math.floor(shifted);
-                if (x0 < 0 || x0 + 1 >= strip.width) {
-                    continue;
-                }
-                double fraction = shifted - x0;
-                sum += strip.get(x0, row) * (1 - fraction) + strip.get(x0 + 1, row) * fraction;
-                rows++;
-            }
-            out[i] = rows > 0 ? sum / rows : i > 0 ? out[i - 1] : 255;
-        }
-        return out;
-    }
-
-    /** Stretches between quiet zones, as sample ranges with some quiet zone on each side. */
-    private static List<int[]> spans(double[] g) {
-        int n = g.length;
-        double low = Double.MAX_VALUE;
-        double high = -1;
-        for (double v : g) {
-            low = Math.min(low, v);
-            high = Math.max(high, v);
-        }
-        double contrast = high - low;
-        List<int[]> spans = new ArrayList<>();
-        if (contrast < 20) {
-            return spans;
-        }
-        int window = (int) (QUIET * FINE);
-        boolean[] quiet = new boolean[n];
-        for (int i = 0; i + window <= n; i++) {
-            double min = Double.MAX_VALUE;
-            double max = -1;
-            for (int j = i; j < i + window; j++) {
-                min = Math.min(min, g[j]);
-                max = Math.max(max, g[j]);
-            }
-            if (max - min < 0.25 * contrast && min > low + 0.5 * contrast) {
-                Arrays.fill(quiet, i, i + window, true);
-            }
-        }
-        int margin = (int) (MARGIN * FINE);
-        int i = 0;
-        while (i < n && !quiet[i]) {
-            i++;
-        }
-        while (i < n) {
-            while (i < n && quiet[i]) {
-                i++;
-            }
-            int start = i;
-            while (i < n && !quiet[i]) {
-                i++;
-            }
-            if (i >= n) {
-                break;
-            }
-            double width = (i - start) * STEP;
-            if (width >= MIN_SPAN && width <= MAX_SPAN) {
-                spans.add(new int[]{Math.max(0, start - margin), Math.min(n, i + margin)});
-            }
-        }
-        return spans;
-    }
-
     private static boolean[][] darkModules() {
         boolean[][] out = new boolean[STOP + 1][];
         for (int value = 0; value <= STOP; value++) {
@@ -550,28 +419,4 @@ public final class Code128Fit {
         return out;
     }
 
-    /** The normal distribution function from -6 to 6 in steps of 0.01. */
-    private static double[] phiTable() {
-        double[] table = new double[1201];
-        for (int i = 0; i < table.length; i++) {
-            double z = (i - 600) / 100.0;
-            double t = 1 / (1 + 0.2316419 * Math.abs(z));
-            double density = 0.3989423 * Math.exp(-z * z / 2);
-            double tail = density * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
-            table[i] = z > 0 ? 1 - tail : tail;
-        }
-        return table;
-    }
-
-    private static double phi(double z) {
-        double at = z * 100 + 600;
-        if (at <= 0) {
-            return 0;
-        }
-        if (at >= 1200) {
-            return 1;
-        }
-        int i = (int) at;
-        return PHI[i] + (PHI[i + 1] - PHI[i]) * (at - i);
-    }
 }

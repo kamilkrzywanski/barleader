@@ -112,13 +112,15 @@ public final class BitmapDecoder {
         List<Supplier<List<BarcodeHit>>> byPriority = List.of(
                 () -> matrixHits(owned, toSource, attempt, rotationDegrees, confidence, symbologies, findAll),
                 () -> pdf417Hits(owned, toSource, attempt, rotationDegrees, confidence, symbologies, findAll),
+                () -> microPdf417Hits(owned, toSource, attempt, rotationDegrees, confidence, symbologies),
                 () -> eanHits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies, binary, addOn),
                 () -> code39Hits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies),
                 () -> code93Hits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies),
                 () -> code128Hits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies),
                 () -> itfHits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies),
                 () -> codabarHits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies),
-                () -> dataBarHits(owned, toSource, attempt, rotationDegrees, confidence, symbologies)
+                () -> dataBarHits(owned, toSource, attempt, rotationDegrees, confidence, symbologies),
+                () -> otherHits(owned, toSource, attempt, rotationDegrees, confidence, symbologies)
         );
         // Without findAll one attempt returns one symbol, so the readers after the first hit do not run.
         if (!findAll) {
@@ -162,12 +164,16 @@ public final class BitmapDecoder {
 
     private static boolean wantsOwned(Set<Symbology> symbologies) {
         return wantsDataBar(symbologies)
+                || symbologies.contains(Symbology.MAXICODE)
+                || symbologies.contains(Symbology.TELEPEN)
+                || symbologies.contains(Symbology.DX_FILM_EDGE)
                 || symbologies.contains(Symbology.CODE_128)
                 || symbologies.contains(Symbology.CODE_39)
                 || symbologies.contains(Symbology.CODE_93)
                 || symbologies.contains(Symbology.ITF)
                 || symbologies.contains(Symbology.CODABAR)
                 || symbologies.contains(Symbology.PDF_417)
+                || symbologies.contains(Symbology.MICRO_PDF417)
                 || wantsEan(symbologies);
     }
 
@@ -553,6 +559,104 @@ public final class BitmapDecoder {
                 confidence,
                 attempt
         ));
+    }
+
+    /** MicroPDF417 from this attempt's matrix, both ways round; the ladder turns the image for other angles. */
+    private static List<BarcodeHit> microPdf417Hits(
+            BinaryBitmap image,
+            PixelMap toSource,
+            String attempt,
+            int rotationDegrees,
+            double confidence,
+            Set<Symbology> symbologies
+    ) {
+        if (!symbologies.contains(Symbology.MICRO_PDF417) || image == null) {
+            return List.of();
+        }
+        BlackMatrix matrix = image.getBlackMatrix();
+        if (matrix == null) {
+            return List.of();
+        }
+        List<BarcodeHit> hits = new ArrayList<>();
+        for (MicroPdf417Reader.Found found : MicroPdf417Reader.read(matrix)) {
+            List<ImagePoint> corners = new ArrayList<>(found.corners().size());
+            for (ImagePoint corner : found.corners()) {
+                addCorner(corners, toSource.toSource(corner.x(), corner.y()));
+            }
+            hits.add(new BarcodeHit(found.text(), Symbology.MICRO_PDF417, corners, rotationDegrees, confidence, attempt, found.bytes(), ""));
+        }
+        return hits;
+    }
+
+    /**
+     * MaxiCode from the whole matrix as a pure symbol, DX film edge from its rows, and Telepen
+     * from rows walked out from the middle, confirmed on a second row. The decoders do not report
+     * where the symbol is, so the corners are the attempt's whole image.
+     */
+    private static List<BarcodeHit> otherHits(
+            BinaryBitmap image,
+            PixelMap toSource,
+            String attempt,
+            int rotationDegrees,
+            double confidence,
+            Set<Symbology> symbologies
+    ) {
+        boolean maxi = symbologies.contains(Symbology.MAXICODE);
+        boolean dx = symbologies.contains(Symbology.DX_FILM_EDGE);
+        boolean telepen = symbologies.contains(Symbology.TELEPEN);
+        if (!maxi && !dx && !telepen || image == null) {
+            return List.of();
+        }
+        List<BarcodeHit> hits = new ArrayList<>();
+        List<ImagePoint> corners = new ArrayList<>(4);
+        addCorner(corners, toSource.toSource(0, 0));
+        addCorner(corners, toSource.toSource(image.getWidth(), 0));
+        addCorner(corners, toSource.toSource(image.getWidth(), image.getHeight()));
+        addCorner(corners, toSource.toSource(0, image.getHeight()));
+        if (maxi || dx) {
+            BlackMatrix matrix = image.getBlackMatrix();
+            if (matrix != null) {
+                boolean[][] rows = matrix.rows();
+                if (maxi) {
+                    String text = MaxiCodeDecoder.decode(rows);
+                    if (text != null && !text.isEmpty()) {
+                        hits.add(new BarcodeHit(text, Symbology.MAXICODE, corners, rotationDegrees, confidence, attempt));
+                    }
+                }
+                if (dx) {
+                    String text = DxFilmEdgeDecoder.decode(rows);
+                    if (text != null && !text.isEmpty()) {
+                        hits.add(new BarcodeHit(text, Symbology.DX_FILM_EDGE, corners, rotationDegrees, confidence, attempt));
+                    }
+                }
+            }
+        }
+        if (telepen) {
+            int height = image.getHeight();
+            int rowStep = Math.max(1, height >> 6);
+            int middle = height / 2;
+            String first = null;
+            for (int step = 0; step < 2 * 64 + 2; step++) {
+                int away = (step + 1) / 2;
+                int y = middle + rowStep * ((step & 1) == 0 ? away : -away);
+                if (y < 0 || y >= height) {
+                    break;
+                }
+                for (boolean reversed : new boolean[]{false, true}) {
+                    int[] runs = image.runs(y, reversed);
+                    TelepenDecoder.Symbol symbol = runs == null ? null : TelepenDecoder.decode(runs);
+                    if (symbol == null || symbol.text == null || symbol.text.isEmpty()) {
+                        continue;
+                    }
+                    if (symbol.text.equals(first)) {
+                        hits.add(new BarcodeHit(symbol.text, Symbology.TELEPEN, corners, linearOrientation(reversed, rotationDegrees), confidence, attempt));
+                        return hits;
+                    }
+                    first = symbol.text;
+                }
+            }
+        }
+        return hits;
     }
 
     private static void addCorner(List<ImagePoint> corners, ImagePoint point) {

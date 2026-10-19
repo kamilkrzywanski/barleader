@@ -42,14 +42,14 @@ List<BarcodeHit> hits = reader.read(image, options);
 
 | | `ReadOptions.fast()` (default) | `ReadOptions.aggressive()` |
 | --- | --- | --- |
-| Ladder | original image, inversion, contrast stretch, illumination, 90/180/270°, mean and Otsu thresholds, 2× scale, 2× and 4× box downscale of large photos, QR/Micro QR/Aztec/Data Matrix finders, and after a miss the patches of parallel bars at the angle of their own gradients and a coarse search for tilted linear symbols, its crops also thresholded for EAN-13, UPC-A, Code 128 and Code 39, and last a fit of Code 128 with modules of about a pixel to the gray profile of every patch of bars | the fast ladder, then ±15° and ±30°, a finer search for tilted linear symbols, a pyramid, tiles, Sauvola, Gaussian threshold, scales, morphology and quadrilateral candidates |
+| Ladder | original image, inversion, contrast stretch, illumination, 90/180/270°, mean and Otsu thresholds, 2× scale, 2× and 4× box downscale of large photos, QR/Micro QR/Aztec/Data Matrix finders, and after a miss the patches of parallel bars at the angle of their own gradients and a coarse search for tilted linear symbols, its crops also thresholded for EAN-13, UPC-A, Code 128 and Code 39, and last fits of Code 128, EAN-13 and UPC-A with modules of about a pixel to the gray profile of every patch of bars | the fast ladder, then ±15° and ±30°, a finer search for tilted linear symbols, a pyramid, tiles, Sauvola, Gaussian threshold, scales, morphology and quadrilateral candidates |
 | Budget | 2.5 s, 40 attempts | 8 s, 100 attempts |
 
 A clean symbol is read on the first attempt in either mode, so `aggressive()` only costs more on images that need it.
 
-- **Symbologies.** `Symbology.defaults()` is QR Code, Micro QR, Data Matrix, Aztec, PDF417, Code 128, Code 39, EAN-13, EAN-8, UPC-A and UPC-E. Code 93, ITF, Codabar, DataBar, DataBar Limited and DataBar Expanded are read when you ask for them. The DataBar readers scan every row of every attempt: on 980 images without DataBar they added no false read and about a sixth more CPU in fast mode. Fewer symbologies make a read faster: without any 2D symbology the matrix detectors do not run at all.
+- **Symbologies.** `Symbology.defaults()` is QR Code, Micro QR, Data Matrix, Aztec, PDF417, Code 128, Code 39, EAN-13, EAN-8, UPC-A and UPC-E. Code 93, ITF, Codabar, DataBar, DataBar Limited and DataBar Expanded are read when you ask for them. The DataBar readers scan every row of every attempt: on 980 images without DataBar they added no false read and about a sixth more CPU in fast mode. Fewer symbologies make a read faster: without any 2D symbology the matrix detectors do not run at all. MaxiCode, Telepen, DX film edge, rMQR and MicroPDF417 are experimental and lightly tested, and read only when you ask for them: MaxiCode only as a clean, upright symbol filling the image, and the hits of the first three carry the corners of the whole image.
 - **EAN/UPC supplements.** `eanAddOn(EanAddOn.READ)` also reads the 2- or 5-digit add-on printed to the right of an EAN or UPC symbol, such as a book price; `EanAddOn.REQUIRE` returns such a symbol only together with its add-on. The default, as in zxing-cpp, is `IGNORE`.
-- **Budgets.** `maxAttempts(int)` and `timeBudgetMillis(long)`. The time budget makes the result depend on how fast and how busy the machine is. `timeBudgetMillis(Long.MAX_VALUE)` leaves only the attempt budget, and the same image then gives the same hits on every machine. The last step, the Code 128 fit, decodes no image variant and runs after the attempts are used up; only the time budget stops it.
+- **Budgets.** `maxAttempts(int)` and `timeBudgetMillis(long)`. The time budget makes the result depend on how fast and how busy the machine is. `timeBudgetMillis(Long.MAX_VALUE)` leaves only the attempt budget, and the same image then gives the same hits on every machine. The last steps, the Code 128 and EAN fits, decode no image variant and run after the attempts are used up; only the time budget stops them.
 - **Threads.** `new BarcodeReader()` runs the independent variants of one read in parallel on a shared pool of daemon threads. `new BarcodeReader(executor)` uses your executor instead; a read called from one of its threads cannot deadlock, because the calling thread also runs every variant the executor has not started. `BarcodeReader.sequential()` does everything on the calling thread and stops at the first hit, which uses the least CPU when you already read many images in parallel. All three return the same hits.
 
 ## Input
@@ -93,7 +93,7 @@ All numbers come from this repository and its `datasets` submodule, [barcode-pro
 | UPC-E | 20 | 20 | 20 | 20 |
 | **Total** | **464** | **337** | **460** | **460** |
 
-When they are asked for, the opt-in symbologies read all of their samples: 245 of 245 DataBar, DataBar Limited and DataBar Expanded images, 18 of 18 ITF, 15 of 15 Codabar (14 in fast) and 3 of 3 Code 93. With `eanAddOn(EanAddOn.READ)` all 10 EAN-13 and UPC-A samples that carry a supplement come back with it. Across all 795 images, including the three of zxing-cpp's false-positive set, one text is wrong: an Italian Code 32 pharmacode returned as its raw Code 39 text.
+When they are asked for, the opt-in symbologies read all of their samples: 245 of 245 DataBar, DataBar Limited and DataBar Expanded images, 18 of 18 ITF, 15 of 15 Codabar (14 in fast) and 3 of 3 Code 93. The experimental ones read 8 of 8 MaxiCode, 4 of 4 Telepen, 3 of 3 rMQR, 7 of 7 MicroPDF417 and 2 of 3 DX film edge, where the third gives frame `20A` and zxing-cpp's test expects `21`; on 15,599 photos and samples without them, rMQR and MicroPDF417 read nothing in either mode. With `eanAddOn(EanAddOn.READ)` all 10 EAN-13 and UPC-A samples that carry a supplement come back with it. Across all 795 images, including the three of zxing-cpp's false-positive set, one text is wrong: an Italian Code 32 pharmacode returned as its raw Code 39 text.
 
 **Arte-Lab Medium Barcode 1D.** 430 phone photos of EAN-13 labels, half of them taken without autofocus ([Zamberletti et al., VISAPP 2010](https://doi.org/10.5220/0002811600050011), CC BY 3.0):
 
@@ -108,12 +108,12 @@ The aggressive ladder was tuned on these photos, so treat 389 as what the ladder
 
 | Set | Labelled | ZXing | fast | aggressive | fast, `findAll` |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| KAIST DEAL test split, EAN-13 photos (wrong texts) | 2000 | 1224 (73) | 1686 (36) | 1696 (40) | 1714 (8) |
+| KAIST DEAL test split, EAN-13 photos (wrong texts) | 2000 | 1224 (73) | 1710 (38) | 1719 (42) | 1740 (8) |
 | KAIST DEAL EAN-8 photos | 90 | 70 | 83 | 88 | 84 |
-| BoofCV QR v3, QR codes found by place | 1232 | 149 | 421 | 431 | 1024 |
-| BarBeR without its Arte-Lab and KAIST parts, codes read | 5176 | 2463 | 3787 | 3848 | 4253 |
+| BoofCV QR v3, QR codes found by place | 1232 | 149 | 442 | 455 | 1048 |
+| BarBeR without its Arte-Lab and KAIST parts, codes read | 5176 | 2463 | 3797 | 3859 | 4265 |
 
-On KAIST's 788 photos without a barcode, ZXing reads something on 7, fast on none and aggressive on one. On BarBeR's ParcelBar part, Code 128 on parcels with modules of one to two and a half pixels, fast reads 656 of the 1,142 codes and aggressive 658, where ZXing reads 228; under about 1.3 pixels a module a threshold hardly reads any code, and the 50 that fast mode reads there come from the fit of the gray profile. BarBeR counts codes ZXing knows but barcode-pro reads only when asked, such as the Interleaved 2 of 5 of its SKUU DSP Lab part. Its annotation tool saved the texts HTML-escaped (`&amp;` for `&` in 154 URLs and XML payloads), which the scorer undoes; a few binary PDF417 payloads labelled in hex or in code page 437 still count as wrong texts. A real Data Matrix that a set leaves unlabelled counts as a wrong text, and without `findAll` it can take the place of the labelled code on the same photo: that is the one code fewer on BarBeR and the one wrong text more on KAIST since large and bent Data Matrix symbols are read.
+On KAIST's 788 photos without a barcode, ZXing reads something on 7, fast on none and aggressive on one. On BarBeR's ParcelBar part, Code 128 on parcels with modules of one to two and a half pixels, fast reads 656 of the 1,142 codes and aggressive 658, where ZXing reads 228; under about 1.3 pixels a module a threshold hardly reads any code, and the 50 that fast mode reads there come from the fit of the gray profile. BarBeR counts codes ZXing knows but barcode-pro reads only when asked, such as the Interleaved 2 of 5 of its SKUU DSP Lab part. Its annotation tool saved the texts HTML-escaped (`&amp;` for `&` in 154 URLs and XML payloads), which the scorer undoes; a few binary PDF417 payloads labelled in hex or in code page 437 still count as wrong texts. A real Data Matrix or QR Code that a set leaves unlabelled counts as a wrong text, and without `findAll` it can take the place of the labelled code on the same photo: that is the one code fewer on BarBeR since large and bent Data Matrix symbols are read, and two of KAIST's wrong texts are QR codes on packages, read since the QR grid bends onto the module edges, each in place of the labelled EAN-13.
 
 **Speed.** A clean symbol is read on the first attempt in a few milliseconds. On the 430 Arte-Lab photos (1152×864 to 2976×2232 pixels, most of them hard), read one after another by the default reader on a 20-thread desktop, fast mode took 0.13 s a photo and 0.28 s of CPU spread over the cores; aggressive mode took 0.20 s and 0.86 s of CPU. On KAIST's 788 photos without a barcode, where every mode runs to its end, fast took 0.16 s a photo and aggressive 0.45 s. `mvn -q -Pspeed test-compile exec:java -Dexec.args="datasets/artelab-medium-barcode-1d"` measures it again. Numbers depend on the machine; the relative cost of the modes does not.
 
@@ -166,8 +166,8 @@ The text is one segment in the most compact mode that holds all of it: numeric, 
 
 ## What it does not read yet
 
-- MaxiCode, Telepen and DX film edge. Their decoders are ported and tested, but there is no photo detector for them in the ladder yet.
-- rMQR, QR Model 1, Han Xin, DotCode and Code 32 as an Italian pharmacode (it reads as its Code 39 text).
+- MaxiCode in a photo: its decoder reads only a clean symbol that fills the image, and there is no detector for it yet. Telepen and DX film edge are read from the rows of each attempt, but have been tried on a handful of samples only.
+- QR Model 1, Han Xin, DotCode and Code 32 as an Italian pharmacode (it reads as its Code 39 text).
 - ECI, structured-append and symbology-identifier metadata are not exposed in `BarcodeHit` yet.
 
 ## Command line
@@ -209,8 +209,8 @@ This needs JDK 17 or later and Maven 3.9. CI builds on JDK 17, 21 and 25: [.gith
 | `….qr` | The QR Code encoder and the version table the reader shares. |
 | `….encode` | The other writers: the linear symbologies, GS1 element strings, and the Data Matrix, PDF417 and Aztec encoders. |
 | `….preprocess` | Thresholds and morphology: Otsu, local mean, Gaussian, Sauvola, erosion, dilation. |
-| `….decode` | Linear readers, PDF417, MaxiCode, DataBar, text decoding. |
-| `….locate` | QR, Micro QR, Aztec and Data Matrix detectors and bit decoders. |
+| `….decode` | Linear readers, PDF417, MicroPDF417, MaxiCode, DataBar, the fits of Code 128 and EAN to the gray profile, text decoding. |
+| `….locate` | QR, Micro QR, rMQR, Aztec and Data Matrix detectors and bit decoders. |
 | `….cli` | The command line. |
 
 ## Principles

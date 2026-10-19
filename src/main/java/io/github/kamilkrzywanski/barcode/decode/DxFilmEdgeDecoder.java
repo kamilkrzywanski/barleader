@@ -15,7 +15,7 @@ import java.util.List;
 /**
  * DX Film Edge reader ported from zxing-cpp 3.1.1 {@code ODDXFilmEdgeReader.cpp}.
  *
- * <p>Not called from the scan ladder, and DX Film Edge is not a {@code Symbology}. A clock track
+ * <p>{@code BitmapDecoder} calls it on every attempt when {@code Symbology.DX_FILM_EDGE} is asked for. A clock track
  * is remembered and a later data track has to sit beside it. Rows are visited from the middle of
  * the image outward. The walk matches default {@code ReaderOptions}: {@code tryHarder} covers the
  * whole image and {@code tryRotate} keeps rows above the middle. {@code minLineCount} is not applied.

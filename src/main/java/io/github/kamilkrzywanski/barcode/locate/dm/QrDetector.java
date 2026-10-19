@@ -24,6 +24,7 @@ import io.github.kamilkrzywanski.barcode.qr.QrVersion;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * QR finder ported from zxing-cpp 3.1.1 {@code QRDetector.cpp},
@@ -86,13 +87,22 @@ public final class QrDetector {
                 continue;
             }
             boolean decoded = false;
-            List<Grid> grids = sample(bits, set);
+            List<Supplier<Grid>> later = new ArrayList<>(1);
+            List<Grid> grids = sample(bits, set, later);
             for (Grid grid : grids) {
                 Found hit = decode(grid);
                 if (hit != null) {
                     found.add(hit);
                     decoded = true;
                     break;
+                }
+            }
+            for (int i = 0; i < later.size() && !decoded; i++) {
+                Grid grid = later.get(i).get();
+                Found hit = grid == null ? null : decode(grid);
+                if (hit != null) {
+                    found.add(hit);
+                    decoded = true;
                 }
             }
             if (decoded) {
@@ -333,7 +343,8 @@ public final class QrDetector {
         return points;
     }
 
-    private static List<Grid> sample(Bits image, FinderSet fp) {
+    /** The grids to decode in turn; {@code later} gets the bent grid, which is worth sampling only when they all fail. */
+    private static List<Grid> sample(Bits image, FinderSet fp, List<Supplier<Grid>> later) {
         Estimate top = estimateDimension(image, fp.tl, fp.tr);
         Estimate left = estimateDimension(image, fp.tl, fp.bl);
         if (top.dim == 0 && left.dim == 0) {
@@ -402,6 +413,9 @@ public final class QrDetector {
                 grids.add(simple);
             }
         }
+        int finalDimension = dimension;
+        Warp finalWarp = warp;
+        later.add(() -> sampleRefined(image, finalDimension, finalWarp));
         boolean offset = offsetX != 0 || offsetY != 0;
         boolean lowResolution = !(blOuter.highRes() && blInner.highRes() && trOuter.highRes() && trInner.highRes());
         if (!bottomRightFound && ((dimension == 21 && offset) || (tilt(fp) < 1.1 && lowResolution))) {
@@ -413,6 +427,264 @@ public final class QrDetector {
             }
         }
         return grids;
+    }
+
+    /**
+     * The grid again after bending it onto the module edges of the whole symbol. The displacement
+     * from the homography starts from the timing patterns of row and column 6, which cross the
+     * symbol; then, walking every module row and column of the current grid, each edge between
+     * two modules is where the colour changes, its offset from the nearest module boundary samples
+     * the displacement, and a cubic in both module coordinates fitted to all of them, twice without
+     * the points a third of a module off, moves the sample points. Three rounds. A symbol on a
+     * bottle or a can, or under a wide lens, bends smoothly, and the field follows it where one
+     * homography cannot. Null when a walk leaves the image or too few edges fit.
+     */
+    private static Grid sampleRefined(Bits image, int dimension, Warp warp) {
+        if (warp == null || !warp.valid()) {
+            return null;
+        }
+        // Start from the timing patterns, measured where the homography is still close.
+        double[] fieldU = timingField(timing(image, dimension, warp, true), dimension, true);
+        double[] fieldV = timingField(timing(image, dimension, warp, false), dimension, false);
+        for (int iteration = 0; iteration < 3; iteration++) {
+            List<double[]> alongRows = new ArrayList<>();
+            List<double[]> alongColumns = new ArrayList<>();
+            for (int line = 0; line < dimension; line++) {
+                if (!edges(image, dimension, warp, fieldU, fieldV, line + 0.5, true, alongRows)
+                        || !edges(image, dimension, warp, fieldU, fieldV, line + 0.5, false, alongColumns)) {
+                    return null;
+                }
+            }
+            double[] nextU = fit(alongRows, dimension);
+            double[] nextV = fit(alongColumns, dimension);
+            if (nextU == null || nextV == null) {
+                return null;
+            }
+            fieldU = nextU;
+            fieldV = nextV;
+        }
+        Bits bits = new Bits(dimension, dimension);
+        for (int y = 0; y < dimension; y++) {
+            for (int x = 0; x < dimension; x++) {
+                double u = x + 0.5;
+                double v = y + 0.5;
+                P pixel = warp.apply(u + field(fieldU, u, v, dimension), v + field(fieldV, u, v, dimension));
+                if (!image.isIn(pixel)) {
+                    return null;
+                }
+                if (image.get(pixel)) {
+                    bits.set(x, y);
+                }
+            }
+        }
+        P[] corners = {warp.apply(0, 0), warp.apply(dimension, 0), warp.apply(dimension, dimension), warp.apply(0, dimension)};
+        for (P corner : corners) {
+            corner.x = (int) (corner.x + 0.5);
+            corner.y = (int) (corner.y + 0.5);
+        }
+        return new Grid(bits, corners);
+    }
+
+    private static final int TERMS = 10;
+
+    /**
+     * The edges along module row ({@code rows}) or column {@code at}, walked through the current
+     * field: each adds the displacement that puts the nearest module boundary on it.
+     */
+    private static boolean edges(Bits image, int dimension, Warp warp, double[] fieldU, double[] fieldV,
+                                 double at, boolean rows, List<double[]> out) {
+        double step = 1 / 16.0;
+        int hold = 3;
+        Boolean colour = null;
+        int run = 0;
+        double candidate = Double.NaN;
+        for (double t = 0.25; t <= dimension - 0.25; t += step) {
+            double u = rows ? t : at;
+            double v = rows ? at : t;
+            P pixel = warp.apply(u + field(fieldU, u, v, dimension), v + field(fieldV, u, v, dimension));
+            if (!image.isIn(pixel)) {
+                return false;
+            }
+            boolean here = image.get(pixel);
+            if (colour == null) {
+                colour = here;
+                continue;
+            }
+            if (here == colour) {
+                run = 0;
+                continue;
+            }
+            if (run == 0) {
+                candidate = t - step / 2;
+            }
+            run++;
+            if (run >= hold) {
+                double boundary = Math.rint(candidate);
+                double offset = candidate - boundary;
+                if (Math.abs(offset) < 0.4 && boundary > 0 && boundary < dimension) {
+                    // The edge seen at walk position candidate is where boundary really is.
+                    double fu = rows ? candidate : at;
+                    double fv = rows ? at : candidate;
+                    double shift = rows ? field(fieldU, fu, fv, dimension) : field(fieldV, fu, fv, dimension);
+                    out.add(rows ? new double[]{boundary, at, offset + shift} : new double[]{at, boundary, offset + shift});
+                }
+                colour = here;
+                run = 0;
+            }
+        }
+        return true;
+    }
+
+    private static double field(double[] c, double u, double v, int dimension) {
+        double[] b = basis(u / dimension - 0.5, v / dimension - 0.5);
+        double sum = 0;
+        for (int i = 0; i < TERMS; i++) {
+            sum += c[i] * b[i];
+        }
+        return sum;
+    }
+
+    private static double[] basis(double u, double v) {
+        return new double[]{1, u, v, u * u, u * v, v * v, u * u * u, u * u * v, u * v * v, v * v * v};
+    }
+
+    /** Least squares of the cubic, then again without the points more than a third of a module off. */
+    private static double[] fit(List<double[]> points, int dimension) {
+        if (points.size() < 4 * TERMS) {
+            return null;
+        }
+        double[] c = solve(points, dimension, null, 0);
+        for (int pass = 0; pass < 2 && c != null; pass++) {
+            c = solve(points, dimension, c, 0.33);
+        }
+        return c;
+    }
+
+    private static double[] solve(List<double[]> points, int dimension, double[] previous, double limit) {
+        double[][] a = new double[TERMS][TERMS + 1];
+        int used = 0;
+        for (double[] p : points) {
+            if (previous != null && Math.abs(field(previous, p[0], p[1], dimension) - p[2]) > limit) {
+                continue;
+            }
+            double[] b = basis(p[0] / dimension - 0.5, p[1] / dimension - 0.5);
+            for (int i = 0; i < TERMS; i++) {
+                for (int j = 0; j < TERMS; j++) {
+                    a[i][j] += b[i] * b[j];
+                }
+                a[i][TERMS] += b[i] * p[2];
+            }
+            used++;
+        }
+        if (used < 4 * TERMS) {
+            return null;
+        }
+        for (int i = 0; i < TERMS; i++) {
+            a[i][i] += 1e-6;
+        }
+        for (int col = 0; col < TERMS; col++) {
+            int pivot = col;
+            for (int row = col + 1; row < TERMS; row++) {
+                if (Math.abs(a[row][col]) > Math.abs(a[pivot][col])) {
+                    pivot = row;
+                }
+            }
+            double[] swap = a[col];
+            a[col] = a[pivot];
+            a[pivot] = swap;
+            if (Math.abs(a[col][col]) < 1e-12) {
+                return null;
+            }
+            for (int row = 0; row < TERMS; row++) {
+                if (row == col) {
+                    continue;
+                }
+                double factor = a[row][col] / a[col][col];
+                for (int k = col; k <= TERMS; k++) {
+                    a[row][k] -= factor * a[col][k];
+                }
+            }
+        }
+        double[] c = new double[TERMS];
+        for (int i = 0; i < TERMS; i++) {
+            c[i] = a[i][TERMS] / a[i][i];
+        }
+        return c;
+    }
+
+    /**
+     * A displacement field that moves each module column ({@code columns}) or row to the centre
+     * the timing pattern measured for it, the same across the symbol; zero without a measurement.
+     */
+    private static double[] timingField(double[] centres, int dimension, boolean columns) {
+        if (centres == null) {
+            return new double[TERMS];
+        }
+        List<double[]> points = new ArrayList<>();
+        for (int i = 0; i < dimension; i++) {
+            for (int k = 0; k < 5; k++) {
+                double across = (k + 0.5) * dimension / 5;
+                double shift = centres[i] - (i + 0.5);
+                points.add(columns ? new double[]{i + 0.5, across, shift} : new double[]{across, i + 0.5, shift});
+            }
+        }
+        double[] field = fit(points, dimension);
+        return field == null ? new double[TERMS] : field;
+    }
+
+    /**
+     * Module centres in module coordinates along the timing pattern of row 6 ({@code horizontal})
+     * or column 6, from its edges in the image: modules 6 to {@code dimension - 7} alternate,
+     * dark first, so a walk from the centre of the first to the centre of the last crosses
+     * {@code dimension - 13} edges. A colour has to hold for a sixth of a module to count.
+     */
+    private static double[] timing(Bits image, int dimension, Warp warp, boolean horizontal) {
+        double step = 1 / 24.0;
+        int hold = 4;
+        List<Double> edges = new ArrayList<>();
+        boolean colour = true;
+        int run = 0;
+        double candidate = Double.NaN;
+        for (double t = 6.5; t <= dimension - 6.5; t += step) {
+            int dark = 0;
+            for (double across = -0.2; across <= 0.21; across += 0.2) {
+                P pixel = horizontal ? warp.apply(t, 6.5 + across) : warp.apply(6.5 + across, t);
+                if (!image.isIn(pixel)) {
+                    return null;
+                }
+                if (image.get(pixel)) {
+                    dark++;
+                }
+            }
+            boolean here = dark >= 2;
+            if (here == colour) {
+                run = 0;
+                continue;
+            }
+            if (run == 0) {
+                candidate = t;
+            }
+            run++;
+            if (run >= hold) {
+                edges.add(candidate - step / 2);
+                colour = here;
+                run = 0;
+            }
+        }
+        if (edges.size() != dimension - 13) {
+            return null;
+        }
+        double[] centres = new double[dimension];
+        for (int i = 0; i + 1 < edges.size(); i++) {
+            centres[7 + i] = (edges.get(i) + edges.get(i + 1)) / 2;
+        }
+        double head = centres[7] - 7.5;
+        double tail = centres[dimension - 8] - (dimension - 7.5);
+        for (int x = 0; x < 7; x++) {
+            centres[x] = x + 0.5 + head;
+            centres[dimension - 1 - x] = dimension - 0.5 - x + tail;
+        }
+        return centres;
     }
 
     private static double tilt(FinderSet fp) {
@@ -497,7 +769,7 @@ public final class QrDetector {
         return line;
     }
 
-    private static P locateAlignment(Bits image, int moduleSize, P estimate) {
+    static P locateAlignment(Bits image, int moduleSize, P estimate) {
         if (moduleSize <= 0) {
             return null;
         }

@@ -19,7 +19,7 @@ import java.util.List;
  * {@code MCBitMatrixParser.cpp} and {@code MCDecoder.cpp}.
  *
  * <p>Only the pure, axis-aligned symbol is read. The C++ reader has no photo detector.
- * This decoder is not called from the scan ladder, and MaxiCode is not a {@code Symbology}.
+ * {@code BitmapDecoder} calls it on the whole matrix of every attempt when {@code Symbology.MAXICODE} is asked for.
  * Bytes with no ECI are ISO-8859-1, the {@code defaultCharset} zxing-cpp sets for MaxiCode.
  * Structured-append position is returned beside the text
  * and is not written into it.
