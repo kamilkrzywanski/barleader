@@ -768,20 +768,22 @@ final class Scan {
      */
     /**
      * Code 128 with modules of about a pixel, fitted on the strips of {@link BarStrips}, as the last
-     * step of a read that found nothing. It decodes no variant of the image, so the attempt budget
+     * step of a read that found nothing, or with findAll also beside what it found, such as a
+     * parcel's order number. It decodes no variant of the image, so the attempt budget
      * does not stop it and it takes no attempt from the ladder: on BarBeR's ParcelBar photos the
      * band reads of fast mode use up all forty. The time budget still stops it.
      */
     private void tryCode128Fit(GrayU8 gray) {
-        if (!hits.isEmpty() || !symbologies.contains(Symbology.CODE_128) || outOfTime()) {
+        if (!hits.isEmpty() && !options.findAll() || !symbologies.contains(Symbology.CODE_128) || outOfTime()) {
             return;
         }
+        List<BarcodeHit> before = List.copyOf(hits.list());
         for (LinearBand.Crop strip : barStrips(gray)) {
             if (outOfTime()) {
                 return;
             }
             Code128Fit.Found found = Code128Fit.read(strip.image());
-            if (found == null) {
+            if (found == null || !before.isEmpty() && !besideHits(found.text(), before)) {
                 continue;
             }
             PixelMap map = strip.toSource();
@@ -800,12 +802,31 @@ final class Scan {
     }
 
     /**
+     * A fit beside codes already read counts only with six characters or more and when it is not
+     * part of one of them: there the strips also cross the codes read, and textures beside them
+     * fitted two or three characters.
+     */
+    private static boolean besideHits(String text, List<BarcodeHit> before) {
+        if (text.length() < 6) {
+            return false;
+        }
+        for (BarcodeHit hit : before) {
+            if (hit.text().contains(text)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
      * EAN-13 and UPC-A with modules of about a pixel, fitted on the strips of {@link BarStrips} as
      * {@link #tryCode128Fit} fits Code 128, as the last step of a read that found nothing.
      */
     private void tryEanFit(GrayU8 gray) {
         boolean ean13 = symbologies.contains(Symbology.EAN_13);
         boolean upcA = symbologies.contains(Symbology.UPC_A);
+        // Unlike Code 128 not beside other hits with findAll: on shelf photos with many EAN-13
+        // the strips beside the codes already read fitted random digits.
         if (!hits.isEmpty() || !ean13 && !upcA || outOfTime()) {
             return;
         }

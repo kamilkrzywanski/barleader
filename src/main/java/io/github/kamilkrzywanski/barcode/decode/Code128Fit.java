@@ -17,7 +17,8 @@ import java.util.Arrays;
  *
  * <p>The outer edges of the symbol come from the profile, the number of symbols, the blur and a
  * quarter pixel at each end from how well the start and stop patterns fit; only the best of
- * those get the full fit. A read is kept when the check did not have to change any symbol, the
+ * those get the full fit; when none counts, the best few again with each symbol shifted to where
+ * it fits best. A read is kept when the check did not have to change any symbol, the
  * mean residual is small, and every symbol fits clearly better than its runner-up. On BarBeR's
  * ParcelBar part that reads 50 parcel codes in fast mode that no threshold reads, mostly with
  * modules of 0.7 to 1.3 pixels, and one wrong text; on KAIST's photos without a barcode it
@@ -32,6 +33,10 @@ public final class Code128Fit {
     private static final double[] SHIFTS = {-0.25, 0, 0.25};
     /** Screened geometries that get the full fit. */
     private static final int KEEP = 16;
+    /** The best screened geometries that are aligned symbol by symbol when no fit counts. */
+    private static final int ALIGN = 4;
+    /** Shifts of one symbol from where a constant module puts it, in modules. */
+    private static final double[] OFFSETS = {-0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75};
     private static final double MAX_COST = 0.2;
     private static final double MIN_MARGIN = 0.05;
     private static final int STOP = 106;
@@ -73,7 +78,7 @@ public final class Code128Fit {
         }
         Fit ahead = search(forward);
         Fit behind = search(backward);
-        boolean upsideDown = ahead == null || (behind != null && behind.cost < ahead.cost);
+        boolean upsideDown = behind != null && (ahead == null || better(behind, ahead));
         Fit best = upsideDown ? behind : ahead;
         if (best == null || !best.accepted()) {
             return null;
@@ -92,7 +97,19 @@ public final class Code128Fit {
         }
     }
 
-    /** The cheapest full fit of the screened geometries, reading left to right. */
+    /** An accepted fit beats one that is not; then the lower cost wins. */
+    private static boolean better(Fit fit, Fit than) {
+        if (fit.accepted() != than.accepted()) {
+            return fit.accepted();
+        }
+        return fit.cost < than.cost;
+    }
+
+    /**
+     * The cheapest full fit of the screened geometries, reading left to right. When none counts,
+     * the best few are fitted again with each symbol shifted to where it fits best, as a module
+     * a hundredth off or a slight perspective moves the last symbols of a long code by a module.
+     */
     private static Fit search(double[] g) {
         int n = g.length;
         double dark = Double.MAX_VALUE;
@@ -170,8 +187,19 @@ public final class Code128Fit {
             if (geometry == null) {
                 continue;
             }
-            Fit fit = fit(g, geometry[2], geometry[3], (int) geometry[0], geometry[1]);
+            Fit fit = fit(g, geometry[2], geometry[3], (int) geometry[0], geometry[1], null);
             if (fit != null && (best == null || fit.cost < best.cost)) {
+                best = fit;
+            }
+        }
+        if (best != null && best.accepted()) {
+            return best;
+        }
+        for (int i = 0; i < ALIGN && kept[i] != null; i++) {
+            double[] geometry = kept[i];
+            double[] shifts = align(g, geometry[2], geometry[3], (int) geometry[0], geometry[1]);
+            Fit fit = shifts == null ? null : fit(g, geometry[2], geometry[3], (int) geometry[0], geometry[1], shifts);
+            if (fit != null && (best == null || better(fit, best))) {
                 best = fit;
             }
         }
@@ -179,14 +207,64 @@ public final class Code128Fit {
     }
 
     /**
-     * {@code symbols} counts the start, the data, the check and the stop pattern, which spans
-     * 13 modules where every other symbol spans 11.
+     * Each symbol's shift from {@link #OFFSETS}, neighbours at most one step apart, that minimises
+     * the sum of every symbol's cheapest pattern at its shift. Null when a window leaves the profile.
      */
-    private static Fit fit(double[] g, double left, double right, int symbols, double sigma) {
+    private static double[] align(double[] g, double left, double right, int symbols, double sigma) {
+        double module = (right - left) / (11 * symbols + 2);
+        int n = OFFSETS.length;
+        double[][] total = new double[symbols][n];
+        int[][] from = new int[symbols][n];
+        for (int k = 0; k < symbols; k++) {
+            boolean stop = k == symbols - 1;
+            int low = stop ? STOP : k == 0 ? 103 : 0;
+            int high = stop ? STOP : k == 0 ? 105 : 102;
+            for (int o = 0; o < n; o++) {
+                Window window = Window.of(g, left + (11 * k + OFFSETS[o]) * module, module, sigma, stop ? 13 : 11);
+                if (window == null) {
+                    return null;
+                }
+                double cheapest = Double.POSITIVE_INFINITY;
+                for (int value = low; value <= high; value++) {
+                    cheapest = Math.min(cheapest, window.cost(DARK[value]));
+                }
+                if (k == 0) {
+                    total[k][o] = cheapest;
+                    continue;
+                }
+                total[k][o] = Double.POSITIVE_INFINITY;
+                for (int p = Math.max(0, o - 1); p <= Math.min(n - 1, o + 1); p++) {
+                    if (total[k - 1][p] + cheapest < total[k][o]) {
+                        total[k][o] = total[k - 1][p] + cheapest;
+                        from[k][o] = p;
+                    }
+                }
+            }
+        }
+        int o = 0;
+        for (int i = 1; i < n; i++) {
+            if (total[symbols - 1][i] < total[symbols - 1][o]) {
+                o = i;
+            }
+        }
+        double[] shifts = new double[symbols];
+        for (int k = symbols - 1; k >= 0; k--) {
+            shifts[k] = OFFSETS[o];
+            o = from[k][o];
+        }
+        return shifts;
+    }
+
+    /**
+     * {@code symbols} counts the start, the data, the check and the stop pattern, which spans
+     * 13 modules where every other symbol spans 11. {@code shifts}, when given, moves each symbol
+     * by that many modules.
+     */
+    private static Fit fit(double[] g, double left, double right, int symbols, double sigma, double[] shifts) {
         double module = (right - left) / (11 * symbols + 2);
         double[][] costs = new double[symbols][];
         for (int k = 0; k < symbols; k++) {
-            double x = left + 11 * k * module;
+            double x = left + (11 * k + (shifts == null ? 0 : shifts[k])) * module;
             costs[k] = new double[STOP + 1];
             Arrays.fill(costs[k], Double.POSITIVE_INFINITY);
             boolean stop = k == symbols - 1;
