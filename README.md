@@ -2,6 +2,10 @@
 
 A pure-Java barcode reader that reads what others miss, and writes every common symbology too: every one of the ZXing and Barcode-Lib4J writers. No JNI, no OpenCV and no native libraries. Apache License 2.0.
 
+![Four photos that ZXing reads nothing from and Barleader reads with its default options: an EAN-13 label photographed without autofocus, a tilted Aztec symbol, a Data Matrix on textured metal and a Micro QR on a bottle cap](docs/images/comparison.jpg)
+
+<sub>Read with the default `new BarcodeReader().read(image)`, against the usual ZXing 3.5.4 call described under [Accuracy](#accuracy). Photos from the [Arte-Lab Medium Barcode 1D](https://doi.org/10.5220/0002811600050011) set (CC BY 3.0) and the [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp) test samples (Apache 2.0).</sub>
+
 Barleader reads QR Code, Micro QR, Data Matrix, Aztec, PDF417, Code 128, Code 39, Code 93, EAN-13, EAN-8, UPC-A, UPC-E, ITF, Codabar and the GS1 DataBar family from photos and scans. The detectors and bit decoders are a Java port of the read path of [zxing-cpp](https://github.com/zxing-cpp/zxing-cpp) 3.1.1, and the binarizers and Reed-Solomon decoders a port of [ZXing](https://github.com/zxing/zxing) 3.5.4. Around them sits a ladder of image variants (inversion, contrast, illumination, thresholds, rotations, scales, a finder for tilted linear symbols) that is tried until one of them decodes. On hard images it reads far more than the usual Java ZXing call, and on clean images it stops after the first attempt.
 
 **Status: young.** The API is small and may still change before 1.0. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) describes the attempt ladder, the packages and how the measurements are made.
