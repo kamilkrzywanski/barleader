@@ -130,10 +130,11 @@ public final class QrDetector {
             skip = MIN_SKIP;
         }
         List<Ring> found = new ArrayList<>();
+        int[] row = new int[image.width + 2];
         for (int y = skip - 1; y < image.height; y += skip) {
-            int[] row = QrCursor.patternRow(image, y);
-            View next = View.of(row);
-            for (int guard = 0; guard < row.length + 2; guard++) {
+            int count = QrCursor.patternRow(image, y, row);
+            View next = View.of(row, count);
+            for (int guard = 0; guard < count + 2; guard++) {
                 View hit = QrCursor.findPattern(next);
                 if (!hit.isValid()) {
                     break;

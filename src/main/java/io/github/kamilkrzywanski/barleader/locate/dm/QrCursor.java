@@ -55,15 +55,11 @@ final class QrCursor {
     }
 
     /**
-     * Run lengths of one row. The row starts and ends with a white run,
-     * zero when the pixels themselves start or end on black.
+     * Run lengths of one row into {@code runs}, of at least width + 2. The row starts and ends with
+     * a white run, zero when the pixels themselves start or end on black. Returns how many there are.
      */
-    static int[] patternRow(Bits image, int y) {
+    static int patternRow(Bits image, int y, int[] runs) {
         int width = image.width;
-        if (width <= 0) {
-            return new int[0];
-        }
-        int[] runs = new int[width + 2];
         int count = 0;
         boolean black = image.get(0, y);
         if (black) {
@@ -84,9 +80,7 @@ final class QrCursor {
         if (black) {
             runs[count++] = 0;
         }
-        int[] trimmed = new int[count];
-        System.arraycopy(runs, 0, trimmed, 0, count);
-        return trimmed;
+        return count;
     }
 
     static View findPattern(View view) {
@@ -208,12 +202,13 @@ final class QrCursor {
         int size;
         int end;
 
-        static View of(int[] row) {
+        /** The first {@code count} runs of {@code row}. */
+        static View of(int[] row, int count) {
             View view = new View();
             view.row = row;
-            view.end = row.length;
+            view.end = count;
             view.data = 1;
-            view.size = Math.max(0, row.length - 1);
+            view.size = Math.max(0, count - 1);
             return view;
         }
 

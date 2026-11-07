@@ -22,6 +22,14 @@ import java.util.Set;
  * Matrix hits are not confirmed on a linear strip.
  */
 public final class MatrixReader {
+    /**
+     * Variants of the ladder that look for a symbol in one polarity. {@code inverted-luma} and the
+     * originals keep both, so a white-on-black symbol still has its attempts. On the 16382 snapshot
+     * images a second pass on these variants read nothing the others did not.
+     */
+    private static final Set<String> ONE_POLARITY = Set.of(
+            "pad-4", "contrast-stretch", "illumination", "adaptive-mean", "otsu", "scale-2", "downscale-2", "downscale-4");
+
     private MatrixReader() {
     }
 
@@ -42,6 +50,9 @@ public final class MatrixReader {
         List<BarcodeHit> normal = decode(bits, toSource, attempt, rotationDegrees, confidence, symbologies);
         if (!findAll && !normal.isEmpty()) {
             return List.of(normal.get(0));
+        }
+        if (!findAll && ONE_POLARITY.contains(attempt)) {
+            return List.of();
         }
         bits.flipAll();
         List<BarcodeHit> inverted = decode(bits, toSource, attempt, rotationDegrees, confidence, symbologies);

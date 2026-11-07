@@ -37,6 +37,11 @@ public final class Code128Fit {
     private static final int ALIGN = 4;
     /** Shifts of one symbol from where a constant module puts it, in modules. */
     private static final double[] OFFSETS = {-0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75};
+    /**
+     * The best screened geometry above this gets no full fit. Accepted fits on the snapshot images
+     * stayed under 0.96, and a fit that does not count costs far more than the screen.
+     */
+    private static final double MAX_SCREEN = 1.1;
     private static final double MAX_COST = 0.2;
     private static final double MIN_MARGIN = 0.05;
     private static final int STOP = 106;
@@ -181,6 +186,9 @@ public final class Code128Fit {
                     }
                 }
             }
+        }
+        if (!(scores[0] <= MAX_SCREEN)) {
+            return null;
         }
         Fit best = null;
         for (double[] geometry : kept) {

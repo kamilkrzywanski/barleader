@@ -77,11 +77,12 @@ public final class AztecDetector {
     private static List<Ring> findCenters(Bits image) {
         int margin = 5;
         List<Ring> found = new ArrayList<>();
+        int[] row = new int[image.width + 2];
         for (int y = margin; y < image.height - margin; y++) {
-            int[] row = QrCursor.patternRow(image, y);
-            View next = View.of(row);
+            int count = QrCursor.patternRow(image, y, row);
+            View next = View.of(row, count);
             next.shift(1);
-            for (int guard = 0; guard < row.length + 2; guard++) {
+            for (int guard = 0; guard < count + 2; guard++) {
                 View hit = findCenterPattern(next);
                 if (!hit.isValid()) {
                     break;

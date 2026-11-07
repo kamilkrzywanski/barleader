@@ -23,6 +23,8 @@ import java.util.List;
  */
 final class LinearBand {
     private static final int EDGE = 14;
+    /** Edge changes a row of a band needs on average. Text and clutter rarely reach it. */
+    private static final int MIN_MEAN_CHANGES = 16;
     private static final int DENSITY_BANDS = 2;
     private static final int SECOND_ANGLE_BANDS = 1;
     private static final int PITCH_BANDS = 6;
@@ -93,8 +95,10 @@ final class LinearBand {
         int winner = indexOfMax(densityScores, count);
         int pitchWinner = indexOfMax(pitchScores, count);
         int reach = coarse ? 3 : 4;
-        double bestAngle = refine(view, angles[winner], false, fanout, reach);
-        double pitchAngle = refine(view, angles[pitchWinner], true, fanout, reach);
+        // Each ranking refines around its own winner, and they often share one, so one sweep ranks both.
+        double[] refined = refine(view, angles[winner], fanout, reach);
+        double bestAngle = refined[0];
+        double pitchAngle = pitchWinner == winner ? refined[1] : refine(view, angles[pitchWinner], fanout, reach)[1];
         int second = -1;
         for (int i = 0; i < count; i++) {
             if (densityScores[i] < 0 || angleDistance(angles[i], bestAngle) < 12.0) {
@@ -178,28 +182,36 @@ final class LinearBand {
         return winner;
     }
 
-    private static double refine(GrayU8 view, double angle, boolean pitch, Fanout fanout, int reach) {
+    /** The best angle near {@code angle} by density, then by pitch. */
+    private static double[] refine(GrayU8 view, double angle, Fanout fanout, int reach) {
         int rounded = (int) Math.round(angle);
         int offsets = 2 * reach + 1;
-        int[] scores = new int[offsets];
-        Arrays.fill(scores, -1);
+        int[] densityScores = new int[offsets];
+        int[] pitchScores = new int[offsets];
         List<Runnable> tasks = new ArrayList<>(offsets);
         for (int i = 0; i < offsets; i++) {
             int index = i;
             int degrees = rounded - reach + i;
             tasks.add(() -> {
-                Band band = topBand(Geometry.rotatePixels(view, degrees), pitch);
-                scores[index] = band == null ? -1 : active(band, pitch);
+                List<Band> runs = candidates(Geometry.rotatePixels(view, degrees));
+                Band byDensity = top(runs, false);
+                Band byPitch = top(runs, true);
+                densityScores[index] = byDensity == null ? -1 : byDensity.score;
+                pitchScores[index] = byPitch == null ? -1 : byPitch.pitchScore;
             });
         }
         fanout.runAll(tasks);
-        // A complete miss keeps the unrounded angle. A tie keeps the lower offset.
+        return new double[]{bestOffset(densityScores, angle, rounded - reach), bestOffset(pitchScores, angle, rounded - reach)};
+    }
+
+    /** A complete miss keeps the unrounded angle. A tie keeps the lower offset. */
+    private static double bestOffset(int[] scores, double angle, int lowest) {
         double bestAngle = angle;
         int bestScore = -1;
-        for (int i = 0; i < offsets; i++) {
+        for (int i = 0; i < scores.length; i++) {
             if (scores[i] > bestScore) {
                 bestScore = scores[i];
-                bestAngle = rounded - reach + i;
+                bestAngle = lowest + i;
             }
         }
         return bestAngle;
@@ -265,10 +277,6 @@ final class LinearBand {
         return distance > 90.0 ? 180.0 - distance : distance;
     }
 
-    private static Band topBand(GrayU8 image, boolean pitch) {
-        return top(candidates(image), pitch);
-    }
-
     /** Highest run. Ties keep the earlier candidate, matching a stable sort of that list. */
     private static Band top(List<Band> runs, boolean pitch) {
         List<Band> picked = pick(runs, 1, pitch);
@@ -283,45 +291,54 @@ final class LinearBand {
         int width = image.width;
         int height = image.height;
         Scratch scratch = SCRATCH.get();
-        int changeNeed = Math.multiplyExact(height, width);
+        int sumNeed = Math.multiplyExact(height + 1, width);
         int prefixStride = width + 1;
         int prefixNeed = Math.multiplyExact(height, prefixStride);
-        if (scratch.change.length < changeNeed) {
-            scratch.change = new byte[changeNeed];
-        } else {
-            Arrays.fill(scratch.change, 0, changeNeed, (byte) 0);
+        // Neither buffer is cleared: the loop below writes every entry that is read.
+        if (scratch.columnSums.length < sumNeed) {
+            scratch.columnSums = new int[sumNeed];
         }
         if (scratch.prefix.length < prefixNeed) {
             scratch.prefix = new int[prefixNeed];
-        } else {
-            Arrays.fill(scratch.prefix, 0, prefixNeed, 0);
         }
         if (scratch.column.length != width) {
             scratch.column = new int[width];
         }
-        byte[] change = scratch.change;
+        if (scratch.rowSums.length <= height) {
+            scratch.rowSums = new int[height + 1];
+        }
+        // columnSums holds, per column, the edge changes above each row, so any band's column
+        // profile is a difference of two rows and needs no walk down the image.
+        int[] columnSums = scratch.columnSums;
         int[] prefix = scratch.prefix;
+        int[] rowSums = scratch.rowSums;
+        Arrays.fill(columnSums, 0, width, 0);
         for (int y = 0; y < height; y++) {
             int row = image.startIndex + y * image.stride;
             int previous = 0;
             int count = 0;
-            int changeRow = y * width;
+            int sumsAbove = y * width;
+            int sumRow = sumsAbove + width;
             int prefixRow = y * prefixStride;
+            columnSums[sumRow] = 0;
+            prefix[prefixRow] = 0;
+            prefix[prefixRow + 1] = 0;
             for (int x = 1; x < width; x++) {
                 int delta = (image.data[row + x] & 255) - (image.data[row + x - 1] & 255);
                 int absolute = delta < 0 ? -delta : delta;
-                if (absolute < EDGE) {
-                    prefix[prefixRow + x + 1] = count;
-                    continue;
+                int changed = 0;
+                if (absolute >= EDGE) {
+                    int sign = delta > 0 ? 1 : -1;
+                    if (previous != 0 && sign != previous) {
+                        changed = 1;
+                        count++;
+                    }
+                    previous = sign;
                 }
-                int sign = delta > 0 ? 1 : -1;
-                if (previous != 0 && sign != previous) {
-                    change[changeRow + x] = 1;
-                    count++;
-                }
-                previous = sign;
                 prefix[prefixRow + x + 1] = count;
+                columnSums[sumRow + x] = columnSums[sumsAbove + x] + changed;
             }
+            rowSums[y + 1] = rowSums[y] + count;
         }
         List<Band> all = new ArrayList<>();
         int[] column = scratch.column;
@@ -329,18 +346,15 @@ final class LinearBand {
             if (bandHeight >= height * 0.75) {
                 continue;
             }
-            Arrays.fill(column, 0);
-            for (int y = 0; y < bandHeight; y++) {
-                addRow(column, change, y * width);
-            }
-            addBand(all, consider(image, prefix, prefixStride, column, 0, bandHeight));
-            for (int y0 = 0; y0 + bandHeight < height; y0++) {
-                subRow(column, change, y0 * width);
-                addRow(column, change, (y0 + bandHeight) * width);
-                if ((y0 & 1) == 1) {
+            int least = MIN_MEAN_CHANGES * bandHeight;
+            for (int y0 = 0; y0 + bandHeight <= height; y0 += y0 == 0 ? 1 : 2) {
+                // No run in the band holds more changes than its whole rows, so scoreRun would
+                // turn down every one of them. On a photo without a code that is most bands.
+                if (rowSums[y0 + bandHeight] - rowSums[y0] < least) {
                     continue;
                 }
-                addBand(all, consider(image, prefix, prefixStride, column, y0 + 1, bandHeight));
+                bandColumns(column, columnSums, y0, bandHeight);
+                addBand(all, consider(image, prefix, prefixStride, column, y0, bandHeight));
             }
         }
         return all;
@@ -396,15 +410,13 @@ final class LinearBand {
         return current;
     }
 
-    private static void addRow(int[] column, byte[] change, int offset) {
-        for (int x = 0; x < column.length; x++) {
-            column[x] += change[offset + x];
-        }
-    }
-
-    private static void subRow(int[] column, byte[] change, int offset) {
-        for (int x = 0; x < column.length; x++) {
-            column[x] -= change[offset + x];
+    /** Per column, the edge changes in rows {@code y0} up to {@code y0 + bandHeight}. */
+    private static void bandColumns(int[] column, int[] columnSums, int y0, int bandHeight) {
+        int width = column.length;
+        int above = y0 * width;
+        int below = (y0 + bandHeight) * width;
+        for (int x = 0; x < width; x++) {
+            column[x] = columnSums[below + x] - columnSums[above + x];
         }
     }
 
@@ -487,7 +499,7 @@ final class LinearBand {
             }
         }
         int mean = changes / bandHeight;
-        if (runChanges < mean || mean < 16 || bestRowChanges < 18) {
+        if (runChanges < mean || mean < MIN_MEAN_CHANGES || bestRowChanges < 18) {
             return null;
         }
         double regularity = regularity(image, bestRow, x0, x1);
@@ -541,7 +553,8 @@ final class LinearBand {
     /** Share of bar-to-bar gaps that fit in four modules. Text spaces fall outside that. */
     private static double regularity(GrayU8 image, int y, int x0, int x1) {
         int row = image.startIndex + y * image.stride;
-        int[] runs = new int[96];
+        Scratch scratch = SCRATCH.get();
+        int[] runs = scratch.runs;
         int count = 0;
         int last = x0;
         int previous = 0;
@@ -565,9 +578,7 @@ final class LinearBand {
             return 0;
         }
         int used = Math.min(count, runs.length);
-        int[] sorted = Arrays.copyOf(runs, used);
-        Arrays.sort(sorted);
-        int median = Math.max(1, sorted[used / 2]);
+        int median = Math.max(1, median(runs, used, scratch, image.width));
         int limit = median * 4 + 2;
         int ok = 0;
         for (int i = 0; i < used; i++) {
@@ -576,6 +587,30 @@ final class LinearBand {
             }
         }
         return ok / (double) used;
+    }
+
+    /** What sorting would put at {@code used / 2}. Runs are short, so a tally of them is quicker. */
+    private static int median(int[] runs, int used, Scratch scratch, int maxRun) {
+        if (scratch.tally.length <= maxRun) {
+            scratch.tally = new int[maxRun + 1];
+        }
+        int[] tally = scratch.tally;
+        for (int i = 0; i < used; i++) {
+            tally[runs[i]]++;
+        }
+        int median = 0;
+        int passed = 0;
+        while (true) {
+            passed += tally[median];
+            if (passed > used / 2) {
+                break;
+            }
+            median++;
+        }
+        for (int i = 0; i < used; i++) {
+            tally[runs[i]] = 0;
+        }
+        return median;
     }
 
     private static Rect pad(GrayU8 image, Band band) {
@@ -727,11 +762,14 @@ final class LinearBand {
         }
     }
 
-    /** Per-thread edge buffers. {@link #candidates} does not call itself. */
+    /** Per-thread buffers. {@link #candidates} does not call itself, and only reads them while it runs. */
     private static final class Scratch {
-        byte[] change = new byte[0];
+        int[] columnSums = new int[0];
+        int[] rowSums = new int[1];
         int[] prefix = new int[0];
         int[] column = new int[0];
+        final int[] runs = new int[96];
+        int[] tally = new int[0];
     }
 
     private static final ThreadLocal<Scratch> SCRATCH = ThreadLocal.withInitial(Scratch::new);
