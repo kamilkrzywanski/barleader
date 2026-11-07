@@ -383,7 +383,8 @@ public final class Geometry {
                     + p10 * fx * (1.0 - fy)
                     + p01 * (1.0 - fx) * fy
                     + p11 * fx * fy;
-            out[row + x] = (byte) GrayImages.clamp((int) Math.round(sampled));
+            // Not negative, so this rounds as Math.round does, for much less.
+            out[row + x] = (byte) GrayImages.clamp((int) (sampled + 0.5));
         }
     }
 

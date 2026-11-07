@@ -41,6 +41,11 @@ public final class EanFit {
     private static final double[] OFFSETS = {-0.75, -0.5, -0.25, 0, 0.25, 0.5, 0.75};
     /** The outer edges are where the profile drops this far toward its darkest. */
     private static final double DEPTH = 0.3;
+    /**
+     * The best screened geometry above this gets no full fit. Accepted fits on the snapshot images
+     * stayed under 1.55, and a fit that does not count costs far more than the screen.
+     */
+    private static final double MAX_SCREEN = 1.7;
     private static final double MAX_COST = 0.28;
     private static final double MIN_MARGIN = 0.18;
     /** L-code modules of each digit, dark true; R is the complement, G the reversed R. */
@@ -235,6 +240,9 @@ public final class EanFit {
                     kept[i] = new double[]{sigma, x0, x1};
                 }
             }
+        }
+        if (!(scores[0] <= MAX_SCREEN)) {
+            return null;
         }
         Fit best = null;
         for (double[] geometry : kept) {
