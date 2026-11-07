@@ -10,7 +10,7 @@ The module `io.github.kamilkrzywanski.barleader` exports only its package of tha
 
 | Package | Role |
 | --- | --- |
-| `io.github.kamilkrzywanski.barleader` | API: `BarcodeReader`, `BarcodeWriter`, `QrCode`, `Barcode`, the options; the attempt ladder (`Scan`), strips of bars (`BarStrips`, `LinearBand`), drawing and the PDF writer |
+| `io.github.kamilkrzywanski.barleader` | API: `BarcodeReader`, `BarcodeWriter`, `QrCode`, `Barcode`, the options; the attempt ladder (`Scan`), strips of bars (`BarStrips`, `BarSegments`, `LinearBand`), drawing and the PDF writer |
 | `…barleader.image` | Luminance, rotations, scales, homographies, the binarizers ported from ZXing (`BinaryBitmap`, `BlackMatrix`) |
 | `…barleader.preprocess` | Thresholds and morphology: Otsu, local mean, Gauss, Sauvola, erosion, dilation, denoising |
 | `…barleader.locate` | QR, Micro QR, rMQR, Aztec and Data Matrix finders, `blob-quad` |
@@ -36,7 +36,7 @@ BarcodeReader.read(image, ReadOptions)
    scale-2, downscale-2, downscale-4
 3. finders: qr-trace, mqr-trace, aztec-trace, dm-trace
       ↓ FAST after a miss
-4. bar-strip, then the coarse linear-band search
+4. bar-strip, then the linear crops of `BarSegments`
       ↓ AGGRESSIVE instead
 4. rotate ±15° and ±30°, the full linear-band search, pyramid,
    tiles (2D only), Sauvola, scale-1.5, scale-0.5,
@@ -57,7 +57,7 @@ The order is deliberate. A clean symbol ends on the first attempt, at a cost clo
 - **Binarization.** `HybridBinarizer` and `GlobalHistogramBinarizer` are ported from ZXing bit for bit, on ZXing's luminance `(306 R + 601 G + 117 B + 512) >> 10`. A row is kept with its runs for the whole attempt, so every linear reader shares one binarization, as `ODReader` does in zxing-cpp.
 - **Matrix finders.** The QR, Micro QR, rMQR, Aztec and Data Matrix detectors of zxing-cpp. Data Matrix with several data regions samples each region with its own transform between the alignment crossings it finds. A QR that no regular grid decodes is sampled once more on a bent grid fitted to the module edges (a symbol on a can). The finders do not depend on the angle, so they do not run on rotated images.
 - **Linear scanners.** zxing-cpp's row readers. When no whole-pixel row reads, Code 128, Code 39 and EAN/UPC scan the rows again with edges in quarter pixels, for modules of one to two pixels.
-- **Strips of bars.** `BarStrips` finds patches of parallel bars from the structure tensor of 16-pixel blocks and samples each with its bars vertical; `LinearBand` searches whole bands over angles. Both crops are read by the linear readers only, so a crop never assembles a false PDF417 or matrix symbol.
+- **Strips of bars.** `BarStrips` finds patches of parallel bars from the structure tensor of 16-pixel blocks and samples each with its bars vertical; `BarSegments` votes parallel edge segments into one box a symbol, on fast mode's miss path; `LinearBand` searches whole bands over angles, in aggressive mode and for postal codes. All these crops are read by the linear readers only, so a crop never assembles a false PDF417 or matrix symbol.
 - **Gray-profile fits.** Under about 1.3 pixels a module no threshold separates the bars, but the averaged gray profile still matches the blurred patterns. `Code128Fit` and `EanFit` fit every symbol or digit position by least squares, then search for the cheapest sequence with a right check, symbol by symbol shifted where it fits best. They run last, only when nothing was read, and take no attempt slot.
 - **Error correction.** Every 2D decoder corrects errors and erasures with the port of librscpp, keeping 2t + e ≤ numEC and two codewords for detection in PDF417.
 

@@ -115,3 +115,8 @@ Alessandro Zamberletti, Ignazio Gallo, Moreno Carullo, Elisabetta Binaghi,
 VISAPP 2010. DOI 10.5220/0002811600050011.
 License: Creative Commons Attribution 3.0
 http://creativecommons.org/licenses/by/3.0/
+
+The linear locator in BarSegments.java is a Java port of
+bindings/rust/src/pipeline/segment_voting.rs from tapirscan 1.5.0
+(https://github.com/kleinicke/tapirscan), Copyright (c) 2026 Florian Nick,
+under the Apache License 2.0 (the project is MIT OR Apache-2.0).

@@ -271,6 +271,13 @@ public final class BitmapDecoder {
         if (stripCrop(attempt) && widerRival(image, found.text(), found.scale())) {
             return List.of();
         }
+        // On a shrunken frame a blurred EAN can read wrong on a row or two of whole-pixel edges
+        // while its own text reads on more rows of quarter-pixel edges: Foto(763) halved gave
+        // 9037172414831 on 2 rows and the labeled 051122414831 on 12. The text more rows agree
+        // on wins, whichever scale found it.
+        if (!fullResolution(attempt) && outvoted(image, found.text())) {
+            return List.of();
+        }
         // A binary strip hit on one or two adjacent rows is a threshold glitch.
         // Four rows, or two rows at least 8 px apart, still required on a 48-row strip.
         // A taller crop may keep just two intact rows under glare.
@@ -717,6 +724,38 @@ public final class BitmapDecoder {
             }
             int span = entry.getValue()[2] - entry.getValue()[1];
             if (span >= 8 && span > hitSpan) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Whether another EAN/UPC text reads on more rows of this bitmap than {@code text}, and on at
+     * least two, counting the rows at whole and at quarter pixels and keeping each text's better
+     * count. On the 16382 snapshot images this dropped only wrong reads from shrunken frames; at
+     * full resolution it also dropped labeled ones.
+     */
+    private static boolean outvoted(BinaryBitmap image, String text) {
+        Map<String, Integer> best = new HashMap<>();
+        for (int scale : new int[]{1, 4}) {
+            Map<String, int[]> support = new HashMap<>();
+            for (int y = 0; y < image.getHeight(); y++) {
+                int[] runs = image.runs(y, false, scale);
+                if (runs == null) {
+                    continue;
+                }
+                noteEanRow(support, runs, y);
+                noteEanRow(support, image.runs(y, true, scale), y);
+            }
+            for (Map.Entry<String, int[]> entry : support.entrySet()) {
+                best.merge(entry.getKey(), entry.getValue()[0], Math::max);
+            }
+        }
+        String key = eanKey(text);
+        int own = best.getOrDefault(key, 0);
+        for (Map.Entry<String, Integer> entry : best.entrySet()) {
+            if (!entry.getKey().equals(key) && entry.getValue() >= 2 && entry.getValue() > own) {
                 return true;
             }
         }
