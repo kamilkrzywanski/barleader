@@ -40,11 +40,15 @@ class ArteLabFalsePositiveTest {
         assertRetailOrEmpty("Dataset2/Foto(573).jpg");
     }
 
-    /** The false PDF417 used to stop the ladder before illumination read this EAN-13. */
+    /**
+     * The false PDF417 used to stop the ladder before illumination read this EAN-13. Without a
+     * time budget, as in the snapshot: the first read of a cold JVM takes about 3 s here, past the
+     * 2.5 s of fast mode, so with it the result depended on which tests ran before.
+     */
     @Test
     void foto542KeepsTheEanOnceTheFalsePdf417IsGone() throws IOException {
         BufferedImage image = ImageIO.read(ROOT.resolve("Dataset2/Foto(542).jpg").toFile());
-        List<BarcodeHit> hits = new BarcodeReader().read(image, ReadOptions.fast());
+        List<BarcodeHit> hits = new BarcodeReader().read(image, ReadOptions.fast().timeBudgetMillis(Long.MAX_VALUE));
         assertEquals(1, hits.size());
         assertEquals(Symbology.EAN_13, hits.get(0).symbology());
         assertEquals("8002205319804", hits.get(0).text());

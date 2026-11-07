@@ -2,6 +2,14 @@
 
 The release workflow takes the section of the tagged version as the notes of its GitHub release.
 
+## Unreleased
+
+### Reading
+
+- Fast mode halves a frame from a shorter side of 800 pixels instead of 1000, so the 1152×864 Arte-Lab photos get the halved attempt too: 321 labels read where 297 were, with the same 5 wrong texts. Aggressive mode keeps 1000.
+- After a miss, fast mode locates linear symbols with `BarSegments`, a port of the segment voting of tapirscan 1.5.0, instead of the coarse linear-band search. With `findAll` a band read that lies on the scan line of another code already read is dropped.
+- On a halved or quartered frame an EAN/UPC text is dropped when another text reads on more rows of the same bitmap, at whole or at quarter pixels. With `findAll` this removes 4 wrong texts on BarBeR, 2 on Arte-Lab and 1 on KAIST's multi-code photos, and no labelled read; aggressive mode is unchanged on all 16,382 snapshot images.
+
 ## 0.1.1
 
 ### Fixed

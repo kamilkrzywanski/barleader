@@ -149,9 +149,13 @@ final class Scan {
             // The other way round for a large photo: a symbol blurred over several pixels reads
             // once a box average has shrunk the blur. On BarBeR this reads 47 more labelled codes
             // in fast mode, EAN-13 on Muenster and ZVZ, ten ZVZ PDF417 and a few QR codes; the
-            // pyramid of aggressive mode, by threes, reads few of them.
+            // pyramid of aggressive mode, by threes, reads few of them. In fast mode halving starts
+            // at a shorter side of 800, so the 1152×864 Arte-Lab frames get it too: 24 more labelled
+            // EAN-13, and nothing that read before is lost. Aggressive mode keeps 1000: there the
+            // halved frame won before its later steps and lost four of those labels.
+            int halving = options.mode() == DecodeMode.FAST ? 800 : 1000;
             for (int factor : new int[]{2, 4}) {
-                if (Math.min(gray.width, gray.height) >= (factor == 2 ? 1000 : 1400)) {
+                if (Math.min(gray.width, gray.height) >= (factor == 2 ? halving : 1400)) {
                     jobs.add(() -> {
                         Transformed smaller = Geometry.boxDownscaled(gray, factor);
                         return readImage(smaller.image(), smaller.toSource(), "downscale-" + factor, 0, false,
@@ -167,7 +171,7 @@ final class Scan {
         traceDataMatrix(gray);
         if (options.mode() == DecodeMode.FAST || stop()) {
             // A miss of the whole fast ladder still looks for one tilted linear strip: first the
-            // patches of bars of BarStrips at their own angle, then the coarse band search with
+            // patches of bars of BarStrips at their own angle, then the crops of BarSegments with
             // only its hybrid and stretch reads. A hit never gets here.
             if (options.mode() == DecodeMode.FAST && (hits.isEmpty() || options.findAll()) && !stop()) {
                 tryBarStrips(gray);
@@ -888,23 +892,95 @@ final class Scan {
         }
     }
 
+    /** How far, as a share of its length, a band read may lie from a read code's line to be that code. */
+    private static final double ON_LINE = 0.1;
+
+    /** A band read in find-all mode beside a code with the same right half is that code's half with a wrong left. */
+    private void tryBandImage(GrayU8 image, LinearBand.Crop crop, String attempt, boolean global, Set<Symbology> formats) {
+        if (formats.isEmpty() || stop() || image.width < 2 || image.height < 2) {
+            return;
+        }
+        attempts++;
+        for (BarcodeHit hit : BitmapDecoder.read(image, crop.toSource(), attempt, crop.degrees(), 0.70, formats, global, false, options.eanAddOn())) {
+            if (!sameRightHalf(hit) && !(options.findAll() && onReadLine(hit))) {
+                hits.add(hit);
+            }
+        }
+    }
+
+    /**
+     * Whether the middle of a linear band read lies on the scan line of a linear code already read
+     * with other content: a second, wrong decode of that same symbol from a crop across it.
+     */
+    private boolean onReadLine(BarcodeHit hit) {
+        if (hit.symbology().twoDimensional() || hit.corners().isEmpty()) {
+            return false;
+        }
+        double cx = 0;
+        double cy = 0;
+        for (ImagePoint point : hit.corners()) {
+            cx += point.x();
+            cy += point.y();
+        }
+        cx /= hit.corners().size();
+        cy /= hit.corners().size();
+        for (BarcodeHit other : hits.list()) {
+            List<ImagePoint> line = other.corners();
+            if (other.symbology().twoDimensional() || line.size() < 2 || other.text().equals(hit.text())) {
+                continue;
+            }
+            ImagePoint p = line.get(0);
+            ImagePoint q = line.size() > 2 ? line.get(line.size() / 2) : line.get(1);
+            double dx = q.x() - p.x();
+            double dy = q.y() - p.y();
+            double length2 = dx * dx + dy * dy;
+            if (length2 < 1) {
+                continue;
+            }
+            double u = Math.max(0, Math.min(1, ((cx - p.x()) * dx + (cy - p.y()) * dy) / length2));
+            double ex = cx - p.x() - u * dx;
+            double ey = cy - p.y() - u * dy;
+            if (ex * ex + ey * ey < ON_LINE * ON_LINE * length2) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean sameRightHalf(BarcodeHit hit) {
+        if (hit.symbology() != Symbology.EAN_13 && hit.symbology() != Symbology.UPC_A) {
+            return false;
+        }
+        String right = hit.text().substring(hit.text().length() - 6);
+        for (BarcodeHit other : hits.list()) {
+            if ((other.symbology() == Symbology.EAN_13 || other.symbology() == Symbology.UPC_A)
+                    && !other.text().equals(hit.text()) && other.text().endsWith(right)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void tryFastLinearBands(GrayU8 gray) {
         Set<Symbology> formats = linearFormats();
         if (formats.isEmpty()) {
             return;
         }
-        bandCrops = LinearBand.find(gray, fanout, true);
+        // The bars of a postal code stand on one track of unequal height, which gives segment
+        // voting no family of parallel edges of about one length; those read only when asked for.
+        boolean postal = formats.contains(Symbology.ROYAL_MAIL) || formats.contains(Symbology.JAPAN_POST);
+        bandCrops = postal ? LinearBand.find(gray, fanout, true) : BarSegments.find(gray, 8);
         for (LinearBand.Crop crop : bandCrops) {
             if (stop()) {
                 return;
             }
-            tryGray(crop.image(), crop.toSource(), "linear-band", crop.degrees(), false, formats, 0.70, false);
+            tryBandImage(crop.image(), crop, "linear-band", false, formats);
             if (stop()) {
                 return;
             }
             GrayU8 stretched = GrayImages.stretch(crop.image());
             if (stretched != crop.image()) {
-                tryGray(stretched, crop.toSource(), "linear-band-stretch", crop.degrees(), false, formats, 0.70, false);
+                tryBandImage(stretched, crop, "linear-band-stretch", false, formats);
             }
         }
         Set<Symbology> longer = EnumSet.noneOf(Symbology.class);
