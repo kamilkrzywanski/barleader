@@ -41,6 +41,11 @@ public final class HitCollector {
         if (hit.text().isBlank()) {
             return false;
         }
+        BarcodeHit checked = crossChecked(hit);
+        return checked != null && addChecked(checked);
+    }
+
+    private boolean addChecked(BarcodeHit hit) {
         if (hits.stream().anyMatch(existing -> leftHalf(hit, existing))) {
             return false;
         }
@@ -283,5 +288,34 @@ public final class HitCollector {
             y += corner.y();
         }
         return new ImagePoint(x / corners.size(), y / corners.size());
+    }
+
+    /**
+     * An EAN-13 or UPC-A with its scan line, checked by {@link EanCrossCheck} against the image:
+     * kept, given the text the lines beside it agree on, or dropped when they read several others.
+     */
+    private BarcodeHit crossChecked(BarcodeHit hit) {
+        if (image == null || hit.corners().size() != 2
+                || hit.symbology() != Symbology.EAN_13 && hit.symbology() != Symbology.UPC_A) {
+            return hit;
+        }
+        ImagePoint a = hit.corners().get(0);
+        ImagePoint b = hit.corners().get(1);
+        EanCrossCheck.Result result = EanCrossCheck.check(image, a.x(), a.y(), b.x(), b.y(), hit.text());
+        switch (result.verdict()) {
+            case DROP:
+                return null;
+            case REPLACE:
+                String text = result.text();
+                Symbology symbology = Symbology.EAN_13;
+                if (hit.symbology() == Symbology.UPC_A && text.charAt(0) == '0') {
+                    symbology = Symbology.UPC_A;
+                    text = text.substring(1);
+                }
+                return new BarcodeHit(text, symbology, hit.corners(), hit.orientationDegrees(), hit.confidence(),
+                        hit.attempt() + "-checked", null, hit.addOn());
+            default:
+                return hit;
+        }
     }
 }
