@@ -737,6 +737,32 @@ public final class BitmapDecoder {
      * full resolution it also dropped labeled ones.
      */
     private static boolean outvoted(BinaryBitmap image, String text) {
+        Map<String, Integer> best = eanRowSupport(image);
+        String key = eanKey(text);
+        int own = best.getOrDefault(key, 0);
+        for (Map.Entry<String, Integer> entry : best.entrySet()) {
+            if (!entry.getKey().equals(key) && entry.getValue() >= 2 && entry.getValue() > own) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The rows of the hybrid bitmap of {@code luma} that read each EAN/UPC text, as {@link #eanRowSupport(BinaryBitmap)}
+     * counts them. A UPC-A and its EAN-13 with a leading zero are one key, the 12 digits.
+     */
+    public static Map<String, Integer> eanRowSupport(GrayU8 luma) {
+        return eanRowSupport(bitmap(new GrayLuminanceSource(luma), false));
+    }
+
+    /** The key {@link #eanRowSupport(GrayU8)} counts {@code text} under. */
+    public static String eanSupportKey(String text) {
+        return eanKey(text);
+    }
+
+    /** Rows reading each EAN/UPC text at whole and at quarter pixels, each text's better count. */
+    private static Map<String, Integer> eanRowSupport(BinaryBitmap image) {
         Map<String, Integer> best = new HashMap<>();
         for (int scale : new int[]{1, 4}) {
             Map<String, int[]> support = new HashMap<>();
@@ -752,14 +778,7 @@ public final class BitmapDecoder {
                 best.merge(entry.getKey(), entry.getValue()[0], Math::max);
             }
         }
-        String key = eanKey(text);
-        int own = best.getOrDefault(key, 0);
-        for (Map.Entry<String, Integer> entry : best.entrySet()) {
-            if (!entry.getKey().equals(key) && entry.getValue() >= 2 && entry.getValue() > own) {
-                return true;
-            }
-        }
-        return false;
+        return best;
     }
 
     /** {@code stats} is count, first row, last row. The same row in both directions counts once. */

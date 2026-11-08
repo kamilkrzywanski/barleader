@@ -120,3 +120,6 @@ The linear locator in BarSegments.java is a Java port of
 bindings/rust/src/pipeline/segment_voting.rs from tapirscan 1.5.0
 (https://github.com/kleinicke/tapirscan), Copyright (c) 2026 Florian Nick,
 under the Apache License 2.0 (the project is MIT OR Apache-2.0).
+
+The deconvolution of blurred crops in Deblur.java is a Java port of
+bindings/rust/src/pipeline/deblur.rs from tapirscan 1.5.0, under the same terms.

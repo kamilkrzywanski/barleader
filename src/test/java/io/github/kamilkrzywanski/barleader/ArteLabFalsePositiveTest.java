@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@code A}, and {@code Foto(573).jpg} used to come back as a short Data Matrix.
  * The printed Data Matrix symbols in Dataset1 are a different case and stay.
  *
- * <p>The eight photographs are copied under {@code src/test/resources/artelab} with the
+ * <p>The photographs are copied under {@code src/test/resources/artelab} with the
  * Arte-Lab readme (CC BY 3.0), so this runs without the {@code datasets} submodule.
  */
 class ArteLabFalsePositiveTest {
