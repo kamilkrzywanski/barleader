@@ -33,7 +33,9 @@ BarcodeReader.read(image, ReadOptions)
 2. the cheap ladder, computed together, accepted in order
    inverted-luma, pad-4, contrast-stretch, illumination,
    rotate-90/180/270 (linear and PDF417 only), adaptive-mean, otsu,
-   scale-2, downscale-2, downscale-4
+   scale-2, downscale-2, downscale-4,
+   in fast mode then contrast-stretch, illumination, adaptive-mean, otsu and
+   downscale-2 turned by 90° (linear only), without an attempt slot
 3. finders: qr-trace, mqr-trace, aztec-trace, dm-trace
       ↓ FAST after a miss
 4. bar-strip, then the linear crops of `BarSegments`, then their deblurred copies
