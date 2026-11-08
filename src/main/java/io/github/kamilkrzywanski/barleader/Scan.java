@@ -8,6 +8,8 @@ import io.github.kamilkrzywanski.barleader.decode.HitCollector;
 import io.github.kamilkrzywanski.barleader.decode.BitmapDecoder;
 import io.github.kamilkrzywanski.barleader.decode.Code128Fit;
 import io.github.kamilkrzywanski.barleader.decode.EanFit;
+import io.github.kamilkrzywanski.barleader.decode.EanHalves;
+import io.github.kamilkrzywanski.barleader.image.BinaryBitmap;
 import io.github.kamilkrzywanski.barleader.image.Geometry;
 import io.github.kamilkrzywanski.barleader.image.GrayImages;
 import io.github.kamilkrzywanski.barleader.image.GrayLuminanceSource;
@@ -210,6 +212,9 @@ final class Scan {
             }
             tryCode128Fit(gray);
             tryEanFit(gray);
+            if (options.mode() == DecodeMode.FAST) {
+                tryEanHalves(gray);
+            }
             return hits.list();
         }
 
@@ -1062,6 +1067,58 @@ final class Scan {
             if (reading == copies.length
                     || rival == 0 && (reading >= 2 || own >= 4 || fitted(deblur, copies, key))) {
                 hits.add(first);
+                return;
+            }
+        }
+    }
+
+    /**
+     * EAN-13 and UPC-A joined from halves on different rows by {@link EanHalves}, on the image, its
+     * halved frame and the image turned by 90 degrees, at whole and at quarter pixels, when fast
+     * mode read nothing else, after the fits: with findAll a fit beside it would not run. On the
+     * snapshot images fast mode missed it read 63 more and no wrong text. Like the fits it takes no
+     * attempt slot.
+     */
+    private void tryEanHalves(GrayU8 gray) {
+        boolean ean13 = symbologies.contains(Symbology.EAN_13);
+        boolean upcA = symbologies.contains(Symbology.UPC_A);
+        // Halves read no supplement, so they cannot give a symbol that has to carry one.
+        if (!hits.isEmpty() || !ean13 && !upcA || options.eanAddOn() == EanAddOn.REQUIRE || outOfTime()) {
+            return;
+        }
+        List<Transformed> sources = new ArrayList<>();
+        sources.add(Geometry.rotateOrthogonal(gray, 0));
+        if (Math.min(gray.width, gray.height) >= 800) {
+            sources.add(Geometry.boxDownscaled(gray, 2));
+        }
+        sources.add(Geometry.rotateOrthogonal(gray, 90));
+        for (Transformed source : sources) {
+            BinaryBitmap bitmap = BinaryBitmap.hybrid(new GrayLuminanceSource(source.image()));
+            for (int scale : new int[]{1, 4}) {
+                if (outOfTime()) {
+                    return;
+                }
+                EanHalves.Found found = EanHalves.read(bitmap, scale);
+                if (found == null) {
+                    continue;
+                }
+                Symbology symbology = Symbology.EAN_13;
+                String text = found.text();
+                if (text.charAt(0) == '0' && upcA) {
+                    symbology = Symbology.UPC_A;
+                    text = text.substring(1);
+                } else if (!ean13) {
+                    continue;
+                }
+                PixelMap map = source.toSource();
+                hits.add(new BarcodeHit(
+                        text,
+                        symbology,
+                        List.of(map.toSource(found.left(), found.row()), map.toSource(found.right(), found.row())),
+                        Math.floorMod(source.degrees() + (found.upsideDown() ? 180 : 0), 360),
+                        0.60,
+                        "ean-halves"
+                ));
                 return;
             }
         }
