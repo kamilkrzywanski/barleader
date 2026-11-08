@@ -86,10 +86,11 @@ final class BarSegments {
     private static float[] raster(GrayU8 gray, int w, int h, double scale) {
         float[] out = new float[w * h];
         if (scale >= 1) {
+            // The raster is at least 3×3, so an image one or two pixels thin repeats its last row or column.
             for (int y = 0; y < h; y++) {
-                int row = gray.startIndex + y * gray.stride;
+                int row = gray.startIndex + Math.min(y, gray.height - 1) * gray.stride;
                 for (int x = 0; x < w; x++) {
-                    out[y * w + x] = gray.data[row + x] & 255;
+                    out[y * w + x] = gray.data[row + Math.min(x, gray.width - 1)] & 255;
                 }
             }
             return out;

@@ -45,6 +45,8 @@ final class Scan {
     private int attempts;
     /** Crops from the band search, reused by the late unsharp that sits in the gaussian slot. */
     private List<LinearBand.Crop> bandCrops = List.of();
+    /** Whether {@link #bandCrops} are the crops of {@link BarSegments}, which {@link Deblur} sharpens. */
+    private boolean segmentCrops;
     /**
      * One nearest 2× Otsu of a tight crop stays under this. The shared scale cap is 1.6 Mpx
      * and is not raised. Crops above this were not measured.
@@ -178,6 +180,7 @@ final class Scan {
                 if (!stop()) {
                     tryFastLinearBands(gray);
                 }
+                tryDeblurredBands();
             }
             tryCode128Fit(gray);
             tryEanFit(gray);
@@ -274,6 +277,13 @@ final class Scan {
             traceMicroQr(inverted);
             traceAztec(inverted);
             traceDataMatrix(inverted);
+        }
+        // The aggressive ladder ends on the same deblurred crops: on the snapshot images they read
+        // 53 more EAN-13 and UPC-A it missed, and nothing it read before changed.
+        if (hits.isEmpty() && !stop() && !symbologies.contains(Symbology.ROYAL_MAIL) && !symbologies.contains(Symbology.JAPAN_POST)) {
+            bandCrops = BarSegments.find(gray, 8);
+            segmentCrops = true;
+            tryDeblurredBands();
         }
         tryCode128Fit(gray);
         tryEanFit(gray);
@@ -961,6 +971,91 @@ final class Scan {
         return false;
     }
 
+    /**
+     * EAN-13 and UPC-A in blurred crops of {@link BarSegments}, read on the three sharpened copies
+     * of {@link Deblur} when nothing else was read, late in both modes. A text counts when no copy
+     * of the crop reads another one, no other text reads on any row of a copy that read it, and either all three
+     * copies read it or it is confirmed: by {@link EanFit} on the crop or a copy, by two copies,
+     * or on four rows of one. A copy alone also reads a left half that its ghost turned into other
+     * digits, beside the right half of the real code. Like the fits after it, this takes no
+     * attempt slot: only the time budget stops it, as the crops before it often spend the attempts.
+     */
+    private void tryDeblurredBands() {
+        Set<Symbology> retail = EnumSet.noneOf(Symbology.class);
+        for (Symbology symbology : new Symbology[]{Symbology.EAN_13, Symbology.UPC_A}) {
+            if (symbologies.contains(symbology)) {
+                retail.add(symbology);
+            }
+        }
+        if (retail.isEmpty() || !hits.isEmpty() || !segmentCrops) {
+            return;
+        }
+        String[] names = {"linear-band-deghost", "linear-band-deghost-back", "linear-band-defocus"};
+        for (LinearBand.Crop crop : bandCrops) {
+            if (outOfTime()) {
+                return;
+            }
+            Deblur deblur = Deblur.blurred(crop);
+            if (deblur == null) {
+                continue;
+            }
+            GrayU8[] copies = deblur.variants();
+            BarcodeHit first = null;
+            String key = null;
+            int reading = 0;
+            int own = 0;
+            int rival = 0;
+            boolean conflict = false;
+            for (int i = 0; i < copies.length && !conflict; i++) {
+                List<BarcodeHit> read = BitmapDecoder.read(copies[i], deblur.toSource(), names[i], deblur.degrees(), 0.60,
+                        retail, false, false, options.eanAddOn());
+                if (read.isEmpty()) {
+                    continue;
+                }
+                BarcodeHit hit = read.get(0);
+                String text = BitmapDecoder.eanSupportKey(hit.text());
+                if (first == null) {
+                    first = hit;
+                    key = text;
+                } else if (!text.equals(key)) {
+                    conflict = true;
+                    continue;
+                }
+                reading++;
+                for (var entry : BitmapDecoder.eanRowSupport(copies[i]).entrySet()) {
+                    if (entry.getKey().equals(key)) {
+                        own = Math.max(own, entry.getValue());
+                    } else {
+                        rival = Math.max(rival, entry.getValue());
+                    }
+                }
+            }
+            if (first == null || conflict) {
+                continue;
+            }
+            if (reading == copies.length
+                    || rival == 0 && (reading >= 2 || own >= 4 || fitted(deblur, copies, key))) {
+                hits.add(first);
+                return;
+            }
+        }
+    }
+
+    /** Whether {@link EanFit} reads {@code key} on the resampled crop or on one of its copies. */
+    private static boolean fitted(Deblur deblur, GrayU8[] copies, String key) {
+        EanFit.Found found = EanFit.read(deblur.original());
+        if (found != null && BitmapDecoder.eanSupportKey(found.text()).equals(key)) {
+            return true;
+        }
+        for (GrayU8 copy : copies) {
+            found = EanFit.read(copy);
+            if (found != null && BitmapDecoder.eanSupportKey(found.text()).equals(key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void tryFastLinearBands(GrayU8 gray) {
         Set<Symbology> formats = linearFormats();
         if (formats.isEmpty()) {
@@ -970,6 +1065,7 @@ final class Scan {
         // voting no family of parallel edges of about one length; those read only when asked for.
         boolean postal = formats.contains(Symbology.ROYAL_MAIL) || formats.contains(Symbology.JAPAN_POST);
         bandCrops = postal ? LinearBand.find(gray, fanout, true) : BarSegments.find(gray, 8);
+        segmentCrops = !postal;
         for (LinearBand.Crop crop : bandCrops) {
             if (stop()) {
                 return;

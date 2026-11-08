@@ -101,8 +101,8 @@ When they are asked for, the opt-in symbologies read all of their samples: 245 o
 
 | | ZXing | fast | aggressive |
 | --- | ---: | ---: | ---: |
-| Labels read | 205 | 321 | 389 |
-| Wrong texts | 9 | 5 | 6 |
+| Labels read | 205 | 359 | 389 |
+| Wrong texts | 9 | 6 | 6 |
 
 The aggressive ladder was tuned on these photos, so treat 389 as what the ladder can reach on this kind of image, not as a measurement on unseen data.
 
