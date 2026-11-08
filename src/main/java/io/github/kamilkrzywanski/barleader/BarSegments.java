@@ -641,7 +641,12 @@ final class BarSegments {
         return new double[]{u0, u1, width, hi - lo};
     }
 
-    /** The box from the original, bars vertical, with {@link #END} pixels past each end. */
+    /**
+     * The box from the original, bars vertical, with {@link #END} crop pixels past each end. A box
+     * longer than {@link #MAX_WIDTH} or taller than {@link #MAX_HEIGHT} is sampled more coarsely,
+     * each crop pixel the mean of four samples, rather than dropped: a large symbol close to the
+     * lens fills such a box.
+     */
     private static LinearBand.Crop crop(GrayU8 gray, double[][] q) {
         double ux = q[1][0] - q[0][0];
         double uy = q[1][1] - q[0][1];
@@ -652,22 +657,32 @@ final class BarSegments {
         if (along < 16 || tall < 1e-6) {
             return null;
         }
-        double u0 = ux / along;
-        double u1 = uy / along;
-        double v0 = vx / tall;
-        double v1 = vy / tall;
-        int width = (int) Math.round(along + 2 * END);
-        int height = Math.max(MIN_HEIGHT, (int) Math.round(tall));
-        if (width > MAX_WIDTH || height > MAX_HEIGHT) {
-            return null;
-        }
-        double originX = q[0][0] - END * u0 - (height - tall) / 2 * v0;
-        double originY = q[0][1] - END * u1 - (height - tall) / 2 * v1;
+        double step = Math.max(1, Math.max((along + 2 * END) / MAX_WIDTH, tall / MAX_HEIGHT));
+        double u0 = ux / along * step;
+        double u1 = uy / along * step;
+        double v0 = vx / tall * step;
+        double v1 = vy / tall * step;
+        int width = (int) Math.round(along / step + 2 * END);
+        int height = Math.max(MIN_HEIGHT, (int) Math.round(tall / step));
+        double originX = q[0][0] - END * u0 - (height - tall / step) / 2 * v0;
+        double originY = q[0][1] - END * u1 - (height - tall / step) / 2 * v1;
         PixelMap toSource = (x, y) -> new ImagePoint(originX + u0 * x + v0 * y, originY + u1 * x + v1 * y);
         GrayU8 image = new GrayU8(width, height);
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
-                image.set(x, y, LinearBand.bilinear(gray, originX + u0 * x + v0 * y, originY + u1 * x + v1 * y));
+                double sx = originX + u0 * x + v0 * y;
+                double sy = originY + u1 * x + v1 * y;
+                if (step == 1) {
+                    image.set(x, y, LinearBand.bilinear(gray, sx, sy));
+                } else {
+                    int sum = 0;
+                    for (double dy = -0.25; dy <= 0.25; dy += 0.5) {
+                        for (double dx = -0.25; dx <= 0.25; dx += 0.5) {
+                            sum += LinearBand.bilinear(gray, sx + u0 * dx + v0 * dy, sy + u1 * dx + v1 * dy);
+                        }
+                    }
+                    image.set(x, y, (sum + 2) / 4);
+                }
             }
         }
         int degrees = (int) Math.round(Math.toDegrees(Math.atan2(uy, ux)));

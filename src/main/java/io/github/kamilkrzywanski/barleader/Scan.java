@@ -166,6 +166,32 @@ final class Scan {
                 }
             }
             runAttempts(jobs);
+            // The variants scan rows only, and rotate-90 turns only the original: a vertical symbol
+            // that needs a threshold, the illumination or the halved frame was lost. Turned by 90
+            // degrees as well, for the linear formats, they read 57 more snapshot images in fast
+            // mode, and of 930 photos turned by 90 degrees 827 read instead of 805. They come last,
+            // and like the fits they take no attempt slot, so the steps after them keep theirs.
+            Set<Symbology> across = rotationFormats();
+            if (!across.isEmpty() && options.mode() == DecodeMode.FAST && (hits.isEmpty() || all) && !outOfTime()) {
+                List<Callable<List<BarcodeHit>>> crossed = new ArrayList<>();
+                if (stretched != gray) {
+                    crossed.add(() -> readTurned(stretched, PixelMap.IDENTITY, "contrast-stretch-90", false, across, 0.72, all));
+                }
+                crossed.add(() -> readTurned(GrayImages.flattenIllumination(gray), PixelMap.IDENTITY, "illumination-90", false, across, 0.72, all));
+                crossed.add(() -> readTurned(GrayImages.binaryToLuma(Thresholds.mean(gray)), PixelMap.IDENTITY, "adaptive-mean-90", true, across, 0.66, all));
+                crossed.add(() -> readTurned(GrayImages.binaryToLuma(Thresholds.otsu(gray)), PixelMap.IDENTITY, "otsu-90", true, across, 0.66, all));
+                if (Math.min(gray.width, gray.height) >= halving) {
+                    crossed.add(() -> {
+                        Transformed smaller = Geometry.boxDownscaled(gray, 2);
+                        return readTurned(smaller.image(), smaller.toSource(), "downscale-2-90", false, across, 0.76, all);
+                    });
+                }
+                fanout.inOrder(crossed, () -> outOfTime() || !all && !hits.isEmpty(), found -> {
+                    if (found != null) {
+                        accept(found);
+                    }
+                });
+            }
         }
         traceQr(gray);
         traceMicroQr(gray);
@@ -1822,6 +1848,13 @@ final class Scan {
                 tryGray(luma, toSource, attempt, 0, false, formats, 0.76, false);
             }
         });
+    }
+
+    /** {@code image} turned by 90 degrees and read, its corners mapped back through {@code toSource}. */
+    private List<BarcodeHit> readTurned(GrayU8 image, PixelMap toSource, String attempt, boolean global,
+            Set<Symbology> formats, double confidence, boolean multi) {
+        Transformed turned = Geometry.rotateOrthogonal(image, 90);
+        return readImage(turned.image(), turned.toSource().before(toSource), attempt, 90, global, formats, confidence, multi);
     }
 
     /**
