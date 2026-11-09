@@ -568,7 +568,7 @@ final class Scan {
     ) {
         GrayU8 sharp = GrayImages.unsharpHorizontal(crop.image(), radius, amount);
         if (otsu) {
-            tryGray(
+            tryBand(
                     GrayImages.binaryToLuma(Thresholds.otsu(sharp)),
                     crop.toSource(),
                     "linear-band-unsharp-otsu",
@@ -580,7 +580,7 @@ final class Scan {
             );
             return;
         }
-        tryGray(sharp, crop.toSource(), "linear-band-unsharp", crop.degrees(), false, formats, 0.70, false);
+        tryBand(sharp, crop.toSource(), "linear-band-unsharp", crop.degrees(), false, formats, 0.70, false);
     }
 
     /**
@@ -617,7 +617,7 @@ final class Scan {
                 strip.set(x, y, value);
             }
         }
-        tryGray(
+        tryBand(
                 strip,
                 crop.toSource(),
                 "linear-band-level-" + percent,
@@ -1527,20 +1527,20 @@ final class Scan {
         GrayU8 image = crop.image();
         PixelMap map = crop.toSource();
         int degrees = crop.degrees();
-        tryGray(image, map, "linear-band" + suffix, degrees, false, formats, 0.70, false);
+        tryBand(image, map, "linear-band" + suffix, degrees, false, formats, 0.70, false);
         if (stop()) {
             return;
         }
         if (suffix.isEmpty()) {
             GrayU8 stretched = GrayImages.stretch(image);
             if (stretched != image) {
-                tryGray(stretched, map, "linear-band-stretch", degrees, false, formats, 0.70, false);
+                tryBand(stretched, map, "linear-band-stretch", degrees, false, formats, 0.70, false);
                 if (stop()) {
                     return;
                 }
             }
         }
-        tryGray(
+        tryBand(
                 GrayImages.binaryToLuma(Thresholds.otsu(image)),
                 map,
                 "linear-band-otsu" + suffix,
@@ -1554,7 +1554,7 @@ final class Scan {
             return;
         }
         if (suffix.isEmpty()) {
-            tryGray(
+            tryBand(
                     GrayImages.binaryToLuma(Thresholds.mean(image)),
                     map,
                     "linear-band-mean",
@@ -2394,6 +2394,34 @@ final class Scan {
         }
         attempts++;
         accept(BitmapDecoder.read(image, toSource, attempt, degrees, confidence, formats, globalBinarizer, multi, options.eanAddOn()));
+    }
+
+    /**
+     * As {@link #tryGray}, for a crop of a linear band: a read that lies on the scan line of a code
+     * already read with other content ({@link #onReadLine}), or that shares the right half of an
+     * EAN-13 read ({@link #sameRightHalf}), is left out, as with the crops of fast mode. With findAll
+     * aggressive mode read 8 of its 10 wrong texts on the public tapirscan benchmark so: an EAN-8 or
+     * UPC-E across the bars of the one it had read right, one or two digits off.
+     */
+    private void tryBand(
+            GrayU8 image,
+            PixelMap toSource,
+            String attempt,
+            int degrees,
+            boolean globalBinarizer,
+            Set<Symbology> formats,
+            double confidence,
+            boolean multi
+    ) {
+        if (formats.isEmpty() || stop() || image.width < 2 || image.height < 2) {
+            return;
+        }
+        attempts++;
+        for (BarcodeHit hit : BitmapDecoder.read(image, toSource, attempt, degrees, confidence, formats, globalBinarizer, multi, options.eanAddOn())) {
+            if (!sameRightHalf(hit) && !(options.findAll() && onReadLine(hit))) {
+                hits.add(hit);
+            }
+        }
     }
 
     private void accept(List<BarcodeHit> found) {
