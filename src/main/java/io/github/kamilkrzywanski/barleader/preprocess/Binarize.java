@@ -74,11 +74,21 @@ final class Binarize {
         return binary;
     }
 
+    /**
+     * A local threshold against a Gaussian blur of sigma {@code window / 5}, as three box means of
+     * equal width: their variance is three times {@code (w * w - 1) / 12}. A kernel {@code window}
+     * wide took one multiply per tap and pixel, and the window grows with the image: on a
+     * 100-megapixel frame about 1.5e11 operations, many minutes in one step that no budget stopped.
+     * The box means cost the same at any width.
+     */
     static GrayU8 localGaussian(GrayU8 gray, int window) {
-        int radius = window / 2;
-        int[] kernel = gaussianKernel(radius);
-        GrayU8 horizontal = convolve(gray, kernel, true);
-        GrayU8 blur = convolve(horizontal, kernel, false);
+        double sigma = window / 5.0;
+        int box = Math.max(1, (int) Math.round((Math.sqrt(4.0 * sigma * sigma + 1.0) - 1.0) / 2.0));
+        GrayU8 blur = new GrayU8(gray.width, gray.height);
+        GrayU8 pass = new GrayU8(gray.width, gray.height);
+        BoxMean.mean(gray, blur, box);
+        BoxMean.mean(blur, pass, box);
+        BoxMean.mean(pass, blur, box);
         GrayU8 binary = new GrayU8(gray.width, gray.height);
         for (int y = 0; y < gray.height; y++) {
             for (int x = 0; x < gray.width; x++) {
@@ -250,65 +260,4 @@ final class Binarize {
         return image.get(x, y);
     }
 
-    /** Odd integer Gaussian. Sigma is {@code (2 * radius + 1) / 5}, then scaled the way an integer kernel is. */
-    private static int[] gaussianKernel(int radius) {
-        double sigma = (radius * 2.0 + 1.0) / 5.0;
-        int width = radius * 2 + 1;
-        double[] pdf = new double[width];
-        double max = 0.0;
-        for (int i = 0; i < width; i++) {
-            double sample = radius - i;
-            pdf[i] = Math.exp(-sample * sample / (2.0 * sigma * sigma)) / (sigma * Math.sqrt(2.0 * Math.PI));
-            max = Math.max(max, pdf[i]);
-        }
-        double floor = max * 0.01;
-        double min = Double.MAX_VALUE;
-        for (double value : pdf) {
-            if (value < min && value >= floor) {
-                min = value;
-            }
-        }
-        int[] kernel = new int[width];
-        for (int i = 0; i < width; i++) {
-            kernel[i] = (int) (pdf[i] / min);
-        }
-        return kernel;
-    }
-
-    private static GrayU8 convolve(GrayU8 input, int[] kernel, boolean horizontal) {
-        int radius = kernel.length / 2;
-        int weight = 0;
-        for (int value : kernel) {
-            weight += value;
-        }
-        GrayU8 out = new GrayU8(input.width, input.height);
-        for (int y = 0; y < input.height; y++) {
-            for (int x = 0; x < input.width; x++) {
-                int total = 0;
-                int used = 0;
-                for (int k = 0; k < kernel.length; k++) {
-                    int xx = x;
-                    int yy = y;
-                    if (horizontal) {
-                        xx = x - radius + k;
-                    } else {
-                        yy = y - radius + k;
-                    }
-                    if (xx < 0 || yy < 0 || xx >= input.width || yy >= input.height) {
-                        continue;
-                    }
-                    total += input.get(xx, yy) * kernel[k];
-                    used += kernel[k];
-                }
-                if (used == 0) {
-                    out.set(x, y, input.get(x, y));
-                } else if (!horizontal && used == weight) {
-                    out.set(x, y, (int) ((total + weight / 2) * (1.0 / weight)));
-                } else {
-                    out.set(x, y, (total + used / 2) / used);
-                }
-            }
-        }
-        return out;
-    }
 }
