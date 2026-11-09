@@ -2,7 +2,7 @@
 
 The release workflow takes the section of the tagged version as the notes of its GitHub release.
 
-## Unreleased
+## 0.2.0
 
 ### Reading
 

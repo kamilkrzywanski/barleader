@@ -16,7 +16,7 @@ Barleader reads QR Code, Micro QR, Data Matrix, Aztec, PDF417, Code 128, Code 39
 <dependency>
     <groupId>io.github.kamilkrzywanski</groupId>
     <artifactId>barleader</artifactId>
-    <version>0.1.1</version>
+    <version>0.2.0</version>
 </dependency>
 ```
 
