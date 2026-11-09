@@ -22,6 +22,7 @@ import io.github.kamilkrzywanski.barleader.locate.dm.AztecDetector;
 import io.github.kamilkrzywanski.barleader.locate.dm.DataMatrixDetector;
 import io.github.kamilkrzywanski.barleader.locate.dm.MicroQrDetector;
 import io.github.kamilkrzywanski.barleader.locate.dm.QrDetector;
+import io.github.kamilkrzywanski.barleader.locate.dm.QrPure;
 import io.github.kamilkrzywanski.barleader.preprocess.Thresholds;
 
 import java.awt.image.BufferedImage;
@@ -1860,6 +1861,14 @@ final class Scan {
         // The median is a second look inside this attempt, not a looser finder threshold.
         if (found.isEmpty()) {
             found = QrDetector.read(GrayImages.median3(gray));
+        }
+        // An upright symbol that fills the image reads without its finders, which BoofCV's
+        // pathological samples cut, dot and pierce (QrPure).
+        if (found.isEmpty()) {
+            QrDetector.Found pure = QrPure.read(gray);
+            if (pure != null) {
+                found = List.of(pure);
+            }
         }
         for (QrDetector.Found hit : found) {
             List<ImagePoint> corners = new ArrayList<>(hit.corners().size());
