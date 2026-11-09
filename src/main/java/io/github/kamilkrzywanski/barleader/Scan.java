@@ -30,6 +30,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 
 /**
  * Ordered attempts from the spec. Cheap ZXing calls run first so a clean symbol
@@ -211,8 +212,10 @@ final class Scan {
             if (stretched != gray) {
                 jobs.add(() -> readImage(stretched, PixelMap.IDENTITY, "contrast-stretch", 0, false, variants, 0.74, all));
             }
+            // The turned variants below read four of these images again: each is built once.
+            AtomicReferenceArray<Object> built = new AtomicReferenceArray<>(4);
             jobs.add(() -> readImage(
-                    GrayImages.flattenIllumination(gray), PixelMap.IDENTITY, "illumination", 0, false, variants, 0.74, all));
+                    built(built, 0, () -> GrayImages.flattenIllumination(gray)), PixelMap.IDENTITY, "illumination", 0, false, variants, 0.74, all));
             Set<Symbology> turned = rotationFormats();
             for (int angle : turned.isEmpty() ? new int[0] : new int[]{90, 180, 270}) {
                 jobs.add(() -> {
@@ -222,10 +225,10 @@ final class Scan {
                 });
             }
             jobs.add(() -> readImage(
-                    GrayImages.binaryToLuma(Thresholds.mean(gray)),
+                    built(built, 1, () -> GrayImages.binaryToLuma(Thresholds.mean(gray))),
                     PixelMap.IDENTITY, "adaptive-mean", 0, true, variants, 0.68, all));
             jobs.add(() -> readImage(
-                    GrayImages.binaryToLuma(Thresholds.otsu(gray)),
+                    built(built, 2, () -> GrayImages.binaryToLuma(Thresholds.otsu(gray))),
                     PixelMap.IDENTITY, "otsu", 0, true, variants, 0.68, all));
             if (Math.min(gray.width, gray.height) <= 900 && Geometry.withinPixelBudget(gray.width, gray.height, 2.0)) {
                 jobs.add(() -> {
@@ -244,7 +247,9 @@ final class Scan {
             for (int factor : new int[]{2, 4}) {
                 if (Math.min(gray.width, gray.height) >= (factor == 2 ? halving : 1400)) {
                     jobs.add(() -> {
-                        Transformed smaller = Geometry.boxDownscaled(gray, factor);
+                        Transformed smaller = factor == 2
+                                ? built(built, 3, () -> Geometry.boxDownscaled(gray, 2))
+                                : Geometry.boxDownscaled(gray, factor);
                         return readImage(smaller.image(), smaller.toSource(), "downscale-" + factor, 0, false,
                                 variants, 0.78, all);
                     });
@@ -262,12 +267,12 @@ final class Scan {
                 if (stretched != gray) {
                     crossed.add(() -> readTurned(stretched, PixelMap.IDENTITY, "contrast-stretch-90", false, across, 0.72, all));
                 }
-                crossed.add(() -> readTurned(GrayImages.flattenIllumination(gray), PixelMap.IDENTITY, "illumination-90", false, across, 0.72, all));
-                crossed.add(() -> readTurned(GrayImages.binaryToLuma(Thresholds.mean(gray)), PixelMap.IDENTITY, "adaptive-mean-90", true, across, 0.66, all));
-                crossed.add(() -> readTurned(GrayImages.binaryToLuma(Thresholds.otsu(gray)), PixelMap.IDENTITY, "otsu-90", true, across, 0.66, all));
+                crossed.add(() -> readTurned(built(built, 0, () -> GrayImages.flattenIllumination(gray)), PixelMap.IDENTITY, "illumination-90", false, across, 0.72, all));
+                crossed.add(() -> readTurned(built(built, 1, () -> GrayImages.binaryToLuma(Thresholds.mean(gray))), PixelMap.IDENTITY, "adaptive-mean-90", true, across, 0.66, all));
+                crossed.add(() -> readTurned(built(built, 2, () -> GrayImages.binaryToLuma(Thresholds.otsu(gray))), PixelMap.IDENTITY, "otsu-90", true, across, 0.66, all));
                 if (Math.min(gray.width, gray.height) >= halving) {
                     crossed.add(() -> {
-                        Transformed smaller = Geometry.boxDownscaled(gray, 2);
+                        Transformed smaller = built(built, 3, () -> Geometry.boxDownscaled(gray, 2));
                         return readTurned(smaller.image(), smaller.toSource(), "downscale-2-90", false, across, 0.76, all);
                     });
                 }
@@ -1988,6 +1993,20 @@ final class Scan {
                 tryGray(luma, toSource, attempt, 0, false, formats, 0.76, false);
             }
         });
+    }
+
+    /**
+     * The image in {@code slot}, built by {@code make} the first time it is asked for. Two jobs
+     * asking at once may both build it; either copy is the same image.
+     */
+    @SuppressWarnings("unchecked")
+    private static <T> T built(AtomicReferenceArray<Object> slots, int slot, java.util.function.Supplier<T> make) {
+        Object image = slots.get(slot);
+        if (image == null) {
+            image = make.get();
+            slots.compareAndSet(slot, null, image);
+        }
+        return (T) image;
     }
 
     /** {@code image} turned by 90 degrees and read, its corners mapped back through {@code toSource}. */

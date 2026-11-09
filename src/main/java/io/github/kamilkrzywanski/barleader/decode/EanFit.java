@@ -494,11 +494,12 @@ public final class EanFit {
             chosen[p] = pick;
             state = next(state, p, pick);
         }
-        StringBuilder text = new StringBuilder().append(lead[state]);
+        char[] text = new char[13];
+        text[0] = (char) ('0' + lead[state]);
         for (int p = 0; p < 12; p++) {
-            text.append(chosen[p] % 10);
+            text[p + 1] = (char) ('0' + chosen[p] % 10);
         }
-        return new Fit(text.toString(), (cost + guardCost) / 15, runnerUp - cost, left, right);
+        return new Fit(new String(text), (cost + guardCost) / 15, runnerUp - cost, left, right);
     }
 
     /** The state after option {@code o} at position {@code p}: G sets the parity bit, the digit adds to the sum. */
