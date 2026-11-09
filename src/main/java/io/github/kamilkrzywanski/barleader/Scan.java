@@ -10,6 +10,7 @@ import io.github.kamilkrzywanski.barleader.decode.Code128Fit;
 import io.github.kamilkrzywanski.barleader.decode.EanFit;
 import io.github.kamilkrzywanski.barleader.decode.EanHalves;
 import io.github.kamilkrzywanski.barleader.image.BinaryBitmap;
+import io.github.kamilkrzywanski.barleader.image.ContentBounds;
 import io.github.kamilkrzywanski.barleader.image.Geometry;
 import io.github.kamilkrzywanski.barleader.image.GrayImages;
 import io.github.kamilkrzywanski.barleader.image.GrayLuminanceSource;
@@ -49,6 +50,12 @@ final class Scan {
     private List<LinearBand.Crop> bandCrops = List.of();
     /** Whether {@link #bandCrops} are the crops of {@link BarSegments}, which {@link Deblur} sharpens. */
     private boolean segmentCrops;
+    /** Frames of at least this many pixels are read where they hold anything ({@link ContentBounds}). */
+    private static final long CROP_PIXELS = 20_000_000L;
+    /** Fast mode reads frames of at least this many pixels on a reduced copy first. */
+    private static final long REDUCE_PIXELS = 20_000_000L;
+    /** About the pixels of that reduced copy. */
+    private static final long REDUCED_PIXELS = 8_000_000L;
     /**
      * One nearest 2× Otsu of a tight crop stays under this. The shared scale cap is 1.6 Mpx
      * and is not raised. Crops above this were not measured.
@@ -99,6 +106,82 @@ final class Scan {
         if (gray.width < 2 || gray.height < 2) {
             return List.of();
         }
+        // A photo pasted on a blank 100-megapixel canvas was read whole: every variant built and
+        // thresholded the blank too, fast mode ran out of time before reading it, and the parallel
+        // variants of aggressive mode held gigabytes. A very large frame is read where it holds
+        // anything, and the corners moved back.
+        int[] box = (long) gray.width * gray.height >= CROP_PIXELS ? ContentBounds.find(gray) : null;
+        GrayU8 work = gray;
+        GrayU8 workOriginal = original;
+        if (box != null) {
+            work = ContentBounds.crop(gray, box);
+            workOriginal = original == gray ? work : ContentBounds.crop(original, box);
+        }
+        List<BarcodeHit> found = null;
+        long pixels = (long) work.width * work.height;
+        // A frame still this large holds symbols whose modules span many pixels, past the windows
+        // of the thresholds: an EAN-8 upsampled to 48 megapixels read on every reduced copy and on
+        // none of the full frame. Fast mode first reads a box-averaged copy of about eight
+        // megapixels, then the full frame when that read nothing. With findAll the full frame is
+        // read, as a reduced copy can lose a small second symbol.
+        if (pixels >= REDUCE_PIXELS && options.mode() == DecodeMode.FAST && !options.findAll()) {
+            int factor = (int) Math.ceil(Math.sqrt(pixels / (double) REDUCED_PIXELS));
+            Transformed small = Geometry.boxDownscaled(work, factor);
+            List<BarcodeHit> reduced = new ArrayList<>(new Scan(options.timeBudgetMillis(remainingMillis()), fanout)
+                    .runWhole(small.image(), small.image()));
+            // The four-state bars of a Japan Post code, halved and halved again, read as the
+            // EAN-13 6111111111111; such a read sends the frame back to full resolution.
+            reduced.removeIf(Scan::repetitiveRetail);
+            if (!reduced.isEmpty()) {
+                found = moved(reduced, small.toSource(), 0, 0);
+            }
+        }
+        if (found == null) {
+            found = runWhole(work, workOriginal);
+        }
+        return box == null ? found : moved(found, PixelMap.IDENTITY, box[0], box[1]);
+    }
+
+    /** {@code hits} with their corners mapped by {@code map} and shifted by ({@code dx}, {@code dy}). */
+    private static List<BarcodeHit> moved(List<BarcodeHit> hits, PixelMap map, int dx, int dy) {
+        List<BarcodeHit> out = new ArrayList<>(hits.size());
+        for (BarcodeHit hit : hits) {
+            List<ImagePoint> corners = new ArrayList<>(hit.corners().size());
+            for (ImagePoint point : hit.corners()) {
+                ImagePoint p = map.toSource(point.x(), point.y());
+                corners.add(new ImagePoint(p.x() + dx, p.y() + dy));
+            }
+            out.add(new BarcodeHit(hit.text(), hit.symbology(), corners, hit.orientationDegrees(),
+                    hit.confidence(), hit.attempt(), hit.bytes(), hit.addOn()));
+        }
+        return out;
+    }
+
+    /** An EAN-13 or UPC-A with one digit five times or more in either half. */
+    private static boolean repetitiveRetail(BarcodeHit hit) {
+        if (hit.symbology() != Symbology.EAN_13 && hit.symbology() != Symbology.UPC_A) {
+            return false;
+        }
+        String text = hit.text().length() == 12 ? "0" + hit.text() : hit.text();
+        for (String half : new String[]{text.substring(1, 7), text.substring(7)}) {
+            int[] count = new int[10];
+            for (int i = 0; i < half.length(); i++) {
+                if (++count[half.charAt(i) - '0'] >= 5) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private long remainingMillis() {
+        if (budgetNanos == Long.MAX_VALUE) {
+            return Long.MAX_VALUE;
+        }
+        return Math.max(1, (budgetNanos - (System.nanoTime() - startNanos)) / 1_000_000L);
+    }
+
+    private List<BarcodeHit> runWhole(GrayU8 gray, GrayU8 original) {
         hits = new HitCollector(gray);
         tryOriginals(new GrayLuminanceSource(original));
         return ladder(gray);

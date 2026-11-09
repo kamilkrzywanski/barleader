@@ -119,7 +119,7 @@ On KAIST's 788 photos without a barcode, ZXing reads something on 7, fast on non
 
 **Speed.** A clean symbol is read on the first attempt in a few milliseconds. On the 430 Arte-Lab photos (1152×864 to 2976×2232 pixels, most of them hard), read one after another by the default reader on a 20-thread desktop, fast mode took 0.10 s a photo and 0.19 s of CPU spread over the cores; aggressive mode took 0.17 s and 0.49 s of CPU. On KAIST's 788 photos without a barcode, where every mode runs to its end, fast took 0.12 s a photo and aggressive 0.38 s. `mvn -q -Pspeed test-compile exec:java -Dexec.args="datasets/artelab-medium-barcode-1d"` measures it again. Numbers depend on the machine; the relative cost of the modes does not.
 
-**Robustness.** 1,500 random, degenerate (from 1×1 pixel to 3 megapixels) and damaged images in every mode raise no exception.
+**Robustness.** 1,500 random, degenerate (from 1×1 pixel to 3 megapixels) and damaged images in every mode raise no exception. A frame of 20 megapixels or more is read where it holds anything, and fast mode reads it first on a copy of about 8 megapixels: a photo pasted on a blank 100-megapixel canvas reads in about a third of a second in either mode.
 
 ## Writing barcodes
 
