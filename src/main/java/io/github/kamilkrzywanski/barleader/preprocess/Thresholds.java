@@ -27,17 +27,30 @@ public final class Thresholds {
     }
 
     public static List<GrayU8> sauvola(GrayU8 gray) {
+        List<GrayU8> images = new ArrayList<>(2);
+        for (int index = 0; ; index++) {
+            GrayU8 image = sauvola(gray, index);
+            if (image == null) {
+                return images;
+            }
+            images.add(image);
+        }
+    }
+
+    /**
+     * One image of {@link #sauvola(GrayU8)}, built alone: 0 the narrow window, 1 the wide one, or
+     * null when there is no such window. On a large frame each takes about a second.
+     */
+    public static GrayU8 sauvola(GrayU8 gray, int index) {
         int wide = radius(gray, 8);
         int narrow = Math.max(15, wide / 2);
         if (narrow % 2 == 0) {
             narrow++;
         }
-        List<GrayU8> images = new ArrayList<>(2);
-        images.add(Binarize.sauvola(gray, narrow));
-        if (wide != narrow) {
-            images.add(Binarize.sauvola(gray, wide));
+        if (index == 0) {
+            return Binarize.sauvola(gray, narrow);
         }
-        return images;
+        return index == 1 && wide != narrow ? Binarize.sauvola(gray, wide) : null;
     }
 
     public static List<GrayU8> morphology(GrayU8 binary) {

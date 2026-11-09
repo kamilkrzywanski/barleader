@@ -74,7 +74,7 @@ public final class RegionLocalizer {
         if (formats.isEmpty()) {
             return;
         }
-        GrayU8 binary = Thresholds.sauvola(gray).get(0);
+        GrayU8 binary = Thresholds.sauvola(gray, 0);
         detectClosedBlobs(gray, binary, toSource, wanted, formats, sink);
     }
 
