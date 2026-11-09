@@ -28,7 +28,8 @@ There is no runtime dependency. ZXing `core` and `javase`, Barcode-Lib4J and PDF
 BufferedImage or 8-bit luminance
       ↓
 BarcodeReader.read(image, ReadOptions)
-      ↓
+      ↓ from 20 Mpx: only the box that holds anything (ContentBounds);
+        in fast mode first the whole ladder on a copy of about 8 Mpx
 1. original-hybrid, original-global
 2. the cheap ladder, computed together, accepted in order
    inverted-luma, pad-4, contrast-stretch, illumination,
