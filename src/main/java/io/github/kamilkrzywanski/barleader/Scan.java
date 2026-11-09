@@ -48,6 +48,11 @@ final class Scan {
     /** {@code Long.MAX_VALUE} when the read has no time budget. */
     private final long budgetNanos;
     private int attempts;
+    /**
+     * Attempts that fast mode's steps after the variants took in aggressive mode, which the
+     * aggressive steps after them get on top of their own budget.
+     */
+    private int lent;
     /** Crops from the band search, reused by the late unsharp that sits in the gaussian slot. */
     private List<LinearBand.Crop> bandCrops = List.of();
     /** The colour image read, while its channels may still be asked for ({@link #colourChannels()}). */
@@ -274,11 +279,10 @@ final class Scan {
             // The other way round for a large photo: a symbol blurred over several pixels reads
             // once a box average has shrunk the blur. On BarBeR this reads 47 more labelled codes
             // in fast mode, EAN-13 on Muenster and ZVZ, ten ZVZ PDF417 and a few QR codes; the
-            // pyramid of aggressive mode, by threes, reads few of them. In fast mode halving starts
-            // at a shorter side of 800, so the 1152×864 Arte-Lab frames get it too: 24 more labelled
-            // EAN-13, and nothing that read before is lost. Aggressive mode keeps 1000: there the
-            // halved frame won before its later steps and lost four of those labels.
-            int halving = options.mode() == DecodeMode.FAST ? 800 : 1000;
+            // pyramid of aggressive mode, by threes, reads few of them. Halving starts at a shorter
+            // side of 800, so the 1152×864 Arte-Lab frames get it too: 24 more labelled EAN-13 in
+            // fast mode, and nothing that read before is lost.
+            int halving = 800;
             for (int factor : new int[]{2, 4}) {
                 if (Math.min(gray.width, gray.height) >= (factor == 2 ? halving : 1400)) {
                     jobs.add(() -> {
@@ -297,7 +301,7 @@ final class Scan {
             // mode, and of 930 photos turned by 90 degrees 827 read instead of 805. They come last,
             // and like the fits they take no attempt slot, so the steps after them keep theirs.
             Set<Symbology> across = rotationFormats();
-            if (!across.isEmpty() && options.mode() == DecodeMode.FAST && (hits.isEmpty() || all) && !outOfTime()) {
+            if (!across.isEmpty() && (hits.isEmpty() || all) && !outOfTime()) {
                 List<Callable<List<BarcodeHit>>> crossed = new ArrayList<>();
                 if (stretched != gray) {
                     crossed.add(() -> readTurned(stretched, PixelMap.IDENTITY, "contrast-stretch-90", false, across, 0.72, all));
@@ -322,24 +326,30 @@ final class Scan {
         traceMicroQr(gray);
         traceAztec(gray);
         traceDataMatrix(gray);
-        if (options.mode() == DecodeMode.FAST || stop()) {
-            // A miss of the whole fast ladder still looks for one tilted linear strip: first the
-            // patches of bars of BarStrips at their own angle, then the crops of BarSegments with
-            // only its hybrid and stretch reads. A hit never gets here.
-            if (options.mode() == DecodeMode.FAST && (hits.isEmpty() || options.findAll()) && !stop()) {
-                tryBarStrips(gray);
-                if (!stop()) {
-                    tryFastLinearBands(gray);
-                }
-                tryCropRescue(gray);
-                tryDeblurredBands();
+        // A miss of the variants still looks for tilted linear strips: first the patches of bars
+        // of BarStrips at their own angle, then the crops of BarSegments, then the fits to the
+        // gray profile, EAN halves and the colour channels. Aggressive mode takes these steps too,
+        // before its own, and its own get the attempts these took on top of their budget: on the
+        // snapshot images it read fewer KAIST and BarBeR photos than fast mode, and on the public
+        // tapirscan benchmark it missed 48 turned and 28 vertical photos fast mode read.
+        int before = attempts;
+        if ((hits.isEmpty() || options.findAll()) && !stop()) {
+            tryBarStrips(gray);
+            if (!stop()) {
+                tryFastLinearBands(gray);
             }
-            tryCode128Fit(gray);
-            tryEanFit(gray);
-            if (options.mode() == DecodeMode.FAST) {
-                tryEanHalves(gray);
-                tryColourChannels();
-            }
+            tryCropRescue(gray);
+            tryDeblurredBands();
+        }
+        tryCode128Fit(gray);
+        tryEanFit(gray);
+        tryEanHalves(gray);
+        tryColourChannels();
+        if (options.mode() == DecodeMode.FAST) {
+            return hits.list();
+        }
+        lent = attempts - before;
+        if (stop()) {
             return hits.list();
         }
 
@@ -441,29 +451,6 @@ final class Scan {
             traceAztec(inverted);
             traceDataMatrix(inverted);
         }
-        // Fast mode's linear locator, which follows a symbol at any angle: after a miss of every
-        // step above, or with findAll, the crops of BarSegments are read as fast mode reads them,
-        // then rescued as there. These reads take no attempt slot, so every step above keeps its
-        // own, and only an image the ladder missed, or findAll, gets them.
-        boolean postal = symbologies.contains(Symbology.ROYAL_MAIL) || symbologies.contains(Symbology.JAPAN_POST);
-        List<LinearBand.Crop> segments = null;
-        if ((hits.isEmpty() || options.findAll()) && !outOfTime() && !postal) {
-            segments = BarSegments.find(gray, options.findAll() ? 16 : 8);
-            bandCrops = segments;
-            segmentCrops = true;
-            readSegmentCrops();
-            tryCropRescue(gray);
-        }
-        // The aggressive ladder ends on the same deblurred crops: on the snapshot images they read
-        // 53 more EAN-13 and UPC-A it missed, and nothing it read before changed. The first eight
-        // crops of BarSegments are the eight it finds with that limit.
-        if (hits.isEmpty() && !stop() && !postal) {
-            bandCrops = segments != null ? segments.subList(0, Math.min(8, segments.size())) : BarSegments.find(gray, 8);
-            segmentCrops = true;
-            tryDeblurredBands();
-        }
-        tryCode128Fit(gray);
-        tryEanFit(gray);
         return hits.list();
     }
 
@@ -490,6 +477,7 @@ final class Scan {
         int index = 0;
         List<LinearBand.Crop> crops = LinearBand.find(gray, fanout);
         bandCrops = crops;
+        segmentCrops = false;
         for (LinearBand.Crop crop : crops) {
             if (stop()) {
                 return;
@@ -1493,25 +1481,6 @@ final class Scan {
         return true;
     }
 
-    /** Each crop of {@link BarSegments} as it is and stretched, while the budget lasts. */
-    private void readSegmentCrops() {
-        Set<Symbology> formats = linearFormats();
-        if (formats.isEmpty()) {
-            return;
-        }
-        boolean all = options.findAll();
-        for (LinearBand.Crop crop : bandCrops) {
-            if (rescueDone(all)) {
-                return;
-            }
-            acceptBand(readImage(crop.image(), crop.toSource(), "linear-segment", crop.degrees(), false, formats, 0.70, false));
-            GrayU8 stretched = GrayImages.stretch(crop.image());
-            if (stretched != crop.image() && !rescueDone(all)) {
-                acceptBand(readImage(stretched, crop.toSource(), "linear-segment-stretch", crop.degrees(), false, formats, 0.70, false));
-            }
-        }
-    }
-
     private boolean rescueDone(boolean all) {
         return outOfTime() || !all && !hits.isEmpty();
     }
@@ -2447,7 +2416,7 @@ final class Scan {
         if (!options.findAll() && !hits.isEmpty()) {
             return true;
         }
-        return attempts >= options.maxAttempts() || outOfTime();
+        return attempts >= options.maxAttempts() + lent || outOfTime();
     }
 
     private boolean outOfTime() {

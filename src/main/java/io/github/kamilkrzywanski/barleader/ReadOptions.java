@@ -12,9 +12,10 @@ import java.util.Set;
 
 /**
  * Immutable options for one read. {@link #fast()} is the default ladder with a 2.5 s, 40-attempt
- * budget. {@link #aggressive()} adds the expensive variants and raises the budget to 8 s and 100
- * attempts. {@link #mode(DecodeMode)} changes only the ladder; it does not rewrite budgets already
- * set on this instance.
+ * budget. {@link #aggressive()} takes every step of the fast ladder, then adds the expensive
+ * variants, and raises the budget to 8 s and 100 attempts; the attempts the last steps of the fast
+ * ladder take, after its variants, come on top of those. {@link #mode(DecodeMode)} changes only the
+ * ladder; it does not rewrite budgets already set on this instance.
  *
  * <p>The time budget makes the result depend on how fast the machine is and how busy it is: a read
  * that runs out of time returns what it found so far. Pass {@code Long.MAX_VALUE} to
