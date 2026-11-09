@@ -1390,7 +1390,8 @@ final class Scan {
      * already are, and like them only on an image nothing has read.</li>
      * </ul>
      * On the rotated photos of the public tapirscan benchmark that fast mode read upright and
-     * missed turned, a full read of a crop found the code on 22 of 62. Like the fits these reads
+     * missed turned, a full read of a crop found the code on 22 of 62. A UPC-E read so counts only
+     * when {@link QuietZone} finds no bar of the frame just past its ends. Like the fits these reads
      * take no attempt slot; only the time budget, or a hit without findAll, stops them.
      */
     private void tryCropRescue(GrayU8 gray) {
@@ -1410,13 +1411,13 @@ final class Scan {
                 return;
             }
             Transformed padded = Geometry.pad(crop.image(), CROP_MARGIN);
-            acceptBand(readImage(padded.image(), padded.toSource().before(crop.toSource()), "linear-band-pad",
+            acceptRescued(gray, readImage(padded.image(), padded.toSource().before(crop.toSource()), "linear-band-pad",
                     crop.degrees(), false, formats, 0.68, false));
             if (rescueDone(all)) {
                 return;
             }
             Transformed turned = Geometry.rotateOrthogonal(crop.image(), 90);
-            acceptBand(readImage(turned.image(), turned.toSource().before(crop.toSource()), "linear-band-90",
+            acceptRescued(gray, readImage(turned.image(), turned.toSource().before(crop.toSource()), "linear-band-90",
                     (crop.degrees() + 90) % 360, false, formats, 0.66, false));
             if (rescueDone(all)) {
                 return;
@@ -1430,7 +1431,7 @@ final class Scan {
                 for (BarcodeHit hit : read) {
                     if (!shorter.contains(hit.symbology())
                             || halvesRead(longer.image(), hit.text(), EnumSet.of(hit.symbology()), false)) {
-                        acceptBand(List.of(hit));
+                        acceptRescued(gray, List.of(hit));
                     }
                 }
             }
@@ -1441,10 +1442,10 @@ final class Scan {
                     }
                     PixelMap map = inner.toSource().before(crop.toSource());
                     int degrees = (inner.degrees() + crop.degrees()) % 360;
-                    acceptBand(readImage(inner.image(), map, "linear-band-inner", degrees, false, formats, 0.66, false));
+                    acceptRescued(gray, readImage(inner.image(), map, "linear-band-inner", degrees, false, formats, 0.66, false));
                     GrayU8 stretched = GrayImages.stretch(inner.image());
                     if (stretched != inner.image() && !rescueDone(all)) {
-                        acceptBand(readImage(stretched, map, "linear-band-inner-stretch", degrees, false, formats, 0.66, false));
+                        acceptRescued(gray, readImage(stretched, map, "linear-band-inner-stretch", degrees, false, formats, 0.66, false));
                     }
                 }
             }
@@ -1464,9 +1465,9 @@ final class Scan {
             // texts. A read counts when the other threshold reads the same text, or when the top
             // and the bottom half of its own image each do.
             if (byOtsu != null && (byMean != null && byMean.text().equals(byOtsu.text()) || halvesRead(otsu, byOtsu.text(), shorter, true))) {
-                acceptBand(List.of(byOtsu));
+                acceptRescued(gray, List.of(byOtsu));
             } else if (byMean != null && halvesRead(mean, byMean.text(), shorter, true)) {
-                acceptBand(List.of(byMean));
+                acceptRescued(gray, List.of(byMean));
             }
         }
     }
@@ -1513,6 +1514,32 @@ final class Scan {
 
     private boolean rescueDone(boolean all) {
         return outOfTime() || !all && !hits.isEmpty();
+    }
+
+    /**
+     * The reads of a crop of {@link #tryCropRescue} as {@link #acceptBand} takes them, without a
+     * UPC-E the frame shows bars just past: a crop that ends, or is padded white, at the middle guard
+     * of an EAN-13 reads its left half as a UPC-E, as two BarBeR photos did, one of them in place of
+     * its EAN-13. An EAN-8 has no such counterpart, and the real ones of the public tapirscan
+     * benchmark can have the dark edge of their label or collage 5 modules past their ends.
+     */
+    private void acceptRescued(GrayU8 gray, List<BarcodeHit> found) {
+        if (found == null) {
+            return;
+        }
+        List<BarcodeHit> kept = new ArrayList<>(found.size());
+        for (BarcodeHit hit : found) {
+            if (hit.symbology() != Symbology.UPC_E || hit.corners().size() != 2 || !hit.addOn().isEmpty()) {
+                kept.add(hit);
+                continue;
+            }
+            ImagePoint a = hit.corners().get(0);
+            ImagePoint b = hit.corners().get(1);
+            if (QuietZone.clear(gray, a.x(), a.y(), b.x(), b.y(), 51)) {
+                kept.add(hit);
+            }
+        }
+        acceptBand(kept);
     }
 
     /** The reads of a band crop, without those {@link #tryBandImage} also leaves out. */
