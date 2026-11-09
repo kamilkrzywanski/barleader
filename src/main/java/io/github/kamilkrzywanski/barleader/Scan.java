@@ -50,6 +50,9 @@ final class Scan {
     private int attempts;
     /** Crops from the band search, reused by the late unsharp that sits in the gaussian slot. */
     private List<LinearBand.Crop> bandCrops = List.of();
+    /** The colour image read, while its channels may still be asked for ({@link #colourChannels()}). */
+    private BufferedImage colour;
+    private GrayU8[] channels;
     /** Whether {@link #bandCrops} are the crops of {@link BarSegments}, which {@link Deblur} sharpens. */
     private boolean segmentCrops;
     /** Frames of at least this many pixels are read where they hold anything ({@link ContentBounds}). */
@@ -96,6 +99,7 @@ final class Scan {
             return List.of();
         }
         GrayImages.Converted converted = GrayImages.convert(image, true);
+        colour = image;
         return run(converted.gray(), converted.zxing());
     }
 
@@ -115,6 +119,10 @@ final class Scan {
         int[] box = (long) gray.width * gray.height >= CROP_PIXELS ? ContentBounds.find(gray) : null;
         GrayU8 work = gray;
         GrayU8 workOriginal = original;
+        if (box != null || pixels(gray) >= REDUCE_PIXELS) {
+            // The colour channels are in the coordinates of the whole frame.
+            colour = null;
+        }
         if (box != null) {
             work = ContentBounds.crop(gray, box);
             workOriginal = original == gray ? work : ContentBounds.crop(original, box);
@@ -174,6 +182,24 @@ final class Scan {
             }
         }
         return false;
+    }
+
+    private static long pixels(GrayU8 gray) {
+        return (long) gray.width * gray.height;
+    }
+
+    /**
+     * The brightest and the darkest channel of the colour image read, built the first time a
+     * step asks for them, or null for a gray image or a frame read in parts.
+     */
+    private GrayU8[] colourChannels() {
+        if (colour != null && channels == null) {
+            channels = GrayImages.channels(colour);
+            if (channels == null) {
+                colour = null;
+            }
+        }
+        return channels;
     }
 
     private long remainingMillis() {
@@ -303,6 +329,7 @@ final class Scan {
             tryEanFit(gray);
             if (options.mode() == DecodeMode.FAST) {
                 tryEanHalves(gray);
+                tryColourChannels();
             }
             return hits.list();
         }
@@ -1211,6 +1238,33 @@ final class Scan {
                 return;
             }
         }
+    }
+
+    /**
+     * Luma turns a red background into a dark gray under black bars, and blue bars into a middling
+     * gray on white. The brightest channel of each pixel keeps the first contrast, the darkest the
+     * second. Fast mode reads both, with the formats of the variants, when nothing else read a colour
+     * image, as its very last step: earlier, a short Code 128 on a parcel read there before the
+     * band crops and the fits reached the labelled one. No attempt slot.
+     */
+    private void tryColourChannels() {
+        boolean all = options.findAll();
+        if (!hits.isEmpty() || outOfTime()) {
+            return;
+        }
+        GrayU8[] planes = colourChannels();
+        if (planes == null) {
+            return;
+        }
+        Set<Symbology> formats = variantFormats();
+        List<Callable<List<BarcodeHit>>> coloured = List.of(
+                () -> readImage(planes[0], PixelMap.IDENTITY, "channel-max", 0, false, formats, 0.72, all),
+                () -> readImage(planes[1], PixelMap.IDENTITY, "channel-min", 0, false, formats, 0.72, all));
+        fanout.inOrder(coloured, () -> outOfTime() || !all && !hits.isEmpty(), found -> {
+            if (found != null) {
+                accept(found);
+            }
+        });
     }
 
     /** Whether {@link EanFit} reads {@code key} on the resampled crop or on one of its copies. */
