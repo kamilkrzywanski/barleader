@@ -63,6 +63,51 @@ public final class GrayImages {
         return new Converted(gray, zxing);
     }
 
+    /**
+     * The brightest and the darkest channel of each pixel, {@code max(R, G, B)} and
+     * {@code min(R, G, B)}, or null when fewer than {@link #COLOURFUL_SHARE} of the pixels are
+     * coloured. On the brightest channel a coloured background turns light under dark bars, black on
+     * red for one; on the darkest, coloured bars turn dark on a light background. Luma keeps neither
+     * contrast: red reads as a dark gray.
+     */
+    public static GrayU8[] channels(BufferedImage image) {
+        int width = image.getWidth();
+        int height = image.getHeight();
+        RgbRows rows = new RgbRows(image);
+        if (rows.isByteGray()) {
+            return null;
+        }
+        GrayU8 bright = new GrayU8(width, height);
+        GrayU8 dark = new GrayU8(width, height);
+        int[] argb = new int[width];
+        long coloured = 0;
+        for (int y = 0, row = 0; y < height; y++, row += width) {
+            rows.read(y, argb);
+            for (int x = 0; x < width; x++) {
+                int p = argb[x];
+                int r = p >> 16 & 255;
+                int g = p >> 8 & 255;
+                int b = p & 255;
+                int high = Math.max(r, Math.max(g, b));
+                int low = Math.min(r, Math.min(g, b));
+                bright.data[row + x] = (byte) high;
+                dark.data[row + x] = (byte) low;
+                if (high - low > COLOURED) {
+                    coloured++;
+                }
+            }
+        }
+        if (coloured < COLOURFUL_SHARE * width * (double) height) {
+            return null;
+        }
+        return new GrayU8[]{bright, dark};
+    }
+
+    /** A pixel whose channels spread more than this is coloured. */
+    private static final int COLOURED = 40;
+    /** The share of coloured pixels below which an image is read as gray only. */
+    private static final double COLOURFUL_SHARE = 0.02;
+
     /** Stretches the 1st–99th percentile range to 0..255. Returns {@code gray} when contrast is already tiny. */
     public static GrayU8 stretch(GrayU8 gray) {
         int[] hist = new int[256];

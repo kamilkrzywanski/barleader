@@ -47,7 +47,8 @@ BarcodeReader.read(image, ReadOptions)
    morphology (2D only), blob-quad, finders on inverted grayscale,
    then the deblurred copies of the `BarSegments` crops
       ↓ both, on an image nothing has read
-5. code128-fit, ean-fit, then in fast mode ean-halves
+5. code128-fit, ean-fit, then in fast mode ean-halves and on a colour image
+   channel-max, channel-min
       ↓
 List<BarcodeHit>
 ```
