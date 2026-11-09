@@ -83,6 +83,31 @@ final class BarSegments {
         return crops;
     }
 
+    /**
+     * A crop of {@link #find} sampled again from its box made {@code times} as long, about its
+     * centre. The bars an edge cluster takes in can stop short of a symbol's ends: of 60 turned
+     * photos of the public tapirscan benchmark that fast mode missed, mostly EAN-8, 7 read on the
+     * crops and 22 on the crops 1.8 times as long; 1.3 and 2 times read 13 and 20. Fitting the box
+     * to the bars first, after tapirscan's {@code shear::refine}, read fewer and none of the others.
+     */
+    static LinearBand.Crop lengthened(GrayU8 gray, LinearBand.Crop crop, double times) {
+        GrayU8 image = crop.image();
+        PixelMap map = crop.toSource();
+        ImagePoint a = map.toSource(END, 0);
+        ImagePoint b = map.toSource(image.width - END, 0);
+        ImagePoint d = map.toSource(END, image.height);
+        double ex = (b.x() - a.x()) * (times - 1) / 2;
+        double ey = (b.y() - a.y()) * (times - 1) / 2;
+        double vx = d.x() - a.x();
+        double vy = d.y() - a.y();
+        return crop(gray, new double[][]{
+                {a.x() - ex, a.y() - ey},
+                {b.x() + ex, b.y() + ey},
+                {b.x() + ex + vx, b.y() + ey + vy},
+                {a.x() - ex + vx, a.y() - ey + vy},
+        });
+    }
+
     private static float[] raster(GrayU8 gray, int w, int h, double scale) {
         float[] out = new float[w * h];
         if (scale >= 1) {
