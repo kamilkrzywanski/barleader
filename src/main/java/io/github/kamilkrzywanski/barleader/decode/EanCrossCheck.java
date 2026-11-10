@@ -42,9 +42,59 @@ public final class EanCrossCheck {
      * ({@code x0}, {@code y0}) to ({@code x1}, {@code y1}) of {@code image}.
      */
     public static Result check(GrayU8 image, double x0, double y0, double x1, double y1, String text) {
+        Lines read = lines(image, x0, y0, x1, y1, text);
+        if (read == null) {
+            return Result.KEEP;
+        }
+        int lines = 0;
+        Set<String> texts = new HashSet<>();
+        for (int r = 0; r < OFFSETS.length; r++) {
+            if (read.same[r]) {
+                return Result.KEEP;
+            }
+            if (read.other[r] != null) {
+                lines++;
+                texts.add(read.other[r]);
+            }
+        }
+        if (lines < MIN_LINES) {
+            return Result.KEEP;
+        }
+        if (texts.size() == 1 && !read.mixed) {
+            return new Result(Verdict.REPLACE, texts.iterator().next());
+        }
+        return new Result(Verdict.DROP, null);
+    }
+
+    /**
+     * Whether one of the lines beside the read of {@code text} along ({@code x0}, {@code y0}) to
+     * ({@code x1}, {@code y1}) repeats it; true also when the line is too short or too long to tell.
+     */
+    public static boolean repeated(GrayU8 image, double x0, double y0, double x1, double y1, String text) {
+        Lines read = lines(image, x0, y0, x1, y1, text);
+        if (read == null) {
+            return true;
+        }
+        for (boolean same : read.same) {
+            if (same) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * What each line read: {@code same} whether it repeats the text, {@code other} the first other
+     * EAN-13 it read, and {@code mixed} whether a line read two others.
+     */
+    private record Lines(boolean[] same, String[] other, boolean mixed) {
+    }
+
+    /** The lines beside a read of {@code text}, or null when the line is too short or too long to tell. */
+    private static Lines lines(GrayU8 image, double x0, double y0, double x1, double y1, String text) {
         double length = Math.hypot(x1 - x0, y1 - y0);
         if (image == null || length < 20 || !Double.isFinite(length)) {
-            return Result.KEEP;
+            return null;
         }
         String want = text.length() == 12 ? "0" + text : text;
         double ux = (x1 - x0) / length;
@@ -52,7 +102,7 @@ public final class EanCrossCheck {
         double extend = EXTEND * length;
         int width = (int) Math.round(length + 2 * extend);
         if (width > 8192) {
-            return Result.KEEP;
+            return null;
         }
         GrayU8 strip = new GrayU8(width, OFFSETS.length * REPEAT);
         for (int r = 0; r < OFFSETS.length; r++) {
@@ -93,24 +143,7 @@ public final class EanCrossCheck {
                 }
             }
         }
-        int lines = 0;
-        Set<String> texts = new HashSet<>();
-        for (int r = 0; r < OFFSETS.length; r++) {
-            if (same[r]) {
-                return Result.KEEP;
-            }
-            if (other[r] != null) {
-                lines++;
-                texts.add(other[r]);
-            }
-        }
-        if (lines < MIN_LINES) {
-            return Result.KEEP;
-        }
-        if (texts.size() == 1 && !mixed) {
-            return new Result(Verdict.REPLACE, texts.iterator().next());
-        }
-        return new Result(Verdict.DROP, null);
+        return new Lines(same, other, mixed);
     }
 
     private static double bilinear(GrayU8 g, double x, double y) {

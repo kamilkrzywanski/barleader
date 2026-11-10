@@ -41,9 +41,10 @@ class ArteLabFalsePositiveTest {
     }
 
     /**
-     * The false PDF417 used to stop the ladder before illumination read this EAN-13. Without a
-     * time budget, as in the snapshot: the first read of a cold JVM takes about 3 s here, past the
-     * 2.5 s of fast mode, so with it the result depended on which tests ran before.
+     * The false PDF417 used to stop the ladder before illumination read this EAN-13; the patches of
+     * bars, now read before the variants, read it first. Without a time budget, as in the
+     * snapshot: the first read of a cold JVM takes about 3 s here, past the 2.5 s of fast mode, so
+     * with it the result depended on which tests ran before.
      */
     @Test
     void foto542KeepsTheEanOnceTheFalsePdf417IsGone() throws IOException {
@@ -52,7 +53,7 @@ class ArteLabFalsePositiveTest {
         assertEquals(1, hits.size());
         assertEquals(Symbology.EAN_13, hits.get(0).symbology());
         assertEquals("8002205319804", hits.get(0).text());
-        assertEquals("illumination", hits.get(0).attempt());
+        assertEquals("bar-strip", hits.get(0).attempt());
     }
 
     @Test

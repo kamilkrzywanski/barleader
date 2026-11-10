@@ -7,6 +7,7 @@ package io.github.kamilkrzywanski.barleader;
 import io.github.kamilkrzywanski.barleader.decode.HitCollector;
 import io.github.kamilkrzywanski.barleader.decode.BitmapDecoder;
 import io.github.kamilkrzywanski.barleader.decode.Code128Fit;
+import io.github.kamilkrzywanski.barleader.decode.EanCrossCheck;
 import io.github.kamilkrzywanski.barleader.decode.EanFit;
 import io.github.kamilkrzywanski.barleader.decode.StripBands;
 import io.github.kamilkrzywanski.barleader.decode.EanHalves;
@@ -56,6 +57,8 @@ final class Scan {
      * aggressive steps after them get on top of their own budget.
      */
     private int lent;
+    /** A read of the candidates first that waits for the variants of the whole frame ({@link #confirmedEarly}). */
+    private HitCollector held;
     /** Crops from the band search, reused by the late unsharp that sits in the gaussian slot. */
     private List<LinearBand.Crop> bandCrops = List.of();
     /** The colour image read, while its channels may still be asked for ({@link #colourChannels()}). */
@@ -274,6 +277,23 @@ final class Scan {
         // then throw the decode away. Those images are independent, so a miss runs them
         // together and keeps the earliest hit in this same order.
         Set<Symbology> variants = variantFormats();
+        // Without findAll the symbols the linear locators found are read first, as tapirscan
+        // reads its candidates before anything else: the patches of BarStrips, the crops of
+        // BarSegments and their rescue. Only a miss there builds the variants of the whole frame,
+        // and these reads lend the variants the attempts they took. A read the frame does not
+        // confirm waits: the variants and the traces come first, as before, and it counts only
+        // when they read nothing.
+        boolean early = !options.findAll() && !stop() && !variants.isEmpty();
+        if (early) {
+            linearRegions(gray);
+            int spent = attempts;
+            readCandidates(gray);
+            lent += attempts - spent;
+            if (!hits.isEmpty() && !confirmedEarly(hits.list().get(0), gray)) {
+                held = hits;
+                hits = new HitCollector(gray);
+            }
+        }
         if (!stop() && !variants.isEmpty()) {
             // The linear readers of the variants read only the rows across a symbol the linear
             // locators found, and the matrix readers only on a frame that shows their finders:
@@ -375,6 +395,9 @@ final class Scan {
         traceMicroQr(gray);
         traceAztec(gray);
         traceDataMatrix(gray);
+        if (held != null && hits.isEmpty()) {
+            hits = held;
+        }
         // A miss of the variants still looks for tilted linear strips: first the patches of bars
         // of BarStrips at their own angle, then the crops of BarSegments, then the fits to the
         // gray profile, EAN halves and the colour channels. Aggressive mode takes these steps too,
@@ -383,7 +406,9 @@ final class Scan {
         // tapirscan benchmark it missed 48 turned and 28 vertical photos fast mode read.
         int before = attempts;
         if ((hits.isEmpty() || options.findAll()) && !stop()) {
-            readCandidates(gray);
+            if (!early) {
+                readCandidates(gray);
+            }
             tryDeblurredBands();
         }
         tryCode128Fit(gray);
@@ -2369,6 +2394,27 @@ final class Scan {
             return List.of();
         }
         return BitmapDecoder.read(image, toSource, attempt, degrees, confidence, formats, globalBinarizer, multi, options.eanAddOn());
+    }
+
+    /**
+     * Whether a read of the candidates first counts before the variants of the whole frame. A
+     * crop is read on its own pixels, without the rows around it: read before the variants, on
+     * the snapshot photos crops returned a wrong EAN-13 or UPC-A on 6 photos a variant read right,
+     * 5 of them with a wrong left half, and a UPC-E cut from an EAN-13 on 2. An EAN-13 or UPC-A
+     * counts only when one of the lines of the frame beside it repeats it ({@link EanCrossCheck}):
+     * 5 of those 6 had none, and of a quarter of the photos a variant read the same, 549 of 643
+     * had one. A UPC-E always waits.
+     */
+    private static boolean confirmedEarly(BarcodeHit hit, GrayU8 gray) {
+        if (hit.symbology() == Symbology.UPC_E) {
+            return false;
+        }
+        if ((hit.symbology() == Symbology.EAN_13 || hit.symbology() == Symbology.UPC_A) && hit.corners().size() == 2) {
+            ImagePoint a = hit.corners().get(0);
+            ImagePoint b = hit.corners().get(1);
+            return EanCrossCheck.repeated(gray, a.x(), a.y(), b.x(), b.y(), hit.text());
+        }
+        return true;
     }
 
     /** The patches of {@link BarStrips}, then the crops of {@link BarSegments} and their rescue. */
