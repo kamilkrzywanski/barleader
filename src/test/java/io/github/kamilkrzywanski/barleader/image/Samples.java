@@ -1,6 +1,5 @@
 package io.github.kamilkrzywanski.barleader.image;
 
-import io.github.kamilkrzywanski.barleader.image.GrayU8;
 import com.google.zxing.BarcodeFormat;
 import com.google.zxing.EncodeHintType;
 import com.google.zxing.Writer;
@@ -28,6 +27,7 @@ import java.awt.image.BufferedImage;
 import java.awt.image.ConvolveOp;
 import java.awt.image.Kernel;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -352,9 +352,7 @@ public final class Samples {
 
     static BufferedImage blur(BufferedImage source) {
         float[] kernel = new float[25];
-        for (int i = 0; i < kernel.length; i++) {
-            kernel[i] = 1f / 25f;
-        }
+        Arrays.fill(kernel, 1f / 25f);
         ConvolveOp op = new ConvolveOp(new Kernel(5, 5, kernel), ConvolveOp.EDGE_NO_OP, null);
         BufferedImage image = filled(source.getWidth(), source.getHeight(), 0xFFFFFF);
         op.filter(source, image);

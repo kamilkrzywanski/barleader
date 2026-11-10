@@ -1033,6 +1033,7 @@ final class MicroPdf417Reader {
                 for (Codeword c : cell) {
                     if (c != best && c.count >= best.count) {
                         unique = false;
+                        break;
                     }
                 }
                 matrix[i] = unique ? best : new Codeword();

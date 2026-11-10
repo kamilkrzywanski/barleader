@@ -77,10 +77,7 @@ public final class Code128Fit {
 
     private static Found readSpan(double[] profile, int from, int to, int y) {
         double[] forward = Arrays.copyOfRange(profile, from, to);
-        double[] backward = new double[forward.length];
-        for (int i = 0; i < forward.length; i++) {
-            backward[i] = forward[forward.length - 1 - i];
-        }
+        double[] backward = GrayProfile.reversed(forward);
         Fit ahead = search(forward);
         Fit behind = search(backward);
         boolean upsideDown = behind != null && (ahead == null || better(behind, ahead));

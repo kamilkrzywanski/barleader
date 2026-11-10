@@ -200,12 +200,7 @@ public final class HighLevelEncoder {
             }
         }
         // We are left with a set of states.  Find the shortest one.
-        State minState = Collections.min(states, new Comparator<State>() {
-            @Override
-            public int compare(State a, State b) {
-                return a.getBitCount() - b.getBitCount();
-            }
-        });
+        State minState = Collections.min(states, Comparator.comparingInt(State::getBitCount));
         // Convert it to a bit array, and return.
         return minState.toBitArray(text);
     }

@@ -16,6 +16,7 @@ import java.util.EnumSet;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.fail;
@@ -178,7 +179,7 @@ class MicroQrDetectorTest {
                 break;
             }
         }
-        assertTrue(qr != null);
+        assertNotNull(qr);
         List<MicroQrDetector.Found> found = MicroQrDetector.read(GrayImages.from(qr));
         assertTrue(found.isEmpty(), found.toString());
     }
@@ -305,7 +306,7 @@ class MicroQrDetectorTest {
         MicroQrDecoder.Format format = MicroQrDecoder.readFormat(bits);
         assertTrue(format.valid());
         int[] codewords = MicroQrDecoder.readCodewords(bits, 3, format, 17);
-        assertTrue(codewords != null);
+        assertNotNull(codewords);
         assertEquals(17, codewords.length);
         assertEquals(expected, codewords[index]);
     }

@@ -356,9 +356,7 @@ public final class BoxMean {
         }
         float divisor = length;
         int step = length * width;
-        for (int x = 0; x < width; x++) {
-            totals[x] = input[x];
-        }
+        System.arraycopy(input, 0, totals, 0, width);
         for (int y = 1; y < length; y++) {
             int row = y * width;
             for (int x = 0; x < width; x++) {

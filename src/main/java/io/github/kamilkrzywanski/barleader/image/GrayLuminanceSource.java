@@ -70,18 +70,6 @@ public final class GrayLuminanceSource {
         return new GrayLuminanceSource(luminances, dataWidth, this.left + left, this.top + top, width, height);
     }
 
-    public GrayLuminanceSource rotateCounterClockwise() {
-        byte[] rotated = new byte[width * height];
-        int newWidth = height;
-        for (int y = 0; y < height; y++) {
-            int row = (top + y) * dataWidth + left;
-            for (int x = 0; x < width; x++) {
-                rotated[x * newWidth + (newWidth - 1 - y)] = luminances[row + x];
-            }
-        }
-        return new GrayLuminanceSource(rotated, newWidth, 0, 0, newWidth, width);
-    }
-
     private static boolean packed(GrayU8 image) {
         return image.stride == image.width && image.startIndex == 0 && image.data.length == image.width * image.height;
     }

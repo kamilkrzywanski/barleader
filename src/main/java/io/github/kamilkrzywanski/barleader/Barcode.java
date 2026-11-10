@@ -139,6 +139,7 @@ public final class Barcode {
         Drawing drawing = Drawing.of(this, options);
         int width = Math.toIntExact((long) Math.ceil(drawing.width * moduleSize - 1e-9));
         int height = Math.toIntExact((long) Math.ceil(drawing.height * moduleSize - 1e-9));
+        // Throws when the pixel count overflows an int, before BufferedImage would; the command line reports it.
         Math.multiplyExact(width, height);
         BufferedImage image = new BufferedImage(width, height, drawing.hasText() ? BufferedImage.TYPE_BYTE_GRAY : BufferedImage.TYPE_BYTE_BINARY);
         Graphics2D graphics = image.createGraphics();

@@ -12,6 +12,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class Pdf417DetectorTest {
@@ -21,7 +22,7 @@ class Pdf417DetectorTest {
         Pdf417Detector.Result result = Pdf417Detector.detect(image, false, true);
         assertNotNull(result);
         assertEquals(0, result.rotation);
-        assertTrue(result.bits == image);
+        assertSame(image, result.bits);
         assertEquals(1, result.symbols.size());
         Pdf417Detector.Point[] points = result.symbols.get(0).points;
         for (Pdf417Detector.Point point : points) {
