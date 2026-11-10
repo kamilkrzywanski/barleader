@@ -5,6 +5,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package io.github.kamilkrzywanski.barleader.encode.datamatrix;
 
+import java.util.Arrays;
+
 /**
  * Error Correction Code for ECC200.
  *
@@ -138,9 +140,7 @@ public final class ErrorCorrection {
         }
         int[] poly = FACTORS[table];
         char[] ecc = new char[numECWords];
-        for (int i = 0; i < numECWords; i++) {
-            ecc[i] = 0;
-        }
+        Arrays.fill(ecc, (char) 0);
         for (int i = 0; i < codewords.length(); i++) {
             int m = ecc[numECWords - 1] ^ codewords.charAt(i);
             for (int k = numECWords - 1; k > 0; k--) {

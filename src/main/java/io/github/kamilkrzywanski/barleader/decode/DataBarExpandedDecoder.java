@@ -7,6 +7,8 @@
 // SPDX-License-Identifier: Apache-2.0
 package io.github.kamilkrzywanski.barleader.decode;
 
+import java.util.Arrays;
+
 /**
  * DataBar Expanded bit decoder ported from zxing-cpp 3.1.1 {@code ODDataBarExpandedBitDecoder.cpp}.
  *
@@ -260,9 +262,7 @@ final class DataBarExpandedDecoder {
             throw new Miss();
         }
         char[] out = new char[len];
-        for (int i = 0; i < len; i++) {
-            out[i] = '0';
-        }
+        Arrays.fill(out, '0');
         for (int i = len - 1; i >= 0 && value != 0; i--, value /= 10) {
             out[i] = (char) ('0' + value % 10);
         }
