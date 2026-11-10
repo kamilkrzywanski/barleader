@@ -44,7 +44,7 @@ List<BarcodeHit> hits = reader.read(image, options);
 
 | | `ReadOptions.fast()` (default) | `ReadOptions.aggressive()` |
 | --- | --- | --- |
-| Ladder | original image, inversion, contrast stretch, illumination, 90/180/270°, mean and Otsu thresholds, 2× scale, 2× and 4× box downscale of large photos, then the thresholds, illumination, contrast stretch and halved frame turned by 90° for vertical linear symbols, QR/Micro QR/Aztec/Data Matrix finders, and after a miss the patches of parallel bars at the angle of their own gradients and the crops of linear symbols found at any angle by voting parallel edge segments, also thresholded for EAN-13, UPC-A, Code 128 and Code 39, then EAN-13 and UPC-A on deblurred copies of those crops, fits of Code 128, EAN-13 and UPC-A with modules of about a pixel to the gray profile of every patch of bars, and last EAN-13 and UPC-A joined from halves read on different rows | the fast ladder, then ±15° and ±30°, a finer search for tilted linear symbols, a pyramid, tiles, Sauvola, Gaussian threshold, scales, morphology, quadrilateral candidates and the deblurred crops |
+| Ladder | original image, inversion, contrast stretch, illumination, 90/180/270°, mean and Otsu thresholds, 2× scale, 2× and 4× box downscale of large photos, then the thresholds, illumination, contrast stretch and halved frame turned by 90° for vertical linear symbols, QR/Micro QR/Aztec/Data Matrix finders, and after a miss the patches of parallel bars at the angle of their own gradients and the crops of linear symbols found at any angle by voting parallel edge segments, also thresholded for EAN-13, UPC-A, Code 128 and Code 39 and read again padded, turned, lengthened and located again inside large crops, then EAN-13 and UPC-A on deblurred copies of those crops, fits of Code 128, EAN-13 and UPC-A with modules of about a pixel to the gray profile of every patch of bars, and last EAN-13 and UPC-A joined from halves read on different rows | the fast ladder, then ±15° and ±30°, a finer search for tilted linear symbols, a pyramid, tiles, Sauvola, Gaussian threshold, scales, morphology, quadrilateral candidates, the crops of linear symbols as fast mode reads them and the deblurred crops |
 | Budget | 2.5 s, 40 attempts | 8 s, 100 attempts |
 
 A clean symbol is read on the first attempt in either mode, so `aggressive()` only costs more on images that need it.
@@ -102,21 +102,21 @@ When they are asked for, the opt-in symbologies read all of their samples: 245 o
 
 | | ZXing | fast | aggressive |
 | --- | ---: | ---: | ---: |
-| Labels read | 205 | 378 | 389 |
+| Labels read | 205 | 381 | 390 |
 | Wrong texts | 9 | 6 | 6 |
 
-The aggressive ladder was tuned on these photos, so treat 389 as what the ladder can reach on this kind of image, not as a measurement on unseen data.
+The aggressive ladder was tuned on these photos, so treat 390 as what the ladder can reach on this kind of image, not as a measurement on unseen data.
 
 **Public sets outside the repository.** `scripts/fetch-datasets.sh` and the snapshot run in [Measuring](#measuring) give these numbers, all with the default symbologies and no time budget. ZXing, fast and aggressive return one symbol an image; only `findAll` looks for the rest, which is what counts on images with many codes.
 
 | Set | Labelled | ZXing | fast | aggressive | fast, `findAll` |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| KAIST DEAL test split, EAN-13 photos (wrong texts) | 2000 | 1224 (73) | 1791 (33) | 1738 (37) | 1817 (7) |
+| KAIST DEAL test split, EAN-13 photos (wrong texts) | 2000 | 1224 (73) | 1795 (33) | 1773 (37) | 1821 (7) |
 | KAIST DEAL EAN-8 photos | 90 | 70 | 88 | 88 | 89 |
 | BoofCV QR v3, QR codes found by place | 1232 | 149 | 456 | 466 | 1083 |
-| BarBeR without its Arte-Lab and KAIST parts, codes read | 5176 | 2484 | 3959 | 3941 | 4472 |
+| BarBeR without its Arte-Lab and KAIST parts, codes read | 5176 | 2484 | 3959 | 3967 | 4480 |
 
-On KAIST's 788 photos without a barcode, ZXing reads something on 7, fast on none and aggressive on one. On BarBeR's ParcelBar part, Code 128 on parcels with modules of one to two and a half pixels, fast reads 691 of the 1,142 codes and aggressive 683, where ZXing reads 228; under about 1.3 pixels a module a threshold hardly reads any code, and what fast mode reads there comes from the fit of the gray profile. BarBeR counts codes ZXing knows but Barleader reads only when asked, such as the Interleaved 2 of 5 of its SKUU DSP Lab part. Its annotation tool saved the texts HTML-escaped (`&amp;` for `&` in 154 URLs and XML payloads), broke some lines where the symbol has none, and wrote binary payloads with NUL as `^`, as the hex of their characters in ISO-8859-1 (Aztec, Data Matrix) or in code page 437 (PDF417), or as code page 437 text; the scorer undoes all of it. A real Data Matrix or QR Code that a set leaves unlabelled counts as a wrong text, and without `findAll` it can take the place of the labelled code on the same photo: that is the one code fewer on BarBeR since large and bent Data Matrix symbols are read, and two of KAIST's wrong texts are QR codes on packages, read since the QR grid bends onto the module edges, each in place of the labelled EAN-13.
+On KAIST's 788 photos without a barcode, ZXing reads something on 7, fast on none and aggressive on one. On BarBeR's ParcelBar part, Code 128 on parcels with modules of one to two and a half pixels, fast reads 695 of the 1,142 codes and aggressive 694, where ZXing reads 228; under about 1.3 pixels a module a threshold hardly reads any code, and what fast mode reads there comes from the fit of the gray profile. BarBeR counts codes ZXing knows but Barleader reads only when asked, such as the Interleaved 2 of 5 of its SKUU DSP Lab part. Its annotation tool saved the texts HTML-escaped (`&amp;` for `&` in 154 URLs and XML payloads), broke some lines where the symbol has none, and wrote binary payloads with NUL as `^`, as the hex of their characters in ISO-8859-1 (Aztec, Data Matrix) or in code page 437 (PDF417), or as code page 437 text; the scorer undoes all of it. A real Data Matrix or QR Code that a set leaves unlabelled counts as a wrong text, and without `findAll` it can take the place of the labelled code on the same photo: that is the one code fewer on BarBeR since large and bent Data Matrix symbols are read, and two of KAIST's wrong texts are QR codes on packages, read since the QR grid bends onto the module edges, each in place of the labelled EAN-13.
 
 **Speed.** A clean symbol is read on the first attempt in a few milliseconds. On the 430 Arte-Lab photos (1152×864 to 2976×2232 pixels, most of them hard), read one after another by the default reader on a 20-thread desktop, fast mode took 0.10 s a photo and 0.19 s of CPU spread over the cores; aggressive mode took 0.17 s and 0.49 s of CPU. On KAIST's 788 photos without a barcode, where every mode runs to its end, fast took 0.12 s a photo and aggressive 0.38 s. `mvn -q -Pspeed test-compile exec:java -Dexec.args="datasets/artelab-medium-barcode-1d"` measures it again. Numbers depend on the machine; the relative cost of the modes does not.
 
