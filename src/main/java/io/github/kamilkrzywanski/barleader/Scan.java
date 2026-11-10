@@ -2400,8 +2400,9 @@ final class Scan {
      * As {@link #tryGray}, for a crop of a linear band: a read that lies on the scan line of a code
      * already read with other content ({@link #onReadLine}), or that shares the right half of an
      * EAN-13 read ({@link #sameRightHalf}), is left out, as with the crops of fast mode. With findAll
-     * aggressive mode read 8 of its 10 wrong texts on the public tapirscan benchmark so: an EAN-8 or
-     * UPC-E across the bars of the one it had read right, one or two digits off.
+     * aggressive mode read 9 of its 10 wrong texts on the public tapirscan benchmark on band crops,
+     * an EAN-8 or UPC-E across the bars of one it read right; this leaves out 4 of them, and on one
+     * photo it hides the right read behind a wrong one read first.
      */
     private void tryBand(
             GrayU8 image,
