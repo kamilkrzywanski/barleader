@@ -4,6 +4,8 @@ import io.github.kamilkrzywanski.barleader.image.GrayU8;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class EanCrossCheckTest {
     private static final String[] L = {"0001101", "0011001", "0010011", "0111101", "0100011", "0110001", "0101111",
@@ -63,6 +65,14 @@ class EanCrossCheckTest {
         EanCrossCheck.Result result = check(gray, "7001891333931");
         assertEquals(EanCrossCheck.Verdict.REPLACE, result.verdict());
         assertEquals("4006381333931", result.text());
+    }
+
+    @Test
+    void theLinesBesideARightReadRepeatItAndThoseBesideAWrongOneDoNot() {
+        GrayU8 gray = symbol("4006381333931");
+        assertTrue(EanCrossCheck.repeated(gray, QUIET, 100, QUIET + 95 * MODULE - 1, 100, "4006381333931"));
+        assertFalse(EanCrossCheck.repeated(gray, QUIET, 100, QUIET + 95 * MODULE - 1, 100, "7001891333931"));
+        assertTrue(EanCrossCheck.repeated(gray, QUIET, 100, QUIET + 10, 100, "7001891333931"), "too short to tell");
     }
 
     @Test
