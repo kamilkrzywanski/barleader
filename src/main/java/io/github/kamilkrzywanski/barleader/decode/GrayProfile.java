@@ -173,6 +173,44 @@ final class GrayProfile {
         return table;
     }
 
+    /**
+     * The dot products of every pair of the rows of {@code blurred} into {@code overlap}, the same
+     * sums as over the whole rows: a row is a difference of two {@link #phi}, which is exactly 0 or
+     * 1 six sigma from an edge, so it is exactly 0 outside a stretch around its module, and only
+     * where two such stretches meet is a product other than 0.
+     */
+    static void overlaps(double[][] blurred, double[][] overlap) {
+        int rows = blurred.length;
+        int[] from = new int[rows];
+        int[] to = new int[rows];
+        for (int j = 0; j < rows; j++) {
+            double[] row = blurred[j];
+            int lo = 0;
+            while (lo < row.length && row[lo] == 0) {
+                lo++;
+            }
+            int hi = row.length - 1;
+            while (hi >= lo && row[hi] == 0) {
+                hi--;
+            }
+            from[j] = lo;
+            to[j] = hi;
+        }
+        for (int a = 0; a < rows; a++) {
+            for (int b = a; b < rows; b++) {
+                double dot = 0;
+                int end = Math.min(to[a], to[b]);
+                double[] ra = blurred[a];
+                double[] rb = blurred[b];
+                for (int i = Math.max(from[a], from[b]); i <= end; i++) {
+                    dot += ra[i] * rb[i];
+                }
+                overlap[a][b] = dot;
+                overlap[b][a] = dot;
+            }
+        }
+    }
+
     static double phi(double z) {
         double at = z * 100 + 600;
         if (at <= 0) {

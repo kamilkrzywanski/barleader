@@ -72,10 +72,30 @@ public final class BitmapDecoder {
             boolean findAll,
             EanAddOn addOn
     ) {
+        return read(luma, toSource, attempt, rotationDegrees, confidence, symbologies, binary, findAll, addOn, null);
+    }
+
+    /**
+     * {@link #read(GrayU8, PixelMap, String, int, double, Set, boolean, boolean, EanAddOn)} with the
+     * linear readers on the rows {@code linearRows} marks only, or on every row for null.
+     */
+    public static List<BarcodeHit> read(
+            GrayU8 luma,
+            PixelMap toSource,
+            String attempt,
+            int rotationDegrees,
+            double confidence,
+            Set<Symbology> symbologies,
+            boolean binary,
+            boolean findAll,
+            EanAddOn addOn,
+            boolean[] linearRows
+    ) {
         if (luma.width < 2 || luma.height < 2) {
             return List.of();
         }
-        return read(new GrayLuminanceSource(luma), toSource, attempt, rotationDegrees, confidence, symbologies, binary, findAll, addOn);
+        return read(new GrayLuminanceSource(luma), toSource, attempt, rotationDegrees, confidence, symbologies, binary, findAll,
+                addOn, linearRows);
     }
 
     public static List<BarcodeHit> read(
@@ -103,12 +123,27 @@ public final class BitmapDecoder {
             boolean findAll,
             EanAddOn addOn
     ) {
+        return read(source, toSource, attempt, rotationDegrees, confidence, symbologies, binary, findAll, addOn, null);
+    }
+
+    private static List<BarcodeHit> read(
+            GrayLuminanceSource source,
+            PixelMap toSource,
+            String attempt,
+            int rotationDegrees,
+            double confidence,
+            Set<Symbology> symbologies,
+            boolean binary,
+            boolean findAll,
+            EanAddOn addOn,
+            boolean[] linearRows
+    ) {
         if ((!wantsOwned(symbologies) && !MatrixReader.wants(symbologies))
                 || source.getWidth() < 2
                 || source.getHeight() < 2) {
             return List.of();
         }
-        BinaryBitmap owned = bitmap(source, binary);
+        BinaryBitmap owned = bitmap(source, binary).restrictRows(linearRows);
         List<Supplier<List<BarcodeHit>>> byPriority = List.of(
                 () -> matrixHits(owned, toSource, attempt, rotationDegrees, confidence, symbologies, findAll),
                 () -> pdf417Hits(owned, toSource, attempt, rotationDegrees, confidence, symbologies, findAll),
@@ -1036,6 +1071,15 @@ public final class BitmapDecoder {
             }
         }
         return max >= MIN_LINEAR_SPAN_SQ;
+    }
+
+    /**
+     * Whether {@code matrix} shows a PDF417 start or stop pattern along its rows or columns, which
+     * the PDF417 detector begins from. Of 31 snapshot photos whose PDF417 a variant of the ladder
+     * read, every original showed one; of 300 KAIST photos without a barcode 169 did.
+     */
+    public static boolean showsPdf417Guard(BlackMatrix matrix) {
+        return matrix != null && Pdf417Detector.showsGuard(matrix.rows());
     }
 
     private static BinaryBitmap bitmap(GrayLuminanceSource source, boolean binary) {

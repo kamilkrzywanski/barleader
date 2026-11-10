@@ -74,7 +74,7 @@ public final class AztecDetector {
         return found;
     }
 
-    private static List<Ring> findCenters(Bits image) {
+    static List<Ring> findCenters(Bits image) {
         int margin = 5;
         List<Ring> found = new ArrayList<>();
         int[] row = new int[image.width + 2];
