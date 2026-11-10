@@ -2,6 +2,19 @@
 
 The release workflow takes the section of the tagged version as the notes of its GitHub release.
 
+## Unreleased
+
+### Reading
+
+- After a miss, or with `findAll`, fast mode reads each crop of `BarSegments` again in five ways, none of which takes an attempt: padded with 8 white pixels, as a tight crop cuts the bars at its ends where the hybrid binarizer finds no quiet zone; turned by 90 degrees, as lines of text beside a symbol can join its cluster and turn the crop along the text; sampled again from the frame 1.8 times as long, as the bars of a cluster can stop short of the guards; located again inside a crop of 360 pixels or more, whose small symbol has few edges on the 768-pixel raster of the frame; and for EAN-8 and UPC-E thresholded by Otsu and by the local mean, as the longer codes already were. A short code counts when the two thresholds, or both halves of its crop, read the same text, and a UPC-E only when the frame shows no bar just past its ends: a crop that ends at the middle guard of an EAN-13 reads its left half as a UPC-E. On the 2,868 retail codes of the public tapirscan benchmark, read with `findAll`, fast mode reads 2,703 instead of 2,646, 513 of the 558 turned photos instead of 477, and still no wrong text. On the snapshot it reads 3 more Arte-Lab photos (378 to 381) and 4 more KAIST photos, and with `findAll` 3 more Arte-Lab photos, 4 more KAIST photos and 8 more BarBeR codes; no wrong text is new, and on KAIST's photos without a barcode it takes about 4 ms more. On one BarBeR parcel a short Code 128 beside the labelled one, which the set leaves unlabelled, now comes back in its place.
+- With `findAll` fast mode takes 16 crops of `BarSegments` instead of 8, and reads the ninth to the sixteenth after the thresholds of the first eight: read before them, they spent the attempts those thresholds needed, and a KAIST photo was lost.
+- Aggressive mode ends its ladder on the crops of `BarSegments`, read and rescued as in fast mode, after a miss or with `findAll`: it reads 35 more KAIST photos (1,738 to 1,773), one more Arte-Lab photo (389 to 390) and 26 more BarBeR codes (3,941 to 3,967), and with `findAll` 2,759 codes of the tapirscan benchmark instead of 2,651, all it read before among them, with 11 wrong texts instead of 10. Two BarBeR parcels return a second Code 128 the set leaves unlabelled in place of the labelled one.
+
+### Speed
+
+- The Gaussian threshold of aggressive mode applies its kernel, as wide as a twelfth of the shorter side, as about 22 nested boxes: each pass adds up a prefix sum along the row, or a running sum down the column, per box, so the cost no longer grows with the window, and every pixel is the same as tap by tap. On a 12-megapixel frame the threshold takes 0.5 s instead of 10.4 s, on a 2-megapixel one 75 ms instead of 0.76 s. Past 16 megapixels three box means of equal width stand for the kernel, where it took minutes that no budget stopped.
+- Aggressive mode checks its time budget before it builds the Sauvola thresholds, one window at a time, the 1.5 and 0.5 scales and the inverted finders, and its region localizer builds only the narrow window. With `findAll`, the retail symbologies and the default budget of 8 s, aggressive mode returned from a dense 48-megapixel photo after 91 s and from a 100-megapixel one after 315 s; it now returns after 6.8 s and 8.8 s with the same code. On the nine upsampled photos of 12 to 48 megapixels of the tapirscan benchmark it took 49 s on average and up to 106 s, now 5.1 s and at most 7.4 s, and on its 20 large canvases 5.8 s and up to 23 s, now 2.6 s and at most 4.3 s, reading the same codes.
+
 ## 0.2.0
 
 ### Reading
