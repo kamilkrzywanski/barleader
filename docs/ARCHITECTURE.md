@@ -30,25 +30,26 @@ BufferedImage or 8-bit luminance
 BarcodeReader.read(image, ReadOptions)
       ↓ from 20 Mpx: only the box that holds anything (ContentBounds);
         in fast mode first the whole ladder on a copy of about 8 Mpx
-1. original-hybrid, original-global
-2. the cheap ladder, computed together, accepted in order
+1. original-hybrid, original-global (the global one for what reads the black matrix)
+      ↓ without findAll
+2. the candidates: bar-strip, the linear crops of `BarSegments` and their rescue;
+   an EAN-13 or UPC-A that no line of the frame beside it repeats, and a UPC-E,
+   wait for 3 and 4 and count only when those read nothing
+3. the cheap ladder, computed together, accepted in order
    inverted-luma, pad-4, contrast-stretch, illumination,
    rotate-90/180/270 (linear and PDF417 only), adaptive-mean, otsu,
    scale-2, downscale-2, downscale-4,
-   in fast mode then contrast-stretch, illumination, adaptive-mean, otsu and
+   then contrast-stretch, illumination, adaptive-mean, otsu and
    downscale-2 turned by 90° (linear only), without an attempt slot
-3. finders: qr-trace, mqr-trace, aztec-trace, dm-trace
-      ↓ FAST after a miss
-4. bar-strip, then the linear crops of `BarSegments`, then their deblurred copies
-      ↓ AGGRESSIVE instead
-4. rotate ±15° and ±30°, the full linear-band search, pyramid,
+4. finders: qr-trace, mqr-trace, aztec-trace, dm-trace
+      ↓ on an image nothing has read, or with findAll
+5. with findAll the candidates of 2; the deblurred copies of the crops,
+   code128-fit, ean-fit, ean-halves and on a colour image channel-max, channel-min
+      ↓ AGGRESSIVE after a miss, with the attempts 2 and 5 took on top of its budget
+6. rotate ±15° and ±30°, the full linear-band search, pyramid,
    tiles (2D only), Sauvola, scale-1.5, scale-0.5,
    sharpened and turned band crops, ean-correlate,
-   morphology (2D only), blob-quad, finders on inverted grayscale,
-   then the deblurred copies of the `BarSegments` crops
-      ↓ both, on an image nothing has read
-5. code128-fit, ean-fit, then in fast mode ean-halves and on a colour image
-   channel-max, channel-min
+   morphology (2D only), blob-quad, finders on inverted grayscale
       ↓
 List<BarcodeHit>
 ```
@@ -62,7 +63,8 @@ The order is deliberate. A clean symbol ends on the first attempt, at a cost clo
 - **Binarization.** `HybridBinarizer` and `GlobalHistogramBinarizer` are ported from ZXing bit for bit, on ZXing's luminance `(306 R + 601 G + 117 B + 512) >> 10`. A row is kept with its runs for the whole attempt, so every linear reader shares one binarization, as `ODReader` does in zxing-cpp.
 - **Matrix finders.** The QR, Micro QR, rMQR, Aztec and Data Matrix detectors of zxing-cpp. Data Matrix with several data regions samples each region with its own transform between the alignment crossings it finds. A QR that no regular grid decodes is sampled once more on a bent grid fitted to the module edges (a symbol on a can). The finders do not depend on the angle, so they do not run on rotated images. When `qr-trace` finds no finders, `QrPure` reads an upright symbol that fills the image from the outline of its dark pixels, sampling a grid for each model-2 size.
 - **Linear scanners.** zxing-cpp's row readers. When no whole-pixel row reads, Code 128, Code 39 and EAN/UPC scan the rows again with edges in quarter pixels, for modules of one to two pixels.
-- **Strips of bars.** `BarStrips` finds patches of parallel bars from the structure tensor of 16-pixel blocks and samples each with its bars vertical; `BarSegments` votes parallel edge segments into one box a symbol, on fast mode's miss path; `LinearBand` searches whole bands over angles, in aggressive mode and for postal codes. All these crops are read by the linear readers only, so a crop never assembles a false PDF417 or matrix symbol.
+- **Strips of bars.** `BarStrips` finds patches of parallel bars from the structure tensor of 16-pixel blocks and samples each with its bars vertical; `BarSegments` votes parallel edge segments into one box a symbol, after the original attempts miss; `LinearBand` searches whole bands over angles, in aggressive mode and for postal codes. All these crops are read by the linear readers only, so a crop never assembles a false PDF417 or matrix symbol.
+- **What the variants read.** The linear readers of the whole-frame variants read only the rows that cross a box of `BarSegments` or `BarStrips`, widened by a tenth, or run along an edge of the frame, where the locators miss a symbol the edge cuts; `BinaryBitmap.restrictRows` makes the other rows look flat to them, and the black matrix keeps every row. A variant decodes QR Code, Micro QR and rMQR only when the frame shows a finder ring, Aztec only when it shows a bullseye, and PDF417 only when it shows a start or stop pattern and the locators found something; the two locators and these signs are found side by side. The four finder traces share the one matrix of `TraceMatrix`, the fits share the profiles of each patch (`StripBands`), and a turned variant fills only the rows its readers read. None of this changes a read.
 - **EAN cross-check.** `HitCollector` checks every EAN-13 and UPC-A with a scan line against the unmodified image (`EanCrossCheck`): eleven lines beside the read are decoded again, and a read none of them repeats takes the one other text two or more of them agree on, or is dropped when they disagree. A threshold or a ghost can turn a left half into other digits; the lines beside it on the original pixels rarely all do.
 - **EAN halves.** When fast mode read nothing at all, `EanHalves` looks on every row of the image, its halved frame and the image turned by 90° for a left half (guard, six digits, middle guard) and a right half (middle guard, six digits, guard) of an EAN-13, and joins halves of different rows whose middle guards and modules agree and whose 13 digits check. Glare or a fold that spoils every row in one place rarely spoils the same half. Each half has to read on four rows, and repeating bars, which read as halves of one digit, are refused.
 - **Deblurred crops.** When the ladder read nothing, in either mode before the fits, `Deblur` resamples each blurred crop of `BarSegments` to about three pixels a module and sharpens it along the bars three ways: a motion ghost removed behind and ahead, and a Van Cittert deconvolution of the defocus. Only EAN-13 and UPC-A are read there, and a text counts only when no copy reads another one and the copies, the row count or `EanFit` confirm it.
