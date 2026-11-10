@@ -173,6 +173,15 @@ public final class Geometry {
 
     /** Clockwise rotation by 90, 180, or 270 degrees. Other values are rejected. */
     public static Transformed rotateOrthogonal(GrayU8 source, int degreesClockwise) {
+        return rotateOrthogonal(source, degreesClockwise, null);
+    }
+
+    /**
+     * {@link #rotateOrthogonal(GrayU8, int)} with only the rows of the turned image that
+     * {@code rows} marks filled, the others left black; every row for null. For a reader that reads
+     * those rows alone.
+     */
+    public static Transformed rotateOrthogonal(GrayU8 source, int degreesClockwise, boolean[] rows) {
         int turns = Math.floorMod(degreesClockwise, 360);
         if (turns == 0) {
             return new Transformed(source, PixelMap.IDENTITY, 0);
@@ -184,31 +193,49 @@ public final class Geometry {
         int height = source.height;
         int newWidth = turns == 180 ? width : height;
         int newHeight = turns == 180 ? height : width;
-        GrayU8 dest = new GrayU8(newWidth, newHeight);
-        PixelMap map;
-        if (turns == 90) {
-            for (int y = 0; y < height; y++) {
-                for (int x = 0; x < width; x++) {
-                    dest.set(height - 1 - y, x, source.get(x, y));
-                }
-            }
-            map = (x, y) -> new ImagePoint(y, height - 1 - x);
-        } else if (turns == 180) {
-            for (int y = 0; y < height; y++) {
-                for (int x = 0; x < width; x++) {
-                    dest.set(width - 1 - x, height - 1 - y, source.get(x, y));
-                }
-            }
-            map = (x, y) -> new ImagePoint(width - 1 - x, height - 1 - y);
-        } else {
-            for (int y = 0; y < height; y++) {
-                for (int x = 0; x < width; x++) {
-                    dest.set(y, width - 1 - x, source.get(x, y));
-                }
-            }
-            map = (x, y) -> new ImagePoint(width - 1 - y, x);
+        if (rows != null && rows.length != newHeight) {
+            throw new IllegalArgumentException("one mark a row of the turned image");
         }
-        return new Transformed(dest, map, turns);
+        GrayU8 dest = new GrayU8(newWidth, newHeight);
+        byte[] in = source.data;
+        byte[] out = dest.data;
+        int stride = source.stride;
+        int start = source.startIndex;
+        for (int y = 0; y < newHeight; y++) {
+            if (rows != null && !rows[y]) {
+                continue;
+            }
+            int to = y * newWidth;
+            if (turns == 90) {
+                // row y of the turned image is column y of the source, read upwards
+                for (int x = 0, from = start + (height - 1) * stride + y; x < newWidth; x++, from -= stride) {
+                    out[to + x] = in[from];
+                }
+            } else if (turns == 180) {
+                for (int x = 0, from = start + (height - 1 - y) * stride + width - 1; x < newWidth; x++, from--) {
+                    out[to + x] = in[from];
+                }
+            } else {
+                // row y of the turned image is column width - 1 - y of the source, read downwards
+                for (int x = 0, from = start + width - 1 - y; x < newWidth; x++, from += stride) {
+                    out[to + x] = in[from];
+                }
+            }
+        }
+        return new Transformed(dest, orthogonalMap(width, height, turns), turns);
+    }
+
+    /** The map back to the source of {@link #rotateOrthogonal} of a source {@code width} by {@code height}. */
+    public static PixelMap orthogonalMap(int width, int height, int degreesClockwise) {
+        int turns = Math.floorMod(degreesClockwise, 360);
+        if (turns == 90) {
+            return (x, y) -> new ImagePoint(y, height - 1 - x);
+        } else if (turns == 180) {
+            return (x, y) -> new ImagePoint(width - 1 - x, height - 1 - y);
+        } else if (turns == 270) {
+            return (x, y) -> new ImagePoint(width - 1 - y, x);
+        }
+        return PixelMap.IDENTITY;
     }
 
     /**

@@ -57,16 +57,19 @@ public final class Code128Fit {
     }
 
     public static Found read(GrayU8 strip) {
+        return strip == null ? null : read(new StripBands(strip));
+    }
+
+    /** {@link #read(GrayU8)} on bands {@link EanFit} may already have sampled. */
+    public static Found read(StripBands bands) {
+        GrayU8 strip = bands.strip;
         if (strip == null || strip.width < MIN_SPAN || strip.height < 6) {
             return null;
         }
-        for (double at : new double[]{0.5, 0.3, 0.7}) {
-            int y = (int) (strip.height * at);
-            int half = Math.max(2, strip.height / 10);
-            double slope = GrayProfile.shear(strip, y, Math.max(3, strip.height / 5), half);
-            double[] profile = GrayProfile.profile(strip, y, half, slope);
-            for (int[] span : GrayProfile.spans(profile)) {
-                Found found = readSpan(profile, span[0], span[1], y);
+        for (int band = 0; band < StripBands.count(); band++) {
+            StripBands.Band b = bands.band(band);
+            for (int[] span : b.spans()) {
+                Found found = readSpan(b.profile(), span[0], span[1], b.y());
                 if (found != null) {
                     return found;
                 }
@@ -438,16 +441,7 @@ public final class Code128Fit {
                     window.product[j] += blurred[j][i] * g[first + i];
                 }
             }
-            for (int a = 0; a <= modules; a++) {
-                for (int b = a; b <= modules; b++) {
-                    double dot = 0;
-                    for (int i = 0; i < count; i++) {
-                        dot += blurred[a][i] * blurred[b][i];
-                    }
-                    window.overlap[a][b] = dot;
-                    window.overlap[b][a] = dot;
-                }
-            }
+            GrayProfile.overlaps(blurred, window.overlap);
             return window;
         }
 

@@ -41,12 +41,30 @@ public final class BinaryBitmap {
     private static final boolean[] FLAT = new boolean[0];
     private static final int[] NO_RUNS = new int[0];
     private int fineScale;
+    /** Rows the linear readers may read, or null for every row ({@link #restrictRows}). */
+    private boolean[] readable;
+    /** The black point of each row as {@link #getBlackRow} estimates it, {@link #UNKNOWN} until then. */
+    private int[] blackPoints;
+    private static final int UNKNOWN = Integer.MIN_VALUE;
     private int[][] fineRuns;
     private int[][] reversedFineRuns;
 
     private BinaryBitmap(GrayLuminanceSource source, boolean hybrid) {
         this.source = source;
         this.hybrid = hybrid;
+    }
+
+    /**
+     * Lets the linear readers read only the rows {@code rows} marks, or every row for null: the
+     * others look like rows without contrast to {@link #blackRow} and {@link #runs}. The black
+     * matrix, which the matrix readers, PDF417 and DataBar read, keeps every row.
+     */
+    public BinaryBitmap restrictRows(boolean[] rows) {
+        if (rows != null && rows.length != source.getHeight()) {
+            throw new IllegalArgumentException("one mark a row");
+        }
+        readable = rows;
+        return this;
     }
 
     /** Local thresholds for the matrix, as ZXing's {@code HybridBinarizer}. */
@@ -78,11 +96,7 @@ public final class BinaryBitmap {
         java.util.Arrays.fill(row, false);
         initArrays(width);
         byte[] local = source.getRow(y, luminances);
-        int[] localBuckets = buckets;
-        for (int x = 0; x < width; x++) {
-            localBuckets[(local[x] & 0xff) >> LUMINANCE_SHIFT]++;
-        }
-        int blackPoint = estimateBlackPoint(localBuckets);
+        int blackPoint = blackPoint(y, local, width);
         if (blackPoint < 0) {
             return null;
         }
@@ -112,6 +126,9 @@ public final class BinaryBitmap {
      * when the row has too little contrast.
      */
     public boolean[] blackRow(int y) {
+        if (readable != null && !readable[y]) {
+            return null;
+        }
         if (rows == null) {
             rows = new boolean[source.getHeight()][];
         }
@@ -169,6 +186,9 @@ public final class BinaryBitmap {
         if (scale == 1) {
             return runs(y, reversed);
         }
+        if (readable != null && !readable[y]) {
+            return null;
+        }
         if (fineRuns == null || fineScale != scale) {
             fineRuns = new int[source.getHeight()][];
             reversedFineRuns = new int[source.getHeight()][];
@@ -210,11 +230,7 @@ public final class BinaryBitmap {
         }
         initArrays(width);
         byte[] local = source.getRow(y, luminances);
-        int[] localBuckets = buckets;
-        for (int x = 0; x < width; x++) {
-            localBuckets[(local[x] & 0xff) >> LUMINANCE_SHIFT]++;
-        }
-        int blackPoint = estimateBlackPoint(localBuckets);
+        int blackPoint = blackPoint(y, local, width);
         if (blackPoint < 0) {
             return null;
         }
@@ -239,6 +255,30 @@ public final class BinaryBitmap {
         }
         runs[count++] = Math.max(1, width * scale - previous);
         return java.util.Arrays.copyOf(runs, count);
+    }
+
+    /**
+     * The black point of row {@code y}, whose luminances are {@code local}, from the histogram of
+     * the row, or -1 when it has too little contrast; estimated once a row, as the plain and the
+     * fine runs of a row threshold it alike.
+     */
+    private int blackPoint(int y, byte[] local, int width) {
+        if (blackPoints == null) {
+            blackPoints = new int[source.getHeight()];
+            java.util.Arrays.fill(blackPoints, UNKNOWN);
+        }
+        int cached = blackPoints[y];
+        if (cached != UNKNOWN) {
+            return cached;
+        }
+        int[] localBuckets = buckets;
+        java.util.Arrays.fill(localBuckets, 0);
+        for (int x = 0; x < width; x++) {
+            localBuckets[(local[x] & 0xff) >> LUMINANCE_SHIFT]++;
+        }
+        int blackPoint = estimateBlackPoint(localBuckets);
+        blackPoints[y] = blackPoint < 0 ? -1 : blackPoint;
+        return blackPoints[y];
     }
 
     /**

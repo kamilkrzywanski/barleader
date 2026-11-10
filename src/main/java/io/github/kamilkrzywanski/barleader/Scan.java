@@ -8,8 +8,10 @@ import io.github.kamilkrzywanski.barleader.decode.HitCollector;
 import io.github.kamilkrzywanski.barleader.decode.BitmapDecoder;
 import io.github.kamilkrzywanski.barleader.decode.Code128Fit;
 import io.github.kamilkrzywanski.barleader.decode.EanFit;
+import io.github.kamilkrzywanski.barleader.decode.StripBands;
 import io.github.kamilkrzywanski.barleader.decode.EanHalves;
 import io.github.kamilkrzywanski.barleader.image.BinaryBitmap;
+import io.github.kamilkrzywanski.barleader.image.BlackMatrix;
 import io.github.kamilkrzywanski.barleader.image.ContentBounds;
 import io.github.kamilkrzywanski.barleader.image.Geometry;
 import io.github.kamilkrzywanski.barleader.image.GrayImages;
@@ -23,6 +25,7 @@ import io.github.kamilkrzywanski.barleader.locate.dm.DataMatrixDetector;
 import io.github.kamilkrzywanski.barleader.locate.dm.MicroQrDetector;
 import io.github.kamilkrzywanski.barleader.locate.dm.QrDetector;
 import io.github.kamilkrzywanski.barleader.locate.dm.QrPure;
+import io.github.kamilkrzywanski.barleader.locate.dm.TraceMatrix;
 import io.github.kamilkrzywanski.barleader.preprocess.Thresholds;
 
 import java.awt.image.BufferedImage;
@@ -95,8 +98,36 @@ final class Scan {
     private static final int RELOCATE_CROPS = 3;
     /** How many times as long {@link #tryCropRescue} samples a crop again from the frame. */
     private static final double LENGTHEN = 1.8;
+    /** Symbologies whose readers read the rows of a bitmap and never its black matrix. */
+    private static final Set<Symbology> ROW_READERS = EnumSet.of(Symbology.EAN_13, Symbology.EAN_8, Symbology.UPC_A,
+            Symbology.UPC_E, Symbology.CODE_39, Symbology.CODE_93, Symbology.CODE_128, Symbology.ITF, Symbology.CODABAR);
     /** {@link BarStrips} of the image, found once for the readers and for {@link Code128Fit}. */
     private List<LinearBand.Crop> barStrips;
+    /** The profiles of {@link #barStrips} the fits share ({@link #stripBands}). */
+    private StripBands[] stripBands;
+    /** The crops of {@link BarSegments}, found once ({@link #segments}). */
+    private List<LinearBand.Crop> segments;
+    /** The matrix of the 2D traces ({@link #trace}). */
+    private TraceMatrix trace;
+    /** Whether {@link #matrixEvidence} ran, and what it found. */
+    private boolean evidence;
+    private boolean qrEvidence;
+    private boolean aztecEvidence;
+    private boolean pdf417Evidence;
+    /** Where the linear readers of the whole-frame variants read ({@link #linearRegions}). */
+    private volatile List<double[]> linearRegions;
+    private int segmentLimit;
+    /** The frame the regions are in, and how far from its edges a row runs along them ({@link #alongBorder}). */
+    private int frameWidth;
+    private int frameHeight;
+    private double border;
+    /** The band along the edges of the frame, as a share of its shorter side, and at least in pixels. */
+    private static final double BORDER_SHARE = 0.05;
+    private static final double BORDER_MIN = 32;
+    /** Rows filled on each side of a row a turned variant reads ({@link #filledRows}). */
+    private static final int FILL_MARGIN = 16;
+    /** How far, as a share of its longer side, a region of the locators is widened. */
+    private static final double REGION_MARGIN = 0.1;
 
     Scan(ReadOptions options, Fanout fanout) {
         this.options = options;
@@ -229,8 +260,13 @@ final class Scan {
     }
 
     private void tryOriginals(GrayLuminanceSource original) {
-        tryOriginal(original, false, "original-hybrid", 0.92, options.findAll());
-        tryOriginal(original, true, "original-global", 0.84, false);
+        tryOriginal(original, false, "original-hybrid", 0.92, options.findAll(), symbologies);
+        // The global binarizer changes only the black matrix. The other linear readers threshold
+        // each row on its own histogram whichever binarizer an attempt has, so on the same pixels
+        // they read again what the hybrid attempt, which ran them all, read or missed.
+        Set<Symbology> matrix = EnumSet.copyOf(symbologies);
+        matrix.removeAll(ROW_READERS);
+        tryOriginal(original, true, "original-global", 0.84, false, matrix);
     }
 
     private List<BarcodeHit> ladder(GrayU8 gray) {
@@ -239,41 +275,54 @@ final class Scan {
         // together and keeps the earliest hit in this same order.
         Set<Symbology> variants = variantFormats();
         if (!stop() && !variants.isEmpty()) {
+            // The linear readers of the variants read only the rows across a symbol the linear
+            // locators found, and the matrix readers only on a frame that shows their finders:
+            // both are found side by side, before the variants run in parallel.
+            // The turned variants below read four of these images again: each is built once.
+            AtomicReferenceArray<Object> built = new AtomicReferenceArray<>(4);
+            fanout.runAll(List.of(() -> linearRegions(gray), () -> matrixEvidence(gray, built)));
+            Set<Symbology> read = gated(variants);
+            boolean readVariants = !read.isEmpty();
             List<Callable<List<BarcodeHit>>> jobs = new ArrayList<>();
             // With findAll every variant returns all it reads, as the original does: on a label
             // with a Data Matrix and a PDF417 one symbol a variant would always be the Data Matrix.
             boolean all = options.findAll();
-            jobs.add(() -> readImage(GrayImages.invert(gray), PixelMap.IDENTITY, "inverted-luma", 0, false, variants, 0.86, all));
-            jobs.add(() -> {
-                Transformed shifted = Geometry.pad(gray, 4);
-                return readImage(shifted.image(), shifted.toSource(), "pad-4", 0, false, variants, 0.82, all);
-            });
-            GrayU8 stretched = GrayImages.stretch(gray);
-            if (stretched != gray) {
-                jobs.add(() -> readImage(stretched, PixelMap.IDENTITY, "contrast-stretch", 0, false, variants, 0.74, all));
+            if (readVariants) {
+                jobs.add(() -> readVariant(GrayImages.invert(gray), PixelMap.IDENTITY, "inverted-luma", 0, false, read, 0.86, all));
+                jobs.add(() -> {
+                    Transformed shifted = Geometry.pad(gray, 4);
+                    return readVariant(shifted.image(), shifted.toSource(), "pad-4", 0, false, read, 0.82, all);
+                });
             }
-            // The turned variants below read four of these images again: each is built once.
-            AtomicReferenceArray<Object> built = new AtomicReferenceArray<>(4);
-            jobs.add(() -> readImage(
-                    built(built, 0, () -> GrayImages.flattenIllumination(gray)), PixelMap.IDENTITY, "illumination", 0, false, variants, 0.74, all));
-            Set<Symbology> turned = rotationFormats();
+            GrayU8 stretched = readVariants ? GrayImages.stretch(gray) : gray;
+            if (stretched != gray) {
+                jobs.add(() -> readVariant(stretched, PixelMap.IDENTITY, "contrast-stretch", 0, false, read, 0.74, all));
+            }
+            if (readVariants) {
+                jobs.add(() -> readVariant(
+                        built(built, 0, () -> GrayImages.flattenIllumination(gray)), PixelMap.IDENTITY, "illumination", 0, false, read, 0.74, all));
+            }
+            Set<Symbology> turned = gated(rotationFormats());
             for (int angle : turned.isEmpty() ? new int[0] : new int[]{90, 180, 270}) {
                 jobs.add(() -> {
-                    Transformed rotated = Geometry.rotateOrthogonal(gray, angle);
-                    return readImage(rotated.image(), rotated.toSource(), "rotate-" + angle, angle, false,
+                    Transformed rotated = Geometry.rotateOrthogonal(gray, angle,
+                            filledRows(turned, Geometry.orthogonalMap(gray.width, gray.height, angle), gray, angle));
+                    return readVariant(rotated.image(), rotated.toSource(), "rotate-" + angle, angle, false,
                             turned, 0.80, options.findAll());
                 });
             }
-            jobs.add(() -> readImage(
-                    built(built, 1, () -> GrayImages.binaryToLuma(Thresholds.mean(gray))),
-                    PixelMap.IDENTITY, "adaptive-mean", 0, true, variants, 0.68, all));
-            jobs.add(() -> readImage(
-                    built(built, 2, () -> GrayImages.binaryToLuma(Thresholds.otsu(gray))),
-                    PixelMap.IDENTITY, "otsu", 0, true, variants, 0.68, all));
-            if (Math.min(gray.width, gray.height) <= 900 && Geometry.withinPixelBudget(gray.width, gray.height, 2.0)) {
+            if (readVariants) {
+                jobs.add(() -> readVariant(
+                        built(built, 1, () -> GrayImages.binaryToLuma(Thresholds.mean(gray))),
+                        PixelMap.IDENTITY, "adaptive-mean", 0, true, read, 0.68, all));
+                jobs.add(() -> readVariant(
+                        built(built, 2, () -> GrayImages.binaryToLuma(Thresholds.otsu(gray))),
+                        PixelMap.IDENTITY, "otsu", 0, true, read, 0.68, all));
+            }
+            if (readVariants && Math.min(gray.width, gray.height) <= 900 && Geometry.withinPixelBudget(gray.width, gray.height, 2.0)) {
                 jobs.add(() -> {
                     Transformed scaled = Geometry.scale(gray, 2.0);
-                    return readImage(scaled.image(), scaled.toSource(), "scale-2", 0, false, variants, 0.80, all);
+                    return readVariant(scaled.image(), scaled.toSource(), "scale-2", 0, false, read, 0.80, all);
                 });
             }
             // The other way round for a large photo: a symbol blurred over several pixels reads
@@ -284,13 +333,13 @@ final class Scan {
             // fast mode, and nothing that read before is lost.
             int halving = 800;
             for (int factor : new int[]{2, 4}) {
-                if (Math.min(gray.width, gray.height) >= (factor == 2 ? halving : 1400)) {
+                if (readVariants && Math.min(gray.width, gray.height) >= (factor == 2 ? halving : 1400)) {
                     jobs.add(() -> {
                         Transformed smaller = factor == 2
                                 ? built(built, 3, () -> Geometry.boxDownscaled(gray, 2))
                                 : Geometry.boxDownscaled(gray, factor);
-                        return readImage(smaller.image(), smaller.toSource(), "downscale-" + factor, 0, false,
-                                variants, 0.78, all);
+                        return readVariant(smaller.image(), smaller.toSource(), "downscale-" + factor, 0, false,
+                                read, 0.78, all);
                     });
                 }
             }
@@ -300,7 +349,7 @@ final class Scan {
             // degrees as well, for the linear formats, they read 57 more snapshot images in fast
             // mode, and of 930 photos turned by 90 degrees 827 read instead of 805. They come last,
             // and like the fits they take no attempt slot, so the steps after them keep theirs.
-            Set<Symbology> across = rotationFormats();
+            Set<Symbology> across = gated(rotationFormats());
             if (!across.isEmpty() && (hits.isEmpty() || all) && !outOfTime()) {
                 List<Callable<List<BarcodeHit>>> crossed = new ArrayList<>();
                 if (stretched != gray) {
@@ -334,11 +383,7 @@ final class Scan {
         // tapirscan benchmark it missed 48 turned and 28 vertical photos fast mode read.
         int before = attempts;
         if ((hits.isEmpty() || options.findAll()) && !stop()) {
-            tryBarStrips(gray);
-            if (!stop()) {
-                tryFastLinearBands(gray);
-            }
-            tryCropRescue(gray);
+            readCandidates(gray);
             tryDeblurredBands();
         }
         tryCode128Fit(gray);
@@ -348,7 +393,7 @@ final class Scan {
         if (options.mode() == DecodeMode.FAST) {
             return hits.list();
         }
-        lent = attempts - before;
+        lent += attempts - before;
         if (stop()) {
             return hits.list();
         }
@@ -959,11 +1004,13 @@ final class Scan {
             return;
         }
         List<BarcodeHit> before = List.copyOf(hits.list());
-        for (LinearBand.Crop strip : barStrips(gray)) {
+        List<LinearBand.Crop> strips = barStrips(gray);
+        for (int i = 0; i < strips.size(); i++) {
             if (outOfTime()) {
                 return;
             }
-            Code128Fit.Found found = Code128Fit.read(strip.image());
+            LinearBand.Crop strip = strips.get(i);
+            Code128Fit.Found found = Code128Fit.read(stripBands(i));
             if (found == null || !before.isEmpty() && !besideHits(found.text(), before)) {
                 continue;
             }
@@ -1011,11 +1058,13 @@ final class Scan {
         if (!hits.isEmpty() || !ean13 && !upcA || outOfTime()) {
             return;
         }
-        for (LinearBand.Crop strip : barStrips(gray)) {
+        List<LinearBand.Crop> strips = barStrips(gray);
+        for (int i = 0; i < strips.size(); i++) {
             if (outOfTime()) {
                 return;
             }
-            EanFit.Found found = EanFit.read(strip.image());
+            LinearBand.Crop strip = strips.get(i);
+            EanFit.Found found = EanFit.read(stripBands(i));
             if (found == null) {
                 continue;
             }
@@ -1045,8 +1094,17 @@ final class Scan {
     private List<LinearBand.Crop> barStrips(GrayU8 gray) {
         if (barStrips == null) {
             barStrips = BarStrips.find(gray, MAX_FIT_STRIPS);
+            stripBands = new StripBands[barStrips.size()];
         }
         return barStrips;
+    }
+
+    /** The profiles of strip {@code index} of {@link #barStrips}, which both fits read. */
+    private StripBands stripBands(int index) {
+        if (stripBands[index] == null) {
+            stripBands[index] = new StripBands(barStrips.get(index).image());
+        }
+        return stripBands[index];
     }
 
     /**
@@ -1220,14 +1278,17 @@ final class Scan {
         if (!hits.isEmpty() || !ean13 && !upcA || options.eanAddOn() == EanAddOn.REQUIRE || outOfTime()) {
             return;
         }
+        linearRegions(gray);
         List<Transformed> sources = new ArrayList<>();
         sources.add(Geometry.rotateOrthogonal(gray, 0));
         if (Math.min(gray.width, gray.height) >= 800) {
             sources.add(Geometry.boxDownscaled(gray, 2));
         }
-        sources.add(Geometry.rotateOrthogonal(gray, 90));
+        sources.add(Geometry.rotateOrthogonal(gray, 90,
+                filledRows(EnumSet.of(Symbology.EAN_13), Geometry.orthogonalMap(gray.width, gray.height, 90), gray, 90)));
         for (Transformed source : sources) {
-            BinaryBitmap bitmap = BinaryBitmap.hybrid(new GrayLuminanceSource(source.image()));
+            BinaryBitmap bitmap = BinaryBitmap.hybrid(new GrayLuminanceSource(source.image()))
+                    .restrictRows(linearRows(source.image().width, source.image().height, source.toSource()));
             for (int scale : new int[]{1, 4}) {
                 if (outOfTime()) {
                     return;
@@ -1274,10 +1335,13 @@ final class Scan {
         if (planes == null) {
             return;
         }
-        Set<Symbology> formats = variantFormats();
+        Set<Symbology> formats = gated(variantFormats());
+        if (formats.isEmpty()) {
+            return;
+        }
         List<Callable<List<BarcodeHit>>> coloured = List.of(
-                () -> readImage(planes[0], PixelMap.IDENTITY, "channel-max", 0, false, formats, 0.72, all),
-                () -> readImage(planes[1], PixelMap.IDENTITY, "channel-min", 0, false, formats, 0.72, all));
+                () -> readVariant(planes[0], PixelMap.IDENTITY, "channel-max", 0, false, formats, 0.72, all),
+                () -> readVariant(planes[1], PixelMap.IDENTITY, "channel-min", 0, false, formats, 0.72, all));
         fanout.inOrder(coloured, () -> outOfTime() || !all && !hits.isEmpty(), found -> {
             if (found != null) {
                 accept(found);
@@ -1308,7 +1372,7 @@ final class Scan {
         // The bars of a postal code stand on one track of unequal height, which gives segment
         // voting no family of parallel edges of about one length; those read only when asked for.
         boolean postal = formats.contains(Symbology.ROYAL_MAIL) || formats.contains(Symbology.JAPAN_POST);
-        bandCrops = postal ? LinearBand.find(gray, fanout, true) : BarSegments.find(gray, options.findAll() ? 16 : 8);
+        bandCrops = postal ? LinearBand.find(gray, fanout, true) : segments(gray, options.findAll() ? 16 : 8);
         segmentCrops = !postal;
         // With findAll the crops past the eighth are read last: read first, they spent the
         // attempts the thresholds of the first eight need on an image nothing has read yet.
@@ -2102,7 +2166,7 @@ final class Scan {
             return;
         }
         attempts++;
-        List<QrDetector.Found> found = QrDetector.read(gray);
+        List<QrDetector.Found> found = trace(gray).qr();
         // Raw local-average misses salt-and-pepper the same way zxing-cpp 3.1.1 does.
         // The median is a second look inside this attempt, not a looser finder threshold.
         if (found.isEmpty()) {
@@ -2144,7 +2208,7 @@ final class Scan {
             return;
         }
         attempts++;
-        for (MicroQrDetector.Found found : MicroQrDetector.read(gray)) {
+        for (MicroQrDetector.Found found : trace(gray).microQr()) {
             List<ImagePoint> corners = new ArrayList<>(found.corners().size());
             for (ImagePoint corner : found.corners()) {
                 corners.add(PixelMap.IDENTITY.toSource(corner.x(), corner.y()));
@@ -2172,7 +2236,7 @@ final class Scan {
             return;
         }
         attempts++;
-        for (AztecDetector.Found found : AztecDetector.read(gray)) {
+        for (AztecDetector.Found found : trace(gray).aztec()) {
             List<ImagePoint> corners = new ArrayList<>(found.corners().size());
             for (ImagePoint corner : found.corners()) {
                 corners.add(PixelMap.IDENTITY.toSource(corner.x(), corner.y()));
@@ -2200,7 +2264,7 @@ final class Scan {
             return;
         }
         attempts++;
-        for (DataMatrixDetector.Found found : DataMatrixDetector.read(gray)) {
+        for (DataMatrixDetector.Found found : trace(gray).dataMatrix()) {
             List<ImagePoint> corners = new ArrayList<>(found.corners().size());
             for (ImagePoint corner : found.corners()) {
                 corners.add(PixelMap.IDENTITY.toSource(corner.x(), corner.y()));
@@ -2267,8 +2331,9 @@ final class Scan {
     /** {@code image} turned by 90 degrees and read, its corners mapped back through {@code toSource}. */
     private List<BarcodeHit> readTurned(GrayU8 image, PixelMap toSource, String attempt, boolean global,
             Set<Symbology> formats, double confidence, boolean multi) {
-        Transformed turned = Geometry.rotateOrthogonal(image, 90);
-        return readImage(turned.image(), turned.toSource().before(toSource), attempt, 90, global, formats, confidence, multi);
+        Transformed turned = Geometry.rotateOrthogonal(image, 90,
+                filledRows(formats, Geometry.orthogonalMap(image.width, image.height, 90).before(toSource), image, 90));
+        return readVariant(turned.image(), turned.toSource().before(toSource), attempt, 90, global, formats, confidence, multi);
     }
 
     /**
@@ -2304,6 +2369,281 @@ final class Scan {
             return List.of();
         }
         return BitmapDecoder.read(image, toSource, attempt, degrees, confidence, formats, globalBinarizer, multi, options.eanAddOn());
+    }
+
+    /** The patches of {@link BarStrips}, then the crops of {@link BarSegments} and their rescue. */
+    private void readCandidates(GrayU8 gray) {
+        tryBarStrips(gray);
+        if (!stop()) {
+            tryFastLinearBands(gray);
+        }
+        tryCropRescue(gray);
+    }
+
+    /** The matrix the QR, Micro QR, Aztec and Data Matrix traces of the frame share, built once. */
+    private TraceMatrix trace(GrayU8 gray) {
+        if (trace == null) {
+            trace = TraceMatrix.of(gray);
+        }
+        return trace;
+    }
+
+    /**
+     * Whether the frame shows what the QR and Micro QR detectors, or the Aztec detector, start
+     * from: a finder ring, or a bullseye centre, in either polarity, on the hybrid matrix of the
+     * frame, on the matrix of the traces, or for QR on the frame halved or quartered. Of the 143
+     * snapshot photos whose QR code a variant read every one shows a ring there, and the one Aztec
+     * a variant read shows a centre; of 300 KAIST photos without a barcode 21 show a ring and 52 a
+     * centre. A variant reads those symbologies only when the frame shows them.
+     */
+    private void matrixEvidence(GrayU8 gray, AtomicReferenceArray<Object> built) {
+        boolean qr = symbologies.contains(Symbology.QR_CODE) || symbologies.contains(Symbology.MICRO_QR)
+                || symbologies.contains(Symbology.RMQR);
+        boolean aztec = symbologies.contains(Symbology.AZTEC);
+        boolean pdf417 = symbologies.contains(Symbology.PDF_417);
+        evidence = true;
+        if (!qr && !aztec && !pdf417) {
+            return;
+        }
+        // Cheapest first: the traces read their matrix anyway, a quarter frame is small, and the
+        // hybrid matrix of the frame and of the halved frame are built only when still needed.
+        BlackMatrix[] hybrid = new BlackMatrix[1];
+        java.util.function.Supplier<BlackMatrix> whole = () -> {
+            if (hybrid[0] == null) {
+                hybrid[0] = BinaryBitmap.hybrid(new GrayLuminanceSource(gray)).getBlackMatrix();
+            }
+            return hybrid[0];
+        };
+        if (qr) {
+            qrEvidence = trace(gray).qrFinders();
+            if (!qrEvidence && Math.min(gray.width, gray.height) >= 1400) {
+                GrayU8 quarter = Geometry.boxDownscaled(gray, 4).image();
+                qrEvidence = TraceMatrix.qrFinders(BinaryBitmap.hybrid(new GrayLuminanceSource(quarter)).getBlackMatrix());
+            }
+            if (!qrEvidence) {
+                qrEvidence = TraceMatrix.qrFinders(whole.get());
+            }
+            if (!qrEvidence && Math.min(gray.width, gray.height) >= 800) {
+                Transformed half = built(built, 3, () -> Geometry.boxDownscaled(gray, 2));
+                qrEvidence = TraceMatrix.qrFinders(BinaryBitmap.hybrid(new GrayLuminanceSource(half.image())).getBlackMatrix());
+            }
+        }
+        if (aztec) {
+            aztecEvidence = trace(gray).aztecCentres() || TraceMatrix.aztecCentres(whole.get());
+        }
+        if (pdf417) {
+            pdf417Evidence = BitmapDecoder.showsPdf417Guard(whole.get());
+        }
+    }
+
+    /**
+     * {@code formats} without what a variant of this frame has no sign of: QR, Micro QR and rMQR
+     * without a finder ring, Aztec without a bullseye ({@link #matrixEvidence}), and PDF417
+     * without a start or stop pattern on the frame or when the linear locators found nothing; each
+     * of 31 PDF417 that snapshot variants read had both. Unchanged before the evidence is in.
+     */
+    private Set<Symbology> gated(Set<Symbology> formats) {
+        if (!evidence || formats.isEmpty()) {
+            return formats;
+        }
+        EnumSet<Symbology> out = EnumSet.copyOf(formats);
+        if (!qrEvidence) {
+            out.removeAll(EnumSet.of(Symbology.QR_CODE, Symbology.MICRO_QR, Symbology.RMQR));
+        }
+        if (!aztecEvidence) {
+            out.remove(Symbology.AZTEC);
+        }
+        if (!pdf417Evidence || linearRegions != null && linearRegions.isEmpty()) {
+            out.remove(Symbology.PDF_417);
+        }
+        return out;
+    }
+
+    /**
+     * {@link #readImage} for a variant of the whole frame after the original attempts: its linear
+     * readers read only the rows that cross a region of {@link #linearRegions}, the rows a symbol
+     * the locators found lies on, and the rows along the edges of the frame ({@link #alongBorder}).
+     */
+    private List<BarcodeHit> readVariant(
+            GrayU8 image,
+            PixelMap toSource,
+            String attempt,
+            int degrees,
+            boolean globalBinarizer,
+            Set<Symbology> formats,
+            double confidence,
+            boolean multi
+    ) {
+        if (image.width < 2 || image.height < 2) {
+            return null;
+        }
+        if (formats.isEmpty()) {
+            return List.of();
+        }
+        return BitmapDecoder.read(image, toSource, attempt, degrees, confidence, formats, globalBinarizer, multi,
+                options.eanAddOn(), linearRows(image.width, image.height, toSource));
+    }
+
+    /**
+     * The first {@code limit} crops of {@link BarSegments} on the frame, found once: its list is
+     * the same up to any limit, so a shorter one is the start of a longer one.
+     */
+    private List<LinearBand.Crop> segments(GrayU8 gray, int limit) {
+        if (segments == null || segmentLimit < limit) {
+            segments = BarSegments.find(gray, limit);
+            segmentLimit = limit;
+        }
+        return segments.subList(0, Math.min(limit, segments.size()));
+    }
+
+    /**
+     * The bounding boxes, in frame pixels and widened by {@link #REGION_MARGIN} of their longer
+     * side, of the crops of {@link BarSegments}, as many as the band reads take, and the strips of
+     * {@link BarStrips}. On 794 snapshot photos that a variant of the whole frame read, the middle
+     * of the read lay in one of them on every photo, in the first of eight crops on 763; on photos
+     * without a barcode the crops cover about an eighth of the frame, and a third of those photos
+     * have none. Null when postal codes are asked for, which the locators do not find.
+     */
+    private List<double[]> linearRegions(GrayU8 gray) {
+        if (linearRegions == null && !postal()) {
+            int limit = options.findAll() ? 16 : 8;
+            // The two locators are independent: found side by side, as the read waits for both.
+            fanout.runAll(List.of(() -> segments(gray, limit), () -> barStrips(gray)));
+            List<double[]> boxes = new ArrayList<>();
+            for (LinearBand.Crop crop : segments(gray, limit)) {
+                boxes.add(widened(crop));
+            }
+            for (LinearBand.Crop strip : barStrips(gray)) {
+                boxes.add(widened(strip));
+            }
+            frameWidth = gray.width;
+            frameHeight = gray.height;
+            border = Math.max(BORDER_MIN, BORDER_SHARE * Math.min(gray.width, gray.height));
+            linearRegions = boxes;
+        }
+        return linearRegions;
+    }
+
+    private boolean postal() {
+        return symbologies.contains(Symbology.ROYAL_MAIL) || symbologies.contains(Symbology.JAPAN_POST);
+    }
+
+    private static double[] widened(LinearBand.Crop crop) {
+        GrayU8 image = crop.image();
+        double x0 = Double.MAX_VALUE;
+        double y0 = Double.MAX_VALUE;
+        double x1 = -Double.MAX_VALUE;
+        double y1 = -Double.MAX_VALUE;
+        for (double[] corner : new double[][]{{0, 0}, {image.width, 0}, {image.width, image.height}, {0, image.height}}) {
+            ImagePoint p = crop.toSource().toSource(corner[0], corner[1]);
+            x0 = Math.min(x0, p.x());
+            y0 = Math.min(y0, p.y());
+            x1 = Math.max(x1, p.x());
+            y1 = Math.max(y1, p.y());
+        }
+        double margin = REGION_MARGIN * Math.max(x1 - x0, y1 - y0);
+        return new double[]{x0 - margin, y0 - margin, x1 + margin, y1 + margin};
+    }
+
+    /**
+     * The rows of {@code image} turned by {@code degrees}, its map to the frame {@code toFrame},
+     * that a read for {@code formats} needs: the rows of {@link #linearRows} and {@link #FILL_MARGIN}
+     * around them, which the parallel strips that confirm an EAN read reach; null for every row
+     * when a format reads the black matrix or there are no regions to go by.
+     */
+    private boolean[] filledRows(Set<Symbology> formats, PixelMap toFrame, GrayU8 image, int degrees) {
+        for (Symbology symbology : formats) {
+            if (!ROW_READERS.contains(symbology)) {
+                return null;
+            }
+        }
+        boolean quarter = Math.floorMod(degrees, 180) == 90;
+        int width = quarter ? image.height : image.width;
+        int height = quarter ? image.width : image.height;
+        boolean[] rows = linearRows(width, height, toFrame);
+        if (rows == null) {
+            return null;
+        }
+        boolean[] filled = new boolean[height];
+        int last = -FILL_MARGIN - 1;
+        for (int y = 0; y < height; y++) {
+            if (rows[y]) {
+                for (int k = Math.max(0, Math.max(last + 1, y - FILL_MARGIN)); k <= Math.min(height - 1, y + FILL_MARGIN); k++) {
+                    filled[k] = true;
+                }
+                last = Math.min(height - 1, y + FILL_MARGIN);
+            }
+        }
+        return filled;
+    }
+
+    /**
+     * Which rows of an image {@code width} by {@code height}, mapped to the frame by
+     * {@code toSource}, cross a region of {@link #linearRegions} or run along an edge of the frame;
+     * null for every row when there are no regions to go by.
+     */
+    private boolean[] linearRows(int width, int height, PixelMap toSource) {
+        List<double[]> regions = linearRegions;
+        if (regions == null) {
+            return null;
+        }
+        boolean[] rows = new boolean[height];
+        for (int y = 0; y < height; y++) {
+            ImagePoint a = toSource.toSource(0, y + 0.5);
+            ImagePoint b = toSource.toSource(width, y + 0.5);
+            if (alongBorder(a, b)) {
+                rows[y] = true;
+                continue;
+            }
+            for (double[] region : regions) {
+                if (crosses(a.x(), a.y(), b.x(), b.y(), region)) {
+                    rows[y] = true;
+                    break;
+                }
+            }
+        }
+        return rows;
+    }
+
+    /**
+     * Whether a row from {@code a} to {@code b} runs along an edge of the frame, within
+     * {@link #border} of it. The locators leave out a symbol the edge cuts: on the public tapirscan
+     * benchmark twelve EAN-8 that only variants of the whole frame read lay with their scan line 4
+     * to 80 pixels from an edge, outside every region.
+     */
+    private boolean alongBorder(ImagePoint a, ImagePoint b) {
+        return a.y() < border && b.y() < border
+                || a.y() > frameHeight - border && b.y() > frameHeight - border
+                || a.x() < border && b.x() < border
+                || a.x() > frameWidth - border && b.x() > frameWidth - border;
+    }
+
+    /** Whether the segment from ({@code ax}, {@code ay}) to ({@code bx}, {@code by}) meets the box {@code r}. */
+    private static boolean crosses(double ax, double ay, double bx, double by, double[] r) {
+        double t0 = 0;
+        double t1 = 1;
+        double dx = bx - ax;
+        double dy = by - ay;
+        double[] p = {-dx, dx, -dy, dy};
+        double[] q = {ax - r[0], r[2] - ax, ay - r[1], r[3] - ay};
+        for (int i = 0; i < 4; i++) {
+            if (p[i] == 0) {
+                if (q[i] < 0) {
+                    return false;
+                }
+            } else {
+                double t = q[i] / p[i];
+                if (p[i] < 0) {
+                    t0 = Math.max(t0, t);
+                } else {
+                    t1 = Math.min(t1, t);
+                }
+                if (t0 > t1) {
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     /**
@@ -2354,12 +2694,13 @@ final class Scan {
         });
     }
 
-    private void tryOriginal(GrayLuminanceSource source, boolean global, String attempt, double confidence, boolean multi) {
+    private void tryOriginal(GrayLuminanceSource source, boolean global, String attempt, double confidence, boolean multi,
+            Set<Symbology> formats) {
         if (stop()) {
             return;
         }
         attempts++;
-        accept(BitmapDecoder.read(source, PixelMap.IDENTITY, attempt, 0, confidence, symbologies, global, multi, options.eanAddOn()));
+        accept(BitmapDecoder.read(source, PixelMap.IDENTITY, attempt, 0, confidence, formats, global, multi, options.eanAddOn()));
     }
 
     private void tryBinary(GrayU8 binary, String attempt, boolean matrixOnly, double confidence) {

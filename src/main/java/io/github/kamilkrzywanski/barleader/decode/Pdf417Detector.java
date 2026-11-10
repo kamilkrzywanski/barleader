@@ -124,6 +124,24 @@ final class Pdf417Detector {
     }
 
     /**
+     * Whether {@link #detect} would find a start or a stop pattern to begin from on {@code image},
+     * along its rows or its columns.
+     */
+    static boolean showsGuard(boolean[][] image) {
+        if (!rectangular(image)) {
+            return false;
+        }
+        for (boolean rotate90 : new boolean[]{false, true}) {
+            for (boolean stop : new boolean[]{false, true}) {
+                if (hasGuard(image, rotate90, stop)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
      * {@code HasStartPattern}, or with {@code stop} the same test for a stop pattern followed by
      * its quiet zone. Both directions of the row are tried, so column order does not matter.
      */

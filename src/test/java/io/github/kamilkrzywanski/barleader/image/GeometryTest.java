@@ -12,6 +12,32 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GeometryTest {
+    /** Every pixel of a quarter, half and three-quarter turn is the source pixel its map names. */
+    @Test
+    void orthogonalTurnsMoveEachPixelWhereTheirMapSays() {
+        java.util.Random random = new java.util.Random(3);
+        GrayU8 source = new GrayU8(17, 9);
+        for (int i = 0; i < source.data.length; i++) {
+            source.data[i] = (byte) random.nextInt(256);
+        }
+        for (int degrees : new int[]{90, 180, 270}) {
+            Transformed turned = Geometry.rotateOrthogonal(source, degrees);
+            assertEquals(degrees == 180 ? 17 : 9, turned.image().width);
+            boolean[] rows = new boolean[turned.image().height];
+            rows[1] = true;
+            rows[rows.length - 1] = true;
+            Transformed partly = Geometry.rotateOrthogonal(source, degrees, rows);
+            for (int y = 0; y < turned.image().height; y++) {
+                for (int x = 0; x < turned.image().width; x++) {
+                    ImagePoint at = turned.toSource().toSource(x, y);
+                    int expected = source.get((int) at.x(), (int) at.y());
+                    assertEquals(expected, turned.image().get(x, y), degrees + " at " + x + "," + y);
+                    assertEquals(rows[y] ? expected : 0, partly.image().get(x, y), degrees + " partly at " + x + "," + y);
+                }
+            }
+        }
+    }
+
     @Test
     void cropAddsTheOriginInThePixelMap() {
         GrayU8 source = white(20, 16);

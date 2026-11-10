@@ -152,6 +152,13 @@ final class DmGeometry {
             return bits;
         }
 
+        /** A copy of these bits, which {@link #flipAll} can change without touching them. */
+        Bits copy() {
+            Bits bits = new Bits(width, height);
+            System.arraycopy(data, 0, bits.data, 0, data.length);
+            return bits;
+        }
+
         boolean isIn(double x, double y) {
             return x >= 0 && x < width && y >= 0 && y < height;
         }
