@@ -47,6 +47,8 @@ public final class BinaryBitmap {
     private int[] blackPoints;
     private static final int UNKNOWN = Integer.MIN_VALUE;
     private int[][] fineRuns;
+    /** The runs of one row of {@link #fineRuns} while it is measured. */
+    private int[] fineScratch = new int[0];
     private int[][] reversedFineRuns;
 
     private BinaryBitmap(GrayLuminanceSource source, boolean hybrid) {
@@ -153,15 +155,20 @@ public final class BinaryBitmap {
         }
         int[][] cache = reversed ? reversedRuns : runs;
         int[] cached = cache[y];
+        if (cached == NO_RUNS) {
+            return null;
+        }
         if (cached == null) {
-            boolean[] row = blackRow(y);
-            if (row == null) {
-                return null;
-            }
             int[] forward = runs[y];
             if (forward == null) {
-                forward = runLengths(row);
-                runs[y] = forward;
+                if (readable != null && !readable[y]) {
+                    return null;
+                }
+                forward = blackRuns(y);
+                runs[y] = forward == null ? NO_RUNS : forward;
+            }
+            if (forward == null || forward == NO_RUNS) {
+                return null;
             }
             if (reversed) {
                 int[] backward = new int[forward.length];
@@ -217,6 +224,60 @@ public final class BinaryBitmap {
     }
 
     /**
+     * {@link #runLengths} of {@link #getBlackRow}, measured on the luminances in one pass, without
+     * the row of booleans. Null when the row has too little contrast.
+     */
+    private int[] blackRuns(int y) {
+        int width = source.getWidth();
+        initArrays(width);
+        byte[] local = source.getRow(y, luminances);
+        int blackPoint = blackPoint(y, local, width);
+        if (blackPoint < 0) {
+            return null;
+        }
+        if (width == 0) {
+            return new int[]{0};
+        }
+        if (fineScratch.length < width + 2) {
+            fineScratch = new int[width + 2];
+        }
+        int[] out = fineScratch;
+        int count = 0;
+        // As getBlackRow: below 3 pixels the plain luminance, otherwise the sharpened one, with the
+        // first and the last pixel white.
+        boolean color = width < 3 && (local[0] & 0xff) < blackPoint;
+        if (color) {
+            out[count++] = 0;
+        }
+        int start = 0;
+        int left = local[0] & 0xff;
+        int center = width > 1 ? local[1] & 0xff : 0;
+        for (int x = 1; x < width; x++) {
+            boolean black;
+            if (width < 3) {
+                black = (local[x] & 0xff) < blackPoint;
+            } else if (x == width - 1) {
+                black = false;
+            } else {
+                int right = local[x + 1] & 0xff;
+                black = ((center * 4) - left - right) / 2 < blackPoint;
+                left = center;
+                center = right;
+            }
+            if (black != color) {
+                out[count++] = x - start;
+                start = x;
+                color = black;
+            }
+        }
+        out[count++] = width - start;
+        if (color) {
+            out[count++] = 0;
+        }
+        return java.util.Arrays.copyOf(out, count);
+    }
+
+    /**
      * The runs of {@link #runs} with each edge where the sharpened row, linearly interpolated between
      * pixel centres, crosses the black point, in units of {@code 1 / scale} pixel. Where a module is
      * under two pixels, a whole-pixel edge is off by a third of a module or more, which is enough for
@@ -234,18 +295,24 @@ public final class BinaryBitmap {
         if (blackPoint < 0) {
             return null;
         }
-        int[] runs = new int[width + 1];
+        if (fineScratch.length < width + 1) {
+            fineScratch = new int[width + 1];
+        }
+        int[] runs = fineScratch;
         int count = 0;
         int previous = 0;
         boolean black = false;
-        float before = 0;
+        // The sharpened value is half of an integer: it lies under the black point exactly when that
+        // integer lies under twice the black point, and only an edge needs it as a fraction.
+        int twice = 2 * blackPoint;
+        int before = 0;
         for (int x = 1; x < width; x++) {
             boolean edge = x == width - 1;
-            float value = edge ? 0 : ((local[x] & 0xff) * 4 - (local[x - 1] & 0xff) - (local[x + 1] & 0xff)) / 2f;
-            boolean next = !edge && value < blackPoint;
+            int value = edge ? 0 : (local[x] & 0xff) * 4 - (local[x - 1] & 0xff) - (local[x + 1] & 0xff);
+            boolean next = !edge && value < twice;
             if (next != black) {
                 // between the centres of pixels x - 1 and x, or at the left edge of a forced white or black end pixel
-                float at = x == 1 || edge ? x : x - 0.5f + (blackPoint - before) / (value - before);
+                float at = x == 1 || edge ? x : x - 0.5f + (blackPoint - before / 2f) / (value / 2f - before / 2f);
                 int position = Math.max(previous + 1, Math.round(at * scale));
                 runs[count++] = position - previous;
                 previous = position;

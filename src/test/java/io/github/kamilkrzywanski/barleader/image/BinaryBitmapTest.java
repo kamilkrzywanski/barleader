@@ -78,4 +78,26 @@ class BinaryBitmapTest {
         BinaryBitmap bitmap = BinaryBitmap.hybrid(new GrayLuminanceSource(bars()));
         assertThrows(IllegalArgumentException.class, () -> bitmap.restrictRows(new boolean[3]));
     }
+
+    /**
+     * The edges of the fine runs lie where the sharpened row crosses the black point between two
+     * pixel centres: blurred bars of one to three pixels, a ramp with two dips, and noise around a
+     * step. These are the runs the sharpened row gave when every pixel of it was compared as a float.
+     */
+    @Test
+    void fineRunsPutEachEdgeWhereTheSharpenedRowCrossesTheBlackPoint() {
+        int width = 48;
+        GrayU8 gray = new GrayU8(width, 3);
+        java.util.Random random = new java.util.Random(5);
+        for (int x = 0; x < width; x++) {
+            gray.set(x, 0, (x / 2) % 5 == 0 ? 40 : (x % 3 == 0 ? 120 : 210));
+            gray.set(x, 1, x < 16 ? 220 - x * 3 : x == 30 || x == 31 ? 60 : x == 40 ? 90 : 200);
+            gray.set(x, 2, (x < 24 ? 60 : 190) + random.nextInt(31) - 15);
+        }
+        BinaryBitmap bitmap = BinaryBitmap.hybrid(new GrayLuminanceSource(gray));
+        assertArrayEquals(new int[]{4, 4, 4, 4, 8, 4, 9, 14, 9, 4, 8, 4, 4, 8, 8, 4, 8, 4, 8, 8, 4, 4, 8, 4, 9, 14, 9, 4, 8},
+                bitmap.runs(0, false, 4));
+        assertArrayEquals(new int[]{120, 8, 31, 6, 27}, bitmap.runs(1, false, 4));
+        assertArrayEquals(new int[]{4, 93, 95}, bitmap.runs(2, false, 4));
+    }
 }
