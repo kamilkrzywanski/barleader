@@ -61,9 +61,8 @@ final class Scan {
     private HitCollector held;
     /** Crops from the band search, reused by the late unsharp that sits in the gaussian slot. */
     private List<LinearBand.Crop> bandCrops = List.of();
-    /** The colour image read, while its channels may still be asked for ({@link #colourChannels()}). */
+    /** The colour image read, whose brightest and darkest channels fast mode reads last ({@link #channelReads}). */
     private BufferedImage colour;
-    private GrayU8[] channels;
     /** Whether {@link #bandCrops} are the crops of {@link BarSegments}, which {@link Deblur} sharpens. */
     private boolean segmentCrops;
     /** Frames of at least this many pixels are read where they hold anything ({@link ContentBounds}). */
@@ -240,16 +239,6 @@ final class Scan {
      * The brightest and the darkest channel of the colour image read, built the first time a
      * step asks for them, or null for a gray image or a frame read in parts.
      */
-    private GrayU8[] colourChannels() {
-        if (colour != null && channels == null) {
-            channels = GrayImages.channels(colour);
-            if (channels == null) {
-                colour = null;
-            }
-        }
-        return channels;
-    }
-
     private long remainingMillis() {
         if (budgetNanos == Long.MAX_VALUE) {
             return Long.MAX_VALUE;
@@ -392,30 +381,36 @@ final class Scan {
                 });
             }
         }
-        traceQr(gray);
-        traceMicroQr(gray);
-        traceAztec(gray);
-        traceDataMatrix(gray);
-        if (held != null && hits.isEmpty()) {
-            hits = held;
-        }
         // A miss of the variants still looks for tilted linear strips: first the patches of bars
         // of BarStrips at their own angle, then the crops of BarSegments, then the fits to the
         // gray profile, EAN halves and the colour channels. Aggressive mode takes these steps too,
         // before its own, and its own get the attempts these took on top of their budget: on the
         // snapshot images it read fewer KAIST and BarBeR photos than fast mode, and on the public
         // tapirscan benchmark it missed 48 turned and 28 vertical photos fast mode read.
-        int before = attempts;
-        if ((hits.isEmpty() || options.findAll()) && !stop()) {
-            if (!early) {
-                readCandidates(gray);
+        // Read first, the candidates leave these steps independent of each other: they then run
+        // side by side (readMissed).
+        boolean together = early && hits.isEmpty();
+        if (together) {
+            readMissed(gray);
+        } else {
+            runTraces(gray);
+            if (held != null && hits.isEmpty()) {
+                hits = held;
             }
-            tryDeblurredBands();
         }
-        tryCode128Fit(gray);
-        tryEanFit(gray);
-        tryEanHalves(gray);
-        tryColourChannels();
+        int before = attempts;
+        if (!together) {
+            if ((hits.isEmpty() || options.findAll()) && !stop()) {
+                if (!early) {
+                    readCandidates(gray);
+                }
+                tryDeblurredBands();
+            }
+            tryCode128Fit(gray);
+            tryEanFit(gray);
+            tryEanHalves(gray);
+            tryColourChannels();
+        }
         if (options.mode() == DecodeMode.FAST) {
             return hits.list();
         }
@@ -517,10 +512,7 @@ final class Scan {
         locate(gray, false, true);
         if ((hits.isEmpty() || options.findAll()) && !stop()) {
             GrayU8 inverted = GrayImages.invert(gray);
-            traceQr(inverted);
-            traceMicroQr(inverted);
-            traceAztec(inverted);
-            traceDataMatrix(inverted);
+            runTraces(inverted);
         }
         return hits.list();
     }
@@ -1029,30 +1021,35 @@ final class Scan {
         if (!hits.isEmpty() && !options.findAll() || !symbologies.contains(Symbology.CODE_128) || outOfTime()) {
             return;
         }
-        List<BarcodeHit> before = List.copyOf(hits.list());
+        fanout.inOrder(code128Fits(gray, List.copyOf(hits.list())), () -> outOfTime() || !options.findAll() && !hits.isEmpty(),
+                this::added);
+    }
+
+    /** {@link #tryCode128Fit} on each strip, side by side, a fit beside {@code before} only as {@link #besideHits} lets it. */
+    private List<Callable<BarcodeHit>> code128Fits(GrayU8 gray, List<BarcodeHit> before) {
         List<LinearBand.Crop> strips = barStrips(gray);
+        List<Callable<BarcodeHit>> fits = new ArrayList<>(strips.size());
         for (int i = 0; i < strips.size(); i++) {
-            if (outOfTime()) {
-                return;
-            }
-            LinearBand.Crop strip = strips.get(i);
-            Code128Fit.Found found = Code128Fit.read(stripBands(i));
-            if (found == null || !before.isEmpty() && !besideHits(found.text(), before)) {
-                continue;
-            }
-            PixelMap map = strip.toSource();
-            hits.add(new BarcodeHit(
-                    found.text(),
-                    Symbology.CODE_128,
-                    List.of(map.toSource(found.left(), found.y()), map.toSource(found.right(), found.y())),
-                    Math.floorMod(strip.degrees() + (found.upsideDown() ? 180 : 0), 360),
-                    0.60,
-                    "code128-fit"
-            ));
-            if (!options.findAll()) {
-                return;
-            }
+            int index = i;
+            fits.add(() -> {
+                Code128Fit.Found found = Code128Fit.read(stripBands(index));
+                return found == null || !before.isEmpty() && !besideHits(found.text(), before)
+                        ? null : code128Hit(strips.get(index), found);
+            });
         }
+        return fits;
+    }
+
+    private static BarcodeHit code128Hit(LinearBand.Crop strip, Code128Fit.Found found) {
+        PixelMap map = strip.toSource();
+        return new BarcodeHit(
+                found.text(),
+                Symbology.CODE_128,
+                List.of(map.toSource(found.left(), found.y()), map.toSource(found.right(), found.y())),
+                Math.floorMod(strip.degrees() + (found.upsideDown() ? 180 : 0), 360),
+                0.60,
+                "code128-fit"
+        );
     }
 
     /**
@@ -1084,52 +1081,59 @@ final class Scan {
         if (!hits.isEmpty() || !ean13 && !upcA || outOfTime()) {
             return;
         }
+        fanout.inOrder(eanFits(gray), () -> outOfTime() || !options.findAll() && !hits.isEmpty(), this::added);
+    }
+
+    /** {@link #tryEanFit} on each strip, side by side. */
+    private List<Callable<BarcodeHit>> eanFits(GrayU8 gray) {
         List<LinearBand.Crop> strips = barStrips(gray);
+        List<Callable<BarcodeHit>> fits = new ArrayList<>(strips.size());
         for (int i = 0; i < strips.size(); i++) {
-            if (outOfTime()) {
-                return;
-            }
-            LinearBand.Crop strip = strips.get(i);
-            EanFit.Found found = EanFit.read(stripBands(i));
-            if (found == null) {
-                continue;
-            }
-            Symbology symbology = Symbology.EAN_13;
-            String text = found.text();
-            if (text.charAt(0) == '0' && upcA) {
-                symbology = Symbology.UPC_A;
-                text = text.substring(1);
-            } else if (!ean13) {
-                continue;
-            }
-            PixelMap map = strip.toSource();
-            hits.add(new BarcodeHit(
-                    text,
-                    symbology,
-                    List.of(map.toSource(found.left(), found.y()), map.toSource(found.right(), found.y())),
-                    Math.floorMod(strip.degrees() + (found.upsideDown() ? 180 : 0), 360),
-                    0.60,
-                    "ean-fit"
-            ));
-            if (!options.findAll()) {
-                return;
-            }
+            int index = i;
+            fits.add(() -> eanFitHit(strips.get(index), EanFit.read(stripBands(index))));
         }
+        return fits;
+    }
+
+    /** {@code found} on {@code strip} as an EAN-13 or a UPC-A asked for, or null. */
+    private BarcodeHit eanFitHit(LinearBand.Crop strip, EanFit.Found found) {
+        if (found == null) {
+            return null;
+        }
+        Symbology symbology = Symbology.EAN_13;
+        String text = found.text();
+        if (text.charAt(0) == '0' && symbologies.contains(Symbology.UPC_A)) {
+            symbology = Symbology.UPC_A;
+            text = text.substring(1);
+        } else if (!symbologies.contains(Symbology.EAN_13)) {
+            return null;
+        }
+        PixelMap map = strip.toSource();
+        return new BarcodeHit(
+                text,
+                symbology,
+                List.of(map.toSource(found.left(), found.y()), map.toSource(found.right(), found.y())),
+                Math.floorMod(strip.degrees() + (found.upsideDown() ? 180 : 0), 360),
+                0.60,
+                "ean-fit"
+        );
     }
 
     private List<LinearBand.Crop> barStrips(GrayU8 gray) {
         if (barStrips == null) {
-            barStrips = BarStrips.find(gray, MAX_FIT_STRIPS);
-            stripBands = new StripBands[barStrips.size()];
+            List<LinearBand.Crop> strips = BarStrips.find(gray, MAX_FIT_STRIPS);
+            StripBands[] bands = new StripBands[strips.size()];
+            for (int i = 0; i < bands.length; i++) {
+                bands[i] = new StripBands(strips.get(i).image());
+            }
+            stripBands = bands;
+            barStrips = strips;
         }
         return barStrips;
     }
 
     /** The profiles of strip {@code index} of {@link #barStrips}, which both fits read. */
     private StripBands stripBands(int index) {
-        if (stripBands[index] == null) {
-            stripBands[index] = new StripBands(barStrips.get(index).image());
-        }
         return stripBands[index];
     }
 
@@ -1199,64 +1203,74 @@ final class Scan {
      * attempt slot: only the time budget stops it, as the crops before it often spend the attempts.
      */
     private void tryDeblurredBands() {
+        if (!hits.isEmpty()) {
+            return;
+        }
+        fanout.inOrder(deblurredCrops(), () -> outOfTime() || !hits.isEmpty(), this::added);
+    }
+
+    /** {@link #tryDeblurredBands} on each crop of {@link #bandCrops}, side by side; none without EAN-13 and UPC-A or without crops of {@link BarSegments}. */
+    private List<Callable<BarcodeHit>> deblurredCrops() {
         Set<Symbology> retail = EnumSet.noneOf(Symbology.class);
         for (Symbology symbology : new Symbology[]{Symbology.EAN_13, Symbology.UPC_A}) {
             if (symbologies.contains(symbology)) {
                 retail.add(symbology);
             }
         }
-        if (retail.isEmpty() || !hits.isEmpty() || !segmentCrops) {
-            return;
+        List<Callable<BarcodeHit>> crops = new ArrayList<>();
+        if (!retail.isEmpty() && segmentCrops) {
+            for (LinearBand.Crop crop : bandCrops) {
+                crops.add(() -> deblurred(crop, retail));
+            }
+        }
+        return crops;
+    }
+
+    /** What {@link #tryDeblurredBands} reads on {@code crop}, or null. */
+    private BarcodeHit deblurred(LinearBand.Crop crop, Set<Symbology> retail) {
+        Deblur deblur = Deblur.blurred(crop);
+        if (deblur == null) {
+            return null;
         }
         String[] names = {"linear-band-deghost", "linear-band-deghost-back", "linear-band-defocus"};
-        for (LinearBand.Crop crop : bandCrops) {
-            if (outOfTime()) {
-                return;
-            }
-            Deblur deblur = Deblur.blurred(crop);
-            if (deblur == null) {
+        GrayU8[] copies = deblur.variants();
+        BarcodeHit first = null;
+        String key = null;
+        int reading = 0;
+        int own = 0;
+        int rival = 0;
+        boolean conflict = false;
+        for (int i = 0; i < copies.length && !conflict; i++) {
+            List<BarcodeHit> read = BitmapDecoder.read(copies[i], deblur.toSource(), names[i], deblur.degrees(), 0.60,
+                    retail, false, false, options.eanAddOn());
+            if (read.isEmpty()) {
                 continue;
             }
-            GrayU8[] copies = deblur.variants();
-            BarcodeHit first = null;
-            String key = null;
-            int reading = 0;
-            int own = 0;
-            int rival = 0;
-            boolean conflict = false;
-            for (int i = 0; i < copies.length && !conflict; i++) {
-                List<BarcodeHit> read = BitmapDecoder.read(copies[i], deblur.toSource(), names[i], deblur.degrees(), 0.60,
-                        retail, false, false, options.eanAddOn());
-                if (read.isEmpty()) {
-                    continue;
-                }
-                BarcodeHit hit = read.get(0);
-                String text = BitmapDecoder.eanSupportKey(hit.text());
-                if (first == null) {
-                    first = hit;
-                    key = text;
-                } else if (!text.equals(key)) {
-                    conflict = true;
-                    continue;
-                }
-                reading++;
-                for (var entry : BitmapDecoder.eanRowSupport(copies[i]).entrySet()) {
-                    if (entry.getKey().equals(key)) {
-                        own = Math.max(own, entry.getValue());
-                    } else {
-                        rival = Math.max(rival, entry.getValue());
-                    }
-                }
-            }
-            if (first == null || conflict) {
+            BarcodeHit hit = read.get(0);
+            String text = BitmapDecoder.eanSupportKey(hit.text());
+            if (first == null) {
+                first = hit;
+                key = text;
+            } else if (!text.equals(key)) {
+                conflict = true;
                 continue;
             }
-            if (reading == copies.length
-                    || rival == 0 && (reading >= 2 || own >= 4 || fitted(deblur, copies, key))) {
-                hits.add(first);
-                return;
+            reading++;
+            for (var entry : BitmapDecoder.eanRowSupport(copies[i]).entrySet()) {
+                if (entry.getKey().equals(key)) {
+                    own = Math.max(own, entry.getValue());
+                } else {
+                    rival = Math.max(rival, entry.getValue());
+                }
             }
         }
+        if (first == null || conflict) {
+            return null;
+        }
+        if (reading == copies.length || rival == 0 && (reading >= 2 || own >= 4 || fitted(deblur, copies, key))) {
+            return first;
+        }
+        return null;
     }
 
     /**
@@ -1273,45 +1287,57 @@ final class Scan {
         if (!hits.isEmpty() || !ean13 && !upcA || options.eanAddOn() == EanAddOn.REQUIRE || outOfTime()) {
             return;
         }
+        fanout.inOrder(halves(gray), () -> outOfTime() || !hits.isEmpty(), this::added);
+    }
+
+    /**
+     * {@link #tryEanHalves} on the frame, its halved copy and the frame turned by 90 degrees, side
+     * by side, each at whole and then at quarter pixels.
+     */
+    private List<Callable<BarcodeHit>> halves(GrayU8 gray) {
         linearRegions(gray);
-        List<Transformed> sources = new ArrayList<>();
-        sources.add(Geometry.rotateOrthogonal(gray, 0));
+        List<java.util.function.Supplier<Transformed>> sources = new ArrayList<>();
+        sources.add(() -> Geometry.rotateOrthogonal(gray, 0));
         if (Math.min(gray.width, gray.height) >= 800) {
-            sources.add(Geometry.boxDownscaled(gray, 2));
+            sources.add(() -> Geometry.boxDownscaled(gray, 2));
         }
-        sources.add(Geometry.rotateOrthogonal(gray, 90,
+        sources.add(() -> Geometry.rotateOrthogonal(gray, 90,
                 filledRows(EnumSet.of(Symbology.EAN_13), Geometry.orthogonalMap(gray.width, gray.height, 90), gray, 90)));
-        for (Transformed source : sources) {
-            BinaryBitmap bitmap = BinaryBitmap.hybrid(new GrayLuminanceSource(source.image()))
-                    .restrictRows(linearRows(source.image().width, source.image().height, source.toSource()));
-            for (int scale : new int[]{1, 4}) {
-                if (outOfTime()) {
-                    return;
-                }
-                EanHalves.Found found = EanHalves.read(bitmap, scale);
-                if (found == null) {
-                    continue;
-                }
-                Symbology symbology = Symbology.EAN_13;
-                String text = found.text();
-                if (text.charAt(0) == '0' && upcA) {
-                    symbology = Symbology.UPC_A;
-                    text = text.substring(1);
-                } else if (!ean13) {
-                    continue;
-                }
-                PixelMap map = source.toSource();
-                hits.add(new BarcodeHit(
-                        text,
-                        symbology,
-                        List.of(map.toSource(found.left(), found.row()), map.toSource(found.right(), found.row())),
-                        Math.floorMod(source.degrees() + (found.upsideDown() ? 180 : 0), 360),
-                        0.60,
-                        "ean-halves"
-                ));
-                return;
-            }
+        List<Callable<BarcodeHit>> reads = new ArrayList<>(sources.size());
+        for (java.util.function.Supplier<Transformed> made : sources) {
+            reads.add(() -> {
+                Transformed source = made.get();
+                BinaryBitmap bitmap = BinaryBitmap.hybrid(new GrayLuminanceSource(source.image()))
+                        .restrictRows(linearRows(source.image().width, source.image().height, source.toSource()));
+                BarcodeHit hit = halvesHit(source, EanHalves.read(bitmap, 1));
+                return hit != null || outOfTime() ? hit : halvesHit(source, EanHalves.read(bitmap, 4));
+            });
         }
+        return reads;
+    }
+
+    /** {@code found} on {@code source} as an EAN-13 or a UPC-A asked for, or null. */
+    private BarcodeHit halvesHit(Transformed source, EanHalves.Found found) {
+        if (found == null) {
+            return null;
+        }
+        Symbology symbology = Symbology.EAN_13;
+        String text = found.text();
+        if (text.charAt(0) == '0' && symbologies.contains(Symbology.UPC_A)) {
+            symbology = Symbology.UPC_A;
+            text = text.substring(1);
+        } else if (!symbologies.contains(Symbology.EAN_13)) {
+            return null;
+        }
+        PixelMap map = source.toSource();
+        return new BarcodeHit(
+                text,
+                symbology,
+                List.of(map.toSource(found.left(), found.row()), map.toSource(found.right(), found.row())),
+                Math.floorMod(source.degrees() + (found.upsideDown() ? 180 : 0), 360),
+                0.60,
+                "ean-halves"
+        );
     }
 
     /**
@@ -1322,26 +1348,31 @@ final class Scan {
      * band crops and the fits reached the labelled one. No attempt slot.
      */
     private void tryColourChannels() {
-        boolean all = options.findAll();
         if (!hits.isEmpty() || outOfTime()) {
             return;
         }
-        GrayU8[] planes = colourChannels();
-        if (planes == null) {
-            return;
-        }
+        fanout.inOrder(channelReads(), () -> outOfTime() || !options.findAll() && !hits.isEmpty(), this::accept);
+    }
+
+    /** {@link #tryColourChannels} on the brightest and on the darkest channel, side by side; none for a gray image. */
+    private List<Callable<List<BarcodeHit>>> channelReads() {
+        BufferedImage image = colour;
         Set<Symbology> formats = gated(variantFormats());
-        if (formats.isEmpty()) {
-            return;
+        if (image == null || formats.isEmpty()) {
+            return List.of();
         }
-        List<Callable<List<BarcodeHit>>> coloured = List.of(
-                () -> readVariant(planes[0], PixelMap.IDENTITY, "channel-max", 0, false, formats, 0.72, all),
-                () -> readVariant(planes[1], PixelMap.IDENTITY, "channel-min", 0, false, formats, 0.72, all));
-        fanout.inOrder(coloured, () -> outOfTime() || !all && !hits.isEmpty(), found -> {
-            if (found != null) {
-                accept(found);
-            }
-        });
+        boolean all = options.findAll();
+        Once<GrayU8[]> planes = new Once<>(() -> GrayImages.channels(image));
+        List<Callable<List<BarcodeHit>>> reads = new ArrayList<>(2);
+        for (int plane = 0; plane < 2; plane++) {
+            int index = plane;
+            String attempt = plane == 0 ? "channel-max" : "channel-min";
+            reads.add(() -> {
+                GrayU8[] made = planes.get();
+                return made == null ? List.of() : readVariant(made[index], PixelMap.IDENTITY, attempt, 0, false, formats, 0.72, all);
+            });
+        }
+        return reads;
     }
 
     /** Whether {@link EanFit} reads {@code key} on the resampled crop or on one of its copies. */
@@ -1993,15 +2024,63 @@ final class Scan {
     }
 
     /**
-     * One QR attempt on the original gray. A clean symbol still stops on {@code original-*}.
-     * Confidence stays under that hit.
+     * The traces of {@code gray}, one attempt each, in this order: QR Code, Micro QR, Aztec and Data
+     * Matrix. They sit after the cheap ladder, so a clean symbol still stops on {@code original-*},
+     * and their confidence stays under those hits and under {@code inverted-luma}. They share one
+     * matrix and run side by side; a trace counts while an attempt is left, as one after another.
      */
-    private void traceQr(GrayU8 gray) {
-        if (stop() || !symbologies.contains(Symbology.QR_CODE)) {
+    private void runTraces(GrayU8 gray) {
+        List<Callable<Runnable>> jobs = new ArrayList<>();
+        Once<TraceMatrix> matrix = traceJobs(jobs, gray);
+        missedOff = 0;
+        fanout.inOrder(jobs, this::stop, this::take);
+        keepTrace(gray, matrix);
+    }
+
+    /** The traces of {@code gray} asked for, added to {@code jobs}, and the matrix they share. */
+    private Once<TraceMatrix> traceJobs(List<Callable<Runnable>> jobs, GrayU8 gray) {
+        TraceMatrix cached = trace;
+        Once<TraceMatrix> matrix = new Once<>(() -> cached != null ? cached : TraceMatrix.of(gray));
+        traceJob(jobs, Symbology.QR_CODE, () -> qrTrace(gray, matrix.get()));
+        traceJob(jobs, Symbology.MICRO_QR, () -> microQrTrace(matrix.get()));
+        traceJob(jobs, Symbology.AZTEC, () -> aztecTrace(matrix.get()));
+        traceJob(jobs, Symbology.DATA_MATRIX, () -> dataMatrixTrace(matrix.get()));
+        return matrix;
+    }
+
+    /** A trace of {@code symbology}, when asked for, that counts only while an attempt is left, as one. */
+    private void traceJob(List<Callable<Runnable>> jobs, Symbology symbology, Callable<List<BarcodeHit>> read) {
+        if (!symbologies.contains(symbology)) {
             return;
         }
-        attempts++;
-        List<QrDetector.Found> found = trace(gray).qr();
+        jobs.add(() -> {
+            List<BarcodeHit> found = (missedOff & OFF_TRACES) != 0 ? null : read.call();
+            return () -> {
+                if (!stop()) {
+                    attempts++;
+                    accept(found);
+                }
+            };
+        });
+    }
+
+    /** The matrix the traces built, if one of them did, kept as {@link #trace} keeps it. */
+    private void keepTrace(GrayU8 gray, Once<TraceMatrix> matrix) {
+        TraceMatrix made = matrix.made();
+        if (made != null && trace == null) {
+            trace = made;
+        }
+    }
+
+    /** One result of the jobs of {@link #runTraces} or {@link #readMissed}, taken in order on the calling thread. */
+    private void take(Runnable result) {
+        result.run();
+        missedOff |= stop() ? OFF_TRACES : 0;
+    }
+
+    /** What the QR trace reads on {@code gray}, whose trace matrix is {@code matrix}. */
+    private static List<BarcodeHit> qrTrace(GrayU8 gray, TraceMatrix matrix) {
+        List<QrDetector.Found> found = matrix.qr();
         // Raw local-average misses salt-and-pepper the same way zxing-cpp 3.1.1 does.
         // The median is a second look inside this attempt, not a looser finder threshold.
         if (found.isEmpty()) {
@@ -2015,106 +2094,48 @@ final class Scan {
                 found = List.of(pure);
             }
         }
+        List<BarcodeHit> read = new ArrayList<>(found.size());
         for (QrDetector.Found hit : found) {
-            List<ImagePoint> corners = new ArrayList<>(hit.corners().size());
-            for (ImagePoint corner : hit.corners()) {
-                corners.add(PixelMap.IDENTITY.toSource(corner.x(), corner.y()));
-            }
-            hits.add(new BarcodeHit(
-                    hit.text(),
-                    Symbology.QR_CODE,
-                    corners,
-                    hit.orientationDegrees(),
-                    0.85,
-                    "qr-trace",
-                    hit.bytes(),
-                    ""
-            ));
+            read.add(new BarcodeHit(hit.text(), Symbology.QR_CODE, frameCorners(hit.corners()), hit.orientationDegrees(), 0.85,
+                    "qr-trace", hit.bytes(), ""));
         }
+        return read;
     }
 
-    /**
-     * One Micro QR attempt on the original gray, after the QR finder and before Aztec.
-     * A clean symbol still stops on {@code original-*}, and a QR hit stops on
-     * {@code qr-trace}. Confidence stays under those hits.
-     */
-    private void traceMicroQr(GrayU8 gray) {
-        if (stop() || !symbologies.contains(Symbology.MICRO_QR)) {
-            return;
+    private static List<BarcodeHit> microQrTrace(TraceMatrix matrix) {
+        List<BarcodeHit> read = new ArrayList<>();
+        for (MicroQrDetector.Found found : matrix.microQr()) {
+            read.add(new BarcodeHit(found.text(), Symbology.MICRO_QR, frameCorners(found.corners()), found.orientationDegrees(),
+                    0.85, "mqr-trace", found.bytes(), ""));
         }
-        attempts++;
-        for (MicroQrDetector.Found found : trace(gray).microQr()) {
-            List<ImagePoint> corners = new ArrayList<>(found.corners().size());
-            for (ImagePoint corner : found.corners()) {
-                corners.add(PixelMap.IDENTITY.toSource(corner.x(), corner.y()));
-            }
-            hits.add(new BarcodeHit(
-                    found.text(),
-                    Symbology.MICRO_QR,
-                    corners,
-                    found.orientationDegrees(),
-                    0.85,
-                    "mqr-trace",
-                    found.bytes(),
-                    ""
-            ));
-        }
+        return read;
     }
 
-    /**
-     * One Aztec attempt on the original gray. A clean symbol still stops on {@code original-*}.
-     * Confidence stays under that hit. A symbol of dimension 35 or larger is sampled from
-     * {@code LocalGrid} timing crosses.
-     */
-    private void traceAztec(GrayU8 gray) {
-        if (stop() || !symbologies.contains(Symbology.AZTEC)) {
-            return;
+    private static List<BarcodeHit> aztecTrace(TraceMatrix matrix) {
+        List<BarcodeHit> read = new ArrayList<>();
+        for (AztecDetector.Found found : matrix.aztec()) {
+            read.add(new BarcodeHit(found.text(), Symbology.AZTEC, frameCorners(found.corners()), found.orientationDegrees(),
+                    0.85, "aztec-trace", found.bytes(), ""));
         }
-        attempts++;
-        for (AztecDetector.Found found : trace(gray).aztec()) {
-            List<ImagePoint> corners = new ArrayList<>(found.corners().size());
-            for (ImagePoint corner : found.corners()) {
-                corners.add(PixelMap.IDENTITY.toSource(corner.x(), corner.y()));
-            }
-            hits.add(new BarcodeHit(
-                    found.text(),
-                    Symbology.AZTEC,
-                    corners,
-                    found.orientationDegrees(),
-                    0.85,
-                    "aztec-trace",
-                    found.bytes(),
-                    ""
-            ));
-        }
+        return read;
     }
 
-    /**
-     * One Data Matrix attempt on the original gray. It sits after the cheap ladder,
-     * so a clean symbol still stops on {@code original-*}. Confidence stays under
-     * {@code inverted-luma} when both hits are kept.
-     */
-    private void traceDataMatrix(GrayU8 gray) {
-        if (stop() || !symbologies.contains(Symbology.DATA_MATRIX)) {
-            return;
+    private static List<BarcodeHit> dataMatrixTrace(TraceMatrix matrix) {
+        List<BarcodeHit> read = new ArrayList<>();
+        for (DataMatrixDetector.Found found : matrix.dataMatrix()) {
+            read.add(new BarcodeHit(found.text(), Symbology.DATA_MATRIX, frameCorners(found.corners()), found.orientationDegrees(),
+                    0.85, "dm-trace", found.bytes(), ""));
         }
-        attempts++;
-        for (DataMatrixDetector.Found found : trace(gray).dataMatrix()) {
-            List<ImagePoint> corners = new ArrayList<>(found.corners().size());
-            for (ImagePoint corner : found.corners()) {
-                corners.add(PixelMap.IDENTITY.toSource(corner.x(), corner.y()));
-            }
-            hits.add(new BarcodeHit(
-                    found.text(),
-                    Symbology.DATA_MATRIX,
-                    corners,
-                    found.orientationDegrees(),
-                    0.85,
-                    "dm-trace",
-                    found.bytes(),
-                    ""
-            ));
+        return read;
+    }
+
+    /** The corners of a trace, which reads the frame itself. */
+    private static List<ImagePoint> frameCorners(List<ImagePoint> corners) {
+        List<ImagePoint> mapped = new ArrayList<>(corners.size());
+        for (ImagePoint corner : corners) {
+            mapped.add(PixelMap.IDENTITY.toSource(corner.x(), corner.y()));
         }
+        return mapped;
     }
 
     private void locate(GrayU8 gray, boolean fiducials, boolean quadrilaterals) {
@@ -2501,6 +2522,96 @@ final class Scan {
             return List.of(byMean);
         }
         return null;
+    }
+
+    /**
+     * The traces of a frame the variants read nothing on, without findAll and after the
+     * candidates, and unless a read of the candidates waits ({@link #held}) the steps after them:
+     * the deblurred crops, the Code 128 and EAN fits, the EAN halves and the colour channels. Each
+     * reads only while the steps before it read nothing, and none uses the work of another, so
+     * they run side by side and their reads are taken in this order, as the steps one after
+     * another took them. On a frame nothing reads they all run anyway, in less time together.
+     * With a read waiting the steps after the traces would not run: it is the read.
+     */
+    private void readMissed(GrayU8 gray) {
+        List<Callable<Runnable>> jobs = new ArrayList<>();
+        Once<TraceMatrix> matrix = traceJobs(jobs, gray);
+        if (held == null) {
+            List<Callable<BarcodeHit>> deblurred = deblurredCrops();
+            if (!deblurred.isEmpty()) {
+                // Deblurring needs an attempt left, as the steps before it did.
+                jobs.add(() -> () -> missedOff |= stop() ? OFF_DEBLUR : 0);
+                for (Callable<BarcodeHit> crop : deblurred) {
+                    jobs.add(() -> {
+                        BarcodeHit hit = (missedOff & OFF_DEBLUR) != 0 ? null : crop.call();
+                        return () -> added((missedOff & OFF_DEBLUR) != 0 ? null : hit);
+                    });
+                }
+            }
+            List<Callable<BarcodeHit>> found = new ArrayList<>();
+            if (symbologies.contains(Symbology.CODE_128)) {
+                found.addAll(code128Fits(gray, List.of()));
+            }
+            if (symbologies.contains(Symbology.EAN_13) || symbologies.contains(Symbology.UPC_A)) {
+                found.addAll(eanFits(gray));
+                // Halves read no supplement, so they cannot give a symbol that has to carry one.
+                if (options.eanAddOn() != EanAddOn.REQUIRE) {
+                    found.addAll(halves(gray));
+                }
+            }
+            for (Callable<BarcodeHit> read : found) {
+                jobs.add(() -> {
+                    BarcodeHit hit = read.call();
+                    return () -> added(hit);
+                });
+            }
+            for (Callable<List<BarcodeHit>> read : channelReads()) {
+                jobs.add(() -> {
+                    List<BarcodeHit> hit = read.call();
+                    return () -> accept(hit);
+                });
+            }
+        }
+        missedOff = 0;
+        fanout.inOrder(jobs, () -> !hits.isEmpty() || outOfTime(), this::take);
+        keepTrace(gray, matrix);
+        if (held != null && hits.isEmpty()) {
+            hits = held;
+        }
+    }
+
+    private void added(BarcodeHit hit) {
+        if (hit != null) {
+            hits.add(hit);
+        }
+    }
+
+    /** What the jobs of {@link #readMissed} can skip: the traces once no attempt is left, deblurring when none was. */
+    private volatile int missedOff;
+    private static final int OFF_TRACES = 1;
+    private static final int OFF_DEBLUR = 2;
+
+    /** A value built once, by the first job that asks for it; a job that asks meanwhile waits for it. */
+    private static final class Once<T> {
+        private java.util.function.Supplier<T> make;
+        private T value;
+
+        Once(java.util.function.Supplier<T> make) {
+            this.make = make;
+        }
+
+        synchronized T get() {
+            if (make != null) {
+                value = make.get();
+                make = null;
+            }
+            return value;
+        }
+
+        /** The value if a job built it, or null. */
+        synchronized T made() {
+            return value;
+        }
     }
 
     /** The matrix the QR, Micro QR, Aztec and Data Matrix traces of the frame share, built once. */
@@ -2910,7 +3021,11 @@ final class Scan {
         }
     }
 
+    /** Every hit of {@code found}, if a read was made. */
     private void accept(List<BarcodeHit> found) {
+        if (found == null) {
+            return;
+        }
         for (BarcodeHit hit : found) {
             hits.add(hit);
         }

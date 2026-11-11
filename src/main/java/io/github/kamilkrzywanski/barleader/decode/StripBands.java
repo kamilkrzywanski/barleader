@@ -32,7 +32,8 @@ public final class StripBands {
         return AT.length;
     }
 
-    Band band(int index) {
+    /** Band {@code index}, sampled by the first fit that asks; the two fits of a strip may ask side by side. */
+    synchronized Band band(int index) {
         Band band = bands[index];
         if (band == null) {
             int y = (int) (strip.height * AT[index]);
