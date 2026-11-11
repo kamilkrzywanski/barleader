@@ -78,7 +78,11 @@ public final class QrDetector {
         if (bits == null || bits.width < 3 || bits.height < 3) {
             return List.of();
         }
-        List<Ring> patterns = findFinderPatterns(bits, true);
+        return read(bits, findFinderPatterns(bits, true));
+    }
+
+    /** {@link #read(Bits)} with the finder patterns {@link #findFinderPatterns} found on {@code bits}, which it sorts. */
+    static List<Found> read(Bits bits, List<Ring> patterns) {
         List<FinderSet> sets = generateSets(patterns);
         List<Ring> used = new ArrayList<>();
         List<Found> found = new ArrayList<>();

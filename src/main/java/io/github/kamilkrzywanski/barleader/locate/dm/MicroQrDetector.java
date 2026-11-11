@@ -62,8 +62,13 @@ public final class MicroQrDetector {
         if (bits == null || bits.width < 11 || bits.height < 11) {
             return List.of();
         }
+        return read(bits, QrDetector.findFinderPatterns(bits, true));
+    }
+
+    /** {@link #read(Bits)} with the finder patterns {@link QrDetector#findFinderPatterns} found on {@code bits}. */
+    static List<Found> read(Bits bits, List<Ring> patterns) {
         List<Found> found = new ArrayList<>();
-        for (Ring pattern : QrDetector.findFinderPatterns(bits, true)) {
+        for (Ring pattern : patterns) {
             Found hit = readPattern(bits, pattern);
             if (hit != null) {
                 found.add(hit);
