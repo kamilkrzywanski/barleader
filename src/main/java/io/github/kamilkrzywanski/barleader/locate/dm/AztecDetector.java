@@ -64,8 +64,13 @@ public final class AztecDetector {
         if (bits == null || bits.width < 11 || bits.height < 11) {
             return List.of();
         }
+        return read(bits, findCenters(bits));
+    }
+
+    /** {@link #read(Bits)} with the centres {@link #findCenters} found on {@code bits}. */
+    static List<Found> read(Bits bits, List<Ring> centers) {
         List<Found> found = new ArrayList<>();
-        for (Ring center : findCenters(bits)) {
+        for (Ring center : centers) {
             Found hit = readCenter(bits, center);
             if (hit != null) {
                 found.add(hit);
