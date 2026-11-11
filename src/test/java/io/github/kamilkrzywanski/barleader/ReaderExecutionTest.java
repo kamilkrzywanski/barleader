@@ -29,7 +29,7 @@ class ReaderExecutionTest {
             BarcodeReader own = new BarcodeReader(pool);
             BarcodeReader sequential = BarcodeReader.sequential();
             for (Sample sample : Samples.all()) {
-                for (ReadOptions options : List.of(FAST, AGGRESSIVE, FAST.findAll(true))) {
+                for (ReadOptions options : List.of(FAST, AGGRESSIVE, FAST.findAll(true), AGGRESSIVE.findAll(true))) {
                     List<BarcodeHit> expected = shared.read(sample.image(), options);
                     assertEquals(expected, own.read(sample.image(), options), sample.name());
                     assertEquals(expected, sequential.read(sample.image(), options), sample.name());

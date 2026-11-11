@@ -120,6 +120,13 @@ final class Scan {
     private List<int[]> pdf417Guards = List.of();
     /** Where the linear readers of the whole-frame variants read ({@link #linearRegions}). */
     private volatile List<double[]> linearRegions;
+    /** The attempts of the step this thread runs as a job of aggressive mode's own steps ({@link #readTailSideBySide}), or null. */
+    private final ThreadLocal<StepLog> logged = new ThreadLocal<>();
+    /** Set once those steps are taken no further: a step still running then makes no more attempts. */
+    private volatile boolean tailStopped;
+    /** How many attempts each of those steps logged once it finished, -1 before; and how many were left when they started. */
+    private java.util.concurrent.atomic.AtomicIntegerArray tailCounts;
+    private int tailBudget;
     private int segmentLimit;
     /** The frame the regions are in, and how far from its edges a row runs along them ({@link #alongBorder}). */
     private int frameWidth;
@@ -440,82 +447,247 @@ final class Scan {
             }
             runAttempts(angles);
         }
-        // A strip that is still tilted after ±15/±30. It sits here, not after Sauvola:
-        // the ninth crop of a miss needs attempt budget the rest of this ladder would spend.
-        // FAST has already returned. A hit on the angle loop stops before this runs.
-        if ((hits.isEmpty() || options.findAll()) && !stop()) {
-            tryLinearBands(gray);
-        }
-        // zxing-cpp LumImagePyramid, after the angles so a rotated linear code still wins there.
-        // FAST returns above. The full-resolution layer is the cheap ladder, not a second pass.
-        tryDownscale(gray);
-        tryTiles(gray);
-        // The images below are built only while the budget lasts: each read stops on an empty
-        // budget anyway, and on a large frame building them took seconds past it.
-        GrayU8 sauvola = null;
-        for (int i = 0; i < 2 && !stop(); i++) {
-            GrayU8 image = Thresholds.sauvola(gray, i);
-            if (image == null) {
-                break;
+        if (fanout.parallel()) {
+            readTailSideBySide(gray);
+        } else {
+            // A strip that is still tilted after ±15/±30. It sits here, not after Sauvola:
+            // the ninth crop of a miss needs attempt budget the rest of this ladder would spend.
+            // FAST has already returned. A hit on the angle loop stops before this runs.
+            if ((hits.isEmpty() || options.findAll()) && !stop()) {
+                tryLinearBands(gray);
             }
-            sauvola = i == 0 ? image : sauvola;
-            tryBinary(image, "sauvola-" + i, false, 0.68);
-        }
-        if (!stop() && Geometry.withinPixelBudget(gray.width, gray.height, 1.5)) {
-            Transformed scaled = Geometry.scale(gray, 1.5);
-            tryGray(scaled.image(), scaled.toSource(), "scale-1.5", 0, false, false, 0.80, false);
-        }
-        // On the fullest 1152×864 miss this pass is attempt 100 and still runs
-        // (Foto(799), Foto(848)). One more decode in front of it would drop both.
-        // The next slot used to be a full-frame gaussian, which recovered nothing
-        // labeled. It now sharpens the first band crop instead. Morphology still waits.
-        if (!stop() && gray.width * (long) gray.height > 800L * 800L && Geometry.withinPixelBudget(gray.width, gray.height, 0.5)) {
-            Transformed scaled = Geometry.scale(gray, 0.5);
-            tryGray(scaled.image(), scaled.toSource(), "scale-0.5", 0, false, false, 0.80, false);
-        }
-        if (!stop()) {
-            // Gaussian recovered no labeled symbol on the 430-frame set. When a band
-            // search already ran, that attempt instead sharpens the first crop: radius 4
-            // amount 4 then Otsu reads Foto(480), which the radius-3 unsharp does not.
-            Set<Symbology> linear = linearFormats();
-            if (!options.findAll() && !bandCrops.isEmpty() && !linear.isEmpty()) {
-                LinearBand.Crop crop = bandCrops.get(0);
-                GrayU8 sharp = GrayImages.unsharpHorizontal(crop.image(), 4, 4.0);
-                tryGray(
-                        GrayImages.binaryToLuma(Thresholds.otsu(sharp)),
-                        crop.toSource(),
-                        "linear-band-us4-otsu",
-                        crop.degrees(),
-                        true,
-                        linear,
-                        0.70,
-                        false
-                );
-            } else {
-                tryBinary(Thresholds.gaussian(gray), "adaptive-gaussian", false, 0.68);
+            // zxing-cpp LumImagePyramid, after the angles so a rotated linear code still wins there.
+            // FAST returns above. The full-resolution layer is the cheap ladder, not a second pass.
+            tryDownscale(gray);
+            tryTiles(gray);
+            // The images below are built only while the budget lasts: each read stops on an empty
+            // budget anyway, and on a large frame building them took seconds past it.
+            GrayU8 sauvola = null;
+            for (int i = 0; i < 2 && !stop(); i++) {
+                GrayU8 image = Thresholds.sauvola(gray, i);
+                if (image == null) {
+                    break;
+                }
+                sauvola = i == 0 ? image : sauvola;
+                tryBinary(image, "sauvola-" + i, false, 0.68);
             }
-        }
-        // The 3° band grid leaves a soft symbol tilted. A -2° correction, then a
-        // horizontal unsharp, reads labels the upright crop misses. The soft wide
-        // crop goes first at radius 3; Foto(846) has only one attempt left. Further
-        // crops stay at radius 4 while the attempt budget remains. This stays
-        // behind half-scale: Foto(799) and Foto(848) still win there.
-        if (!stop()) {
-            refineMissedBands(linearFormats());
-        }
-        if (!stop() && sauvola != null) {
-            int index = 0;
-            for (GrayU8 variant : Thresholds.morphology(sauvola)) {
-                tryBinary(variant, "morph-" + index, true, 0.64);
-                index++;
+            if (!stop() && Geometry.withinPixelBudget(gray.width, gray.height, 1.5)) {
+                Transformed scaled = Geometry.scale(gray, 1.5);
+                tryGray(scaled.image(), scaled.toSource(), "scale-1.5", 0, false, false, 0.80, false);
             }
+            // On the fullest 1152×864 miss this pass is attempt 100 and still runs
+            // (Foto(799), Foto(848)). One more decode in front of it would drop both.
+            // The next slot used to be a full-frame gaussian, which recovered nothing
+            // labeled. It now sharpens the first band crop instead. Morphology still waits.
+            if (!stop() && gray.width * (long) gray.height > 800L * 800L && Geometry.withinPixelBudget(gray.width, gray.height, 0.5)) {
+                Transformed scaled = Geometry.scale(gray, 0.5);
+                tryGray(scaled.image(), scaled.toSource(), "scale-0.5", 0, false, false, 0.80, false);
+            }
+            if (!stop()) {
+                // Gaussian recovered no labeled symbol on the 430-frame set. When a band
+                // search already ran, that attempt instead sharpens the first crop: radius 4
+                // amount 4 then Otsu reads Foto(480), which the radius-3 unsharp does not.
+                Set<Symbology> linear = linearFormats();
+                if (!options.findAll() && !bandCrops.isEmpty() && !linear.isEmpty()) {
+                    LinearBand.Crop crop = bandCrops.get(0);
+                    GrayU8 sharp = GrayImages.unsharpHorizontal(crop.image(), 4, 4.0);
+                    tryGray(
+                            GrayImages.binaryToLuma(Thresholds.otsu(sharp)),
+                            crop.toSource(),
+                            "linear-band-us4-otsu",
+                            crop.degrees(),
+                            true,
+                            linear,
+                            0.70,
+                            false
+                    );
+                } else {
+                    tryBinary(Thresholds.gaussian(gray), "adaptive-gaussian", false, 0.68);
+                }
+            }
+            // The 3° band grid leaves a soft symbol tilted. A -2° correction, then a
+            // horizontal unsharp, reads labels the upright crop misses. The soft wide
+            // crop goes first at radius 3; Foto(846) has only one attempt left. Further
+            // crops stay at radius 4 while the attempt budget remains. This stays
+            // behind half-scale: Foto(799) and Foto(848) still win there.
+            if (!stop()) {
+                refineMissedBands(linearFormats());
+            }
+            if (!stop() && sauvola != null) {
+                int index = 0;
+                for (GrayU8 variant : Thresholds.morphology(sauvola)) {
+                    tryBinary(variant, "morph-" + index, true, 0.64);
+                    index++;
+                }
+            }
+            locate(gray, false, true);
         }
-        locate(gray, false, true);
         if ((hits.isEmpty() || options.findAll()) && !stop()) {
             GrayU8 inverted = GrayImages.invert(gray);
             runTraces(inverted);
         }
         return hits.list();
+    }
+
+    /**
+     * The steps of aggressive mode from the linear bands to the localizer, side by side: each step
+     * runs as a job that logs its attempts instead of counting them, as if nothing stopped it, and
+     * the calling thread replays the logs in the order of one after another, counting each attempt
+     * and taking its reads while the ladder goes on. A step's choices depend on nothing but whether
+     * the ladder stopped, and once stopped it stays so, so the same attempts count with the same
+     * reads. The bands are found first, as later steps read their crops.
+     */
+    private void readTailSideBySide(GrayU8 gray) {
+        loggedSteps = 0;
+        tailStopped = false;
+        List<Callable<List<Logged>>> steps = new ArrayList<>();
+        Set<Symbology> bandFormats = linearFormats();
+        if ((hits.isEmpty() || options.findAll()) && !stop() && !bandFormats.isEmpty()) {
+            boolean extra = gray.width * (long) gray.height <= BAND_EXTRA_PIXELS;
+            List<LinearBand.Crop> crops = LinearBand.find(gray, fanout);
+            bandCrops = crops;
+            segmentCrops = false;
+            for (int index = 0; index < crops.size(); index++) {
+                LinearBand.Crop crop = crops.get(index);
+                int at = index;
+                steps.add(logging(() -> readBandCrop(crop, at, bandFormats, extra)));
+            }
+        }
+        steps.add(logging(() -> tryDownscale(gray)));
+        steps.add(logging(() -> tryTiles(gray)));
+        Once<GrayU8> firstSauvola = new Once<>(() -> Thresholds.sauvola(gray, 0));
+        steps.add(logging(() -> {
+            for (int i = 0; i < 2 && !stop(); i++) {
+                GrayU8 image = i == 0 ? firstSauvola.get() : Thresholds.sauvola(gray, i);
+                if (image == null) {
+                    break;
+                }
+                tryBinary(image, "sauvola-" + i, false, 0.68);
+            }
+        }));
+        steps.add(logging(() -> {
+            if (!stop() && Geometry.withinPixelBudget(gray.width, gray.height, 1.5)) {
+                Transformed scaled = Geometry.scale(gray, 1.5);
+                tryGray(scaled.image(), scaled.toSource(), "scale-1.5", 0, false, false, 0.80, false);
+            }
+        }));
+        steps.add(logging(() -> {
+            if (!stop() && gray.width * (long) gray.height > 800L * 800L && Geometry.withinPixelBudget(gray.width, gray.height, 0.5)) {
+                Transformed scaled = Geometry.scale(gray, 0.5);
+                tryGray(scaled.image(), scaled.toSource(), "scale-0.5", 0, false, false, 0.80, false);
+            }
+        }));
+        steps.add(logging(() -> {
+            if (!stop()) {
+                Set<Symbology> linear = linearFormats();
+                if (!options.findAll() && !bandCrops.isEmpty() && !linear.isEmpty()) {
+                    LinearBand.Crop crop = bandCrops.get(0);
+                    GrayU8 sharp = GrayImages.unsharpHorizontal(crop.image(), 4, 4.0);
+                    tryGray(GrayImages.binaryToLuma(Thresholds.otsu(sharp)), crop.toSource(), "linear-band-us4-otsu", crop.degrees(),
+                            true, linear, 0.70, false);
+                } else {
+                    tryBinary(Thresholds.gaussian(gray), "adaptive-gaussian", false, 0.68);
+                }
+            }
+        }));
+        steps.add(logging(() -> {
+            if (!stop()) {
+                refineMissedBands(linearFormats());
+            }
+        }));
+        steps.add(logging(() -> {
+            GrayU8 sauvola = firstSauvola.get();
+            if (!stop() && sauvola != null) {
+                int index = 0;
+                for (GrayU8 variant : Thresholds.morphology(sauvola)) {
+                    tryBinary(variant, "morph-" + index, true, 0.64);
+                    index++;
+                }
+            }
+        }));
+        steps.add(logging(() -> locate(gray, false, true)));
+        tailCounts = new java.util.concurrent.atomic.AtomicIntegerArray(steps.size());
+        for (int i = 0; i < steps.size(); i++) {
+            tailCounts.set(i, -1);
+        }
+        tailBudget = options.maxAttempts() + lent - attempts;
+        fanout.inOrder(steps, () -> {
+            boolean stopped = stop();
+            tailStopped |= stopped;
+            return stopped;
+        }, this::replay);
+        tailStopped = true;
+    }
+
+    /** {@code step} as a job that logs its attempts on its own thread; the jobs are numbered in the order they are made. */
+    private Callable<List<Logged>> logging(Runnable step) {
+        int index = loggedSteps++;
+        return () -> {
+            StepLog log = new StepLog(index);
+            logged.set(log);
+            try {
+                step.run();
+            } finally {
+                logged.remove();
+            }
+            tailCounts.set(index, log.entries.size());
+            return log.entries;
+        };
+    }
+
+    private int loggedSteps;
+
+    /**
+     * Whether no further attempt of {@code log}'s step can count: the attempts the steps before it
+     * that finished logged, and its own, already use up the attempts left. A step before it still
+     * running only adds to them.
+     */
+    private boolean beyondBudget(StepLog log) {
+        int before = 0;
+        for (int i = 0; i < log.step; i++) {
+            before += Math.max(0, tailCounts.get(i));
+        }
+        return before + log.entries.size() >= tailBudget;
+    }
+
+    /** The attempts one step of {@link #readTailSideBySide} logged. */
+    private static final class StepLog {
+        final int step;
+        final List<Logged> entries = new ArrayList<>();
+
+        StepLog(int step) {
+            this.step = step;
+        }
+    }
+
+    /** The attempts of a logged step, counted and taken as they were made, until the ladder stops. */
+    private void replay(List<Logged> log) {
+        for (Logged entry : log) {
+            if (stop()) {
+                tailStopped = true;
+                return;
+            }
+            attempts++;
+            switch (entry.kind()) {
+                case Logged.READ -> accept(entry.read());
+                case Logged.BAND -> acceptBand(entry.read());
+                default -> {
+                    if (entry.hit() != null) {
+                        hits.add(entry.hit());
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * One attempt a logged step made: what {@link #tryGray} read, what {@link #tryBand} read, or a
+     * hit the localizer decoded or the correlator found, null when it found none.
+     */
+    private record Logged(int kind, List<BarcodeHit> read, BarcodeHit hit) {
+        static final int READ = 0;
+        static final int BAND = 1;
+        static final int HIT = 2;
     }
 
     /**
@@ -538,84 +710,87 @@ final class Scan {
             return;
         }
         boolean extra = gray.width * (long) gray.height <= BAND_EXTRA_PIXELS;
-        int index = 0;
         List<LinearBand.Crop> crops = LinearBand.find(gray, fanout);
         bandCrops = crops;
         segmentCrops = false;
-        for (LinearBand.Crop crop : crops) {
+        for (int index = 0; index < crops.size(); index++) {
             if (stop()) {
                 return;
             }
-            readBand(crop, formats, "");
+            readBandCrop(crops.get(index), index, formats, extra);
+        }
+    }
+
+    /** The reads of {@link #tryLinearBands} on crop {@code index}, until one stops the ladder. */
+    private void readBandCrop(LinearBand.Crop crop, int index, Set<Symbology> formats, boolean extra) {
+        readBand(crop, formats, "");
+        if (stop()) {
+            return;
+        }
+        LinearBand.Crop tight = LinearBand.tighten(crop);
+        if (tight != null) {
+            readBand(tight, formats, "-tight");
             if (stop()) {
                 return;
             }
-            LinearBand.Crop tight = LinearBand.tighten(crop);
-            if (tight != null) {
-                readBand(tight, formats, "-tight");
-                if (stop()) {
-                    return;
-                }
+        }
+        if (extra && index == 0) {
+            readUnsharp(crop, formats, 3, 3.0, false);
+            if (stop()) {
+                return;
             }
-            if (extra && index == 0) {
-                readUnsharp(crop, formats, 3, 3.0, false);
-                if (stop()) {
-                    return;
-                }
-                // 35 recovers Foto(481) and Foto(728). 45 recovers Foto(573). Neither
-                // percentile reads all three, and a different text did not appear on a
-                // frame whose ordinary crop-0 steps had already missed.
-                readLevel(crop, formats, 35);
-                if (stop()) {
-                    return;
-                }
-                readLevel(crop, formats, 45);
-                if (stop()) {
-                    return;
-                }
-                // 50 is the median: 45 and 55 both missed Foto(556). The local mean of the
-                // sharpest rows reads Foto(817) and Foto(820). Unsharp of the average,
-                // cut at 50, reads Foto(501).
-                readLevel(crop, formats, 50);
-                if (stop()) {
-                    return;
-                }
-                readLocalLevel(crop, formats);
-                if (stop()) {
-                    return;
-                }
-                readSharpenedLevel(crop, formats);
-                if (stop()) {
-                    return;
-                }
-                // The flat average misses Foto(778); the sharp-row average cut at 50 reads it.
-                // 40 reads Foto(483), which 50 missed.
-                readTopLevel(crop, formats);
-                if (stop()) {
-                    return;
-                }
-                readSharpPercent(crop, formats, 40, "linear-band-level-top40");
-            } else if (extra && index == 1) {
-                // Foto(504). Radius 2 on the sharp-row average; the flat unsharp does not read it.
-                readSharpUnsharp(crop, formats);
-            } else if (extra && index == 2) {
-                // Foto(765), Foto(776) and Foto(779). Same digits, third crop only.
-                readTopLevel(crop, formats);
-                if (stop()) {
-                    return;
-                }
-                // Foto(406) is the per-column median. Foto(738) is the darkest pixel.
-                readColumnCut(crop, formats, false, "linear-band-level-med");
-                if (stop()) {
-                    return;
-                }
-                readColumnCut(crop, formats, true, "linear-band-level-min");
-            } else if (extra && index == 3) {
-                readUnsharp(crop, formats, 2, 2.5, true);
-            } else if (extra && index == 4 && tight != null) {
-                readScaledOtsu(tight, formats);
+            // 35 recovers Foto(481) and Foto(728). 45 recovers Foto(573). Neither
+            // percentile reads all three, and a different text did not appear on a
+            // frame whose ordinary crop-0 steps had already missed.
+            readLevel(crop, formats, 35);
+            if (stop()) {
+                return;
             }
-            index++;
+            readLevel(crop, formats, 45);
+            if (stop()) {
+                return;
+            }
+            // 50 is the median: 45 and 55 both missed Foto(556). The local mean of the
+            // sharpest rows reads Foto(817) and Foto(820). Unsharp of the average,
+            // cut at 50, reads Foto(501).
+            readLevel(crop, formats, 50);
+            if (stop()) {
+                return;
+            }
+            readLocalLevel(crop, formats);
+            if (stop()) {
+                return;
+            }
+            readSharpenedLevel(crop, formats);
+            if (stop()) {
+                return;
+            }
+            // The flat average misses Foto(778); the sharp-row average cut at 50 reads it.
+            // 40 reads Foto(483), which 50 missed.
+            readTopLevel(crop, formats);
+            if (stop()) {
+                return;
+            }
+            readSharpPercent(crop, formats, 40, "linear-band-level-top40");
+        } else if (extra && index == 1) {
+            // Foto(504). Radius 2 on the sharp-row average; the flat unsharp does not read it.
+            readSharpUnsharp(crop, formats);
+        } else if (extra && index == 2) {
+            // Foto(765), Foto(776) and Foto(779). Same digits, third crop only.
+            readTopLevel(crop, formats);
+            if (stop()) {
+                return;
+            }
+            // Foto(406) is the per-column median. Foto(738) is the darkest pixel.
+            readColumnCut(crop, formats, false, "linear-band-level-med");
+            if (stop()) {
+                return;
+            }
+            readColumnCut(crop, formats, true, "linear-band-level-min");
+        } else if (extra && index == 3) {
+            readUnsharp(crop, formats, 2, 2.5, true);
+        } else if (extra && index == 4 && tight != null) {
+            readScaledOtsu(tight, formats);
         }
     }
 
@@ -1662,17 +1837,29 @@ final class Scan {
         if (!wide) {
             return;
         }
-        attempts++;
         // Pass 2 halves the module step. It runs only after the guarded grid and the
         // coarse loose grid both miss, so it cannot replace Foto(751) or Foto(771).
         // Foto(714) is the frame that needs module 3.1.
-        if (!correlateCrops(0) && !correlateCrops(1)) {
-            correlateCrops(2);
+        BarcodeHit hit = correlateCrops(0);
+        if (hit == null) {
+            hit = correlateCrops(1);
+        }
+        if (hit == null) {
+            hit = correlateCrops(2);
+        }
+        StepLog log = logged.get();
+        if (log != null) {
+            log.entries.add(new Logged(Logged.HIT, null, hit));
+            return;
+        }
+        attempts++;
+        if (hit != null) {
+            hits.add(hit);
         }
     }
 
-    /** @return true when this grid recorded a hit. 0 guarded, 1 coarse, 2 medium module step. */
-    private boolean correlateCrops(int pass) {
+    /** The first crop this grid reads, as a hit, or null. 0 guarded, 1 coarse, 2 medium module step. */
+    private BarcodeHit correlateCrops(int pass) {
         for (LinearBand.Crop crop : bandCrops) {
             EanCorrelator.Found found = switch (pass) {
                 case 0 -> EanCorrelator.read(crop.image());
@@ -1697,17 +1884,16 @@ final class Scan {
             GrayU8 image = crop.image();
             PixelMap map = crop.toSource();
             int mid = image.height / 2;
-            hits.add(new BarcodeHit(
+            return new BarcodeHit(
                     text,
                     symbology,
                     List.of(map.toSource(0, mid), map.toSource(image.width - 1, mid)),
                     orientation,
                     0.70,
                     "ean-correlate"
-            ));
-            return true;
+            );
         }
-        return false;
+        return null;
     }
 
     /** Lowest sampled edge energy among crops that can hold a retail code. */
@@ -2208,6 +2394,11 @@ final class Scan {
             @Override
             public void decoded(BarcodeHit hit) {
                 if (stop()) {
+                    return;
+                }
+                StepLog log = logged.get();
+                if (log != null) {
+                    log.entries.add(new Logged(Logged.HIT, null, hit));
                     return;
                 }
                 attempts++;
@@ -3056,6 +3247,12 @@ final class Scan {
         if (formats.isEmpty() || stop() || image.width < 2 || image.height < 2) {
             return;
         }
+        StepLog log = logged.get();
+        if (log != null) {
+            log.entries.add(new Logged(Logged.READ, BitmapDecoder.read(image, toSource, attempt, degrees, confidence, formats, globalBinarizer,
+                    multi, options.eanAddOn()), null));
+            return;
+        }
         attempts++;
         accept(BitmapDecoder.read(image, toSource, attempt, degrees, confidence, formats, globalBinarizer, multi, options.eanAddOn()));
     }
@@ -3079,6 +3276,12 @@ final class Scan {
             boolean multi
     ) {
         if (formats.isEmpty() || stop() || image.width < 2 || image.height < 2) {
+            return;
+        }
+        StepLog log = logged.get();
+        if (log != null) {
+            log.entries.add(new Logged(Logged.BAND, BitmapDecoder.read(image, toSource, attempt, degrees, confidence, formats, globalBinarizer,
+                    multi, options.eanAddOn()), null));
             return;
         }
         attempts++;
@@ -3110,6 +3313,11 @@ final class Scan {
     }
 
     private boolean stop() {
+        // A step running as a job logs every attempt; the calling thread replays them and stops there.
+        StepLog log = logged.get();
+        if (log != null) {
+            return tailStopped || outOfTime() || beyondBudget(log);
+        }
         if (!options.findAll() && !hits.isEmpty()) {
             return true;
         }

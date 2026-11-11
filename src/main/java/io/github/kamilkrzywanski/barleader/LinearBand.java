@@ -95,10 +95,20 @@ final class LinearBand {
         int winner = indexOfMax(densityScores, count);
         int pitchWinner = indexOfMax(pitchScores, count);
         int reach = coarse ? 3 : 4;
-        // Each ranking refines around its own winner, and they often share one, so one sweep ranks both.
-        double[] refined = refine(view, angles[winner], fanout, reach);
-        double bestAngle = refined[0];
-        double pitchAngle = pitchWinner == winner ? refined[1] : refine(view, angles[pitchWinner], fanout, reach)[1];
+        // Each ranking refines around its own winner, and they often share one, so one sweep ranks both;
+        // two winners refine side by side.
+        double[][] refined = new double[2][];
+        double densityAngle = angles[winner];
+        double pitchStart = angles[pitchWinner];
+        if (pitchWinner == winner) {
+            refined[0] = refine(view, densityAngle, fanout, reach);
+        } else {
+            fanout.runAll(List.of(
+                    () -> refined[0] = refine(view, densityAngle, fanout, reach),
+                    () -> refined[1] = refine(view, pitchStart, fanout, reach)));
+        }
+        double bestAngle = refined[0][0];
+        double pitchAngle = pitchWinner == winner ? refined[0][1] : refined[1][1];
         int second = -1;
         for (int i = 0; i < count; i++) {
             if (densityScores[i] < 0 || angleDistance(angles[i], bestAngle) < 12.0) {
@@ -108,12 +118,21 @@ final class LinearBand {
                 second = i;
             }
         }
-        List<Crop> crops = new ArrayList<>();
-        addAtAngle(crops, gray, view, factor, bestAngle, DENSITY_BANDS, false);
+        // The crops at the three angles are sampled side by side and kept in this order. Their bands
+        // add up to MAX_CROPS, so the cap never cuts an angle short and each is sampled as on its own.
+        List<List<Crop>> atAngles = List.of(new ArrayList<>(), new ArrayList<>(), new ArrayList<>());
+        double secondAngle = second >= 0 ? angles[second] : Double.NaN;
+        List<Runnable> sampled = new ArrayList<>(3);
+        sampled.add(() -> addAtAngle(atAngles.get(0), gray, view, factor, bestAngle, DENSITY_BANDS, false));
         if (second >= 0) {
-            addAtAngle(crops, gray, view, factor, angles[second], SECOND_ANGLE_BANDS, false);
+            sampled.add(() -> addAtAngle(atAngles.get(1), gray, view, factor, secondAngle, SECOND_ANGLE_BANDS, false));
         }
-        addAtAngle(crops, gray, view, factor, pitchAngle, PITCH_BANDS, true);
+        sampled.add(() -> addAtAngle(atAngles.get(2), gray, view, factor, pitchAngle, PITCH_BANDS, true));
+        fanout.runAll(sampled);
+        List<Crop> crops = new ArrayList<>();
+        for (List<Crop> at : atAngles) {
+            crops.addAll(at);
+        }
         return List.copyOf(crops);
     }
 
