@@ -126,18 +126,64 @@ public final class EanFit {
         return null;
     }
 
+    /**
+     * {@link #read(StripBands)} with the bands, and both directions of each of their spans, fitted
+     * side by side by {@code runAll}, or one after another when it is null; the last band only when
+     * the first two fitted something, as one after another. The same fit counts.
+     */
+    public static Found read(StripBands bands, java.util.function.Consumer<java.util.List<Runnable>> runAll) {
+        if (runAll == null) {
+            return read(bands);
+        }
+        GrayU8 strip = bands.strip;
+        if (strip == null || strip.width < GrayProfile.MIN_SPAN || strip.height < 6) {
+            return null;
+        }
+        int last = StripBands.count() - 1;
+        List<String> seen = new ArrayList<>();
+        for (StripBands.Searched<Fit> span : StripBands.searched(bands.bands(0, last, runAll), EanFit::search, runAll)) {
+            Found found = found(span.ahead, span.behind, span.span[0], span.forward.length, span.band.y());
+            if (found == null) {
+                continue;
+            }
+            if (seen.contains(found.text())) {
+                return found;
+            }
+            seen.add(found.text());
+        }
+        if (seen.isEmpty()) {
+            return null;
+        }
+        for (StripBands.Searched<Fit> span : StripBands.searched(bands.bands(last, last + 1, runAll), EanFit::search, runAll)) {
+            Found found = found(span.ahead, span.behind, span.span[0], span.forward.length, span.band.y());
+            if (found == null) {
+                continue;
+            }
+            if (seen.contains(found.text())) {
+                return found;
+            }
+            seen.add(found.text());
+        }
+        return null;
+    }
+
     /** The cheaper direction's fit when it is accepted. */
     private static Found readSpan(double[] profile, int from, int to, int y) {
         double[] forward = Arrays.copyOfRange(profile, from, to);
         Fit ahead = search(forward);
         Fit behind = search(GrayProfile.reversed(forward));
+        return found(ahead, behind, from, forward.length, y);
+    }
+
+    /** The cheaper direction's fit of a span from sample {@code from}, {@code samples} long, when it is accepted. */
+    private static Found found(Fit ahead, Fit behind, int from, int samples, int y) {
         boolean upsideDown = behind != null && (ahead == null || better(behind, ahead));
         Fit best = upsideDown ? behind : ahead;
         if (best == null || !best.accepted()) {
             return null;
         }
         double base = from * STEP;
-        double length = (forward.length - 1) * STEP;
+        double length = (samples - 1) * STEP;
         double left = upsideDown ? base + length - best.right : base + best.left;
         double right = upsideDown ? base + length - best.left : base + best.right;
         return new Found(best.text, left, right, y, upsideDown);

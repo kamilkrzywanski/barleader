@@ -34,6 +34,14 @@ final class BarStrips {
 
     /** Up to {@code limit} strips, the region with the most gradient energy first. */
     static List<LinearBand.Crop> find(GrayU8 gray, int limit) {
+        return find(gray, limit, Fanout.sequential());
+    }
+
+    /**
+     * {@link #find(GrayU8, int)} with the blocks measured in bands of block rows and the first
+     * strips sampled side by side on {@code fanout}: the same strips.
+     */
+    static List<LinearBand.Crop> find(GrayU8 gray, int limit, Fanout fanout) {
         int columns = gray.width / BLOCK;
         int rows = gray.height / BLOCK;
         if (columns < 3 || rows < 1) {
@@ -43,29 +51,14 @@ final class BarStrips {
         double[] energy = new double[blocks];
         double[] coherence = new double[blocks];
         double[] direction = new double[blocks];
-        for (int row = 0; row < rows; row++) {
-            for (int column = 0; column < columns; column++) {
-                double xx = 0;
-                double yy = 0;
-                double xy = 0;
-                int y1 = Math.min(gray.height - 1, row * BLOCK + BLOCK);
-                int x1 = Math.min(gray.width - 1, column * BLOCK + BLOCK);
-                for (int y = Math.max(1, row * BLOCK); y < y1; y++) {
-                    for (int x = Math.max(1, column * BLOCK); x < x1; x++) {
-                        int gx = gray.get(x + 1, y) - gray.get(x - 1, y);
-                        int gy = gray.get(x, y + 1) - gray.get(x, y - 1);
-                        xx += gx * gx;
-                        yy += gy * gy;
-                        xy += gx * gy;
-                    }
-                }
-                int i = row * columns + column;
-                double total = xx + yy;
-                energy[i] = total / (BLOCK * BLOCK);
-                coherence[i] = total <= 0 ? 0 : Math.sqrt((xx - yy) * (xx - yy) + 4 * xy * xy) / total;
-                direction[i] = 0.5 * Math.atan2(2 * xy, xx - yy);
-            }
+        int bands = fanout.parallel() ? Math.max(1, Math.min(BANDS, rows / BAND_ROWS)) : 1;
+        List<Runnable> measured = new ArrayList<>(bands);
+        for (int band = 0; band < bands; band++) {
+            int from = (int) ((long) rows * band / bands);
+            int to = (int) ((long) rows * (band + 1) / bands);
+            measured.add(() -> tensors(gray, columns, from, to, energy, coherence, direction));
         }
+        fanout.runAll(measured);
         double[] sorted = energy.clone();
         Arrays.sort(sorted);
         double floor = Math.max(150, 4 * sorted[blocks / 2]);
@@ -113,17 +106,56 @@ final class BarStrips {
             }
         }
         regions.sort((a, b) -> Double.compare(b.weight, a.weight));
+        // The first strips side by side, and the next ones after them only while some were empty.
+        LinearBand.Crop[] first = new LinearBand.Crop[Math.min(limit, regions.size())];
+        List<Runnable> sampled = new ArrayList<>(first.length);
+        for (int k = 0; k < first.length; k++) {
+            int index = k;
+            sampled.add(() -> first[index] = strip(gray, regions.get(index)));
+        }
+        fanout.runAll(sampled);
         List<LinearBand.Crop> strips = new ArrayList<>();
-        for (Region region : regions) {
+        for (int k = 0; k < regions.size(); k++) {
             if (strips.size() >= limit) {
                 break;
             }
-            LinearBand.Crop strip = strip(gray, region);
+            LinearBand.Crop strip = k < first.length ? first[k] : strip(gray, regions.get(k));
             if (strip != null) {
                 strips.add(strip);
             }
         }
         return strips;
+    }
+
+    /** Bands {@link #find} measures its blocks in at most, and the block rows a band holds at least. */
+    private static final int BANDS = 8;
+    private static final int BAND_ROWS = 4;
+
+    /** The structure tensor of the blocks of block rows {@code from} to {@code to}: energy, coherence and direction. */
+    private static void tensors(GrayU8 gray, int columns, int from, int to, double[] energy, double[] coherence, double[] direction) {
+        for (int row = from; row < to; row++) {
+            for (int column = 0; column < columns; column++) {
+                double xx = 0;
+                double yy = 0;
+                double xy = 0;
+                int y1 = Math.min(gray.height - 1, row * BLOCK + BLOCK);
+                int x1 = Math.min(gray.width - 1, column * BLOCK + BLOCK);
+                for (int y = Math.max(1, row * BLOCK); y < y1; y++) {
+                    for (int x = Math.max(1, column * BLOCK); x < x1; x++) {
+                        int gx = gray.get(x + 1, y) - gray.get(x - 1, y);
+                        int gy = gray.get(x, y + 1) - gray.get(x, y - 1);
+                        xx += gx * gx;
+                        yy += gy * gy;
+                        xy += gx * gy;
+                    }
+                }
+                int i = row * columns + column;
+                double total = xx + yy;
+                energy[i] = total / (BLOCK * BLOCK);
+                coherence[i] = total <= 0 ? 0 : Math.sqrt((xx - yy) * (xx - yy) + 4 * xy * xy) / total;
+                direction[i] = 0.5 * Math.atan2(2 * xy, xx - yy);
+            }
+        }
     }
 
     /** The energy-weighted direction across the bars, and the extent of the block centres along and across it. */

@@ -100,6 +100,17 @@ final class Deblur {
         return new GrayU8[]{gray(deghost(lag, false)), gray(deghost(lag, true)), gray(defocus(DEFOCUS_MODULES * module))};
     }
 
+    /** {@link #variants()} built side by side by {@code runAll}. */
+    GrayU8[] variants(java.util.function.Consumer<java.util.List<Runnable>> runAll) {
+        double lag = GHOST_MODULES * module;
+        GrayU8[] out = new GrayU8[3];
+        runAll.accept(java.util.List.of(
+                () -> out[0] = gray(deghost(lag, false)),
+                () -> out[1] = gray(deghost(lag, true)),
+                () -> out[2] = gray(defocus(DEFOCUS_MODULES * module))));
+        return out;
+    }
+
     private double sharpness() {
         int x0 = width / 5;
         int x1 = width * 4 / 5;

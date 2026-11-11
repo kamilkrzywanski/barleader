@@ -25,6 +25,75 @@ class DataMatrixDetectorTest {
         assertReads("datamatrix-on-label", "DM-TILE");
     }
 
+    /**
+     * The edge trace with its four directions side by side finds the grids it finds one direction
+     * after another, here on pages of twelve to twenty symbols, where the trace stops at eight grids.
+     */
+    @Test
+    void directionsSideBySideReadWhatTheyReadInTurn() throws Exception {
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(4);
+        try {
+            java.util.function.Consumer<List<Runnable>> runAll = tasks -> {
+                List<java.util.concurrent.Future<?>> futures = new java.util.ArrayList<>();
+                tasks.forEach(task -> futures.add(pool.submit(task)));
+                for (java.util.concurrent.Future<?> future : futures) {
+                    try {
+                        future.get();
+                    } catch (Exception exception) {
+                        throw new IllegalStateException(exception);
+                    }
+                }
+            };
+            java.util.Random random = new java.util.Random(17);
+            int capped = 0;
+            for (int page = 0; page < 6; page++) {
+                GrayU8 gray = page(random, 4 + page % 2, 3 + page % 3);
+                DmGeometry.Bits bits = DmBinarizer.blackMatrix(gray);
+                List<DataMatrixDetector.Found> inTurn = DataMatrixDetector.read(bits);
+                List<DataMatrixDetector.Found> together = DataMatrixDetector.read(bits, runAll);
+                org.junit.jupiter.api.Assertions.assertEquals(describe(inTurn), describe(together), "page " + page);
+                capped += inTurn.size() >= 4 ? 1 : 0;
+            }
+            assertTrue(capped >= 4, "pages that read four symbols or more: " + capped);
+        } finally {
+            pool.shutdown();
+        }
+    }
+
+    /** {@code columns} by {@code rows} Data Matrix symbols on a speckled page, every other one turned. */
+    private static GrayU8 page(java.util.Random random, int columns, int rows) throws Exception {
+        int cell = 150;
+        GrayU8 gray = new GrayU8(columns * cell + 40, rows * cell + 40);
+        for (int i = 0; i < gray.data.length; i++) {
+            gray.data[i] = (byte) (215 + random.nextInt(40));
+        }
+        for (int i = 0; i < columns; i++) {
+            for (int j = 0; j < rows; j++) {
+                com.google.zxing.common.BitMatrix symbol = new com.google.zxing.datamatrix.DataMatrixWriter().encode(
+                        "PAGE-" + i + "-" + j + "-" + random.nextInt(100_000), com.google.zxing.BarcodeFormat.DATA_MATRIX, cell - 30, cell - 30);
+                boolean turned = (i + j) % 2 == 1;
+                for (int y = 0; y < symbol.getHeight(); y++) {
+                    for (int x = 0; x < symbol.getWidth(); x++) {
+                        if (symbol.get(x, y)) {
+                            gray.set(20 + i * cell + (turned ? y : x), 20 + j * cell + (turned ? symbol.getWidth() - 1 - x : y),
+                                    20 + random.nextInt(40));
+                        }
+                    }
+                }
+            }
+        }
+        return gray;
+    }
+
+    private static String describe(List<DataMatrixDetector.Found> found) {
+        StringBuilder out = new StringBuilder();
+        for (DataMatrixDetector.Found hit : found) {
+            out.append(hit.text()).append(java.util.Arrays.toString(hit.bytes())).append(hit.corners())
+                    .append(hit.orientationDegrees()).append('|');
+        }
+        return out.toString();
+    }
+
     private static void assertReads(String name, String text) {
         Samples.Sample sample = Samples.all().stream()
                 .filter(item -> item.name().equals(name))

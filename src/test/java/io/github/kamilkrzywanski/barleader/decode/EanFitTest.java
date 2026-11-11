@@ -84,6 +84,42 @@ class EanFitTest {
         }
     }
 
+    /** Its bands, spans and directions side by side on a pool, the fit returns what it returns one after another, read or not. */
+    @Test
+    void sideBySideFitsWhatOneAfterAnotherFits() {
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(4);
+        java.util.function.Consumer<java.util.List<Runnable>> runAll = tasks -> {
+            java.util.List<java.util.concurrent.Future<?>> futures = new java.util.ArrayList<>();
+            tasks.forEach(task -> futures.add(pool.submit(task)));
+            for (java.util.concurrent.Future<?> future : futures) {
+                try {
+                    future.get();
+                } catch (Exception exception) {
+                    throw new IllegalStateException(exception);
+                }
+            }
+        };
+        try {
+            int read = 0;
+            for (String text : new String[]{"5901234123457", "0012345678905"}) {
+                BitMatrix bars = new EAN13Writer().encode(text, BarcodeFormat.EAN_13, 1, 1, Map.of(EncodeHintType.MARGIN, 24));
+                for (double module : new double[]{0.9, 1.25, 2.0}) {
+                    for (int eighth = 0; eighth < 8; eighth += 3) {
+                        GrayU8 strip = BlurredBars.render(bars, module, eighth / 8.0);
+                        for (GrayU8 image : new GrayU8[]{strip, mirror(strip)}) {
+                            EanFit.Found inTurn = EanFit.read(image);
+                            assertEquals(inTurn, EanFit.read(new StripBands(image), runAll), text + " module " + module + " phase " + eighth);
+                            read += inTurn == null ? 0 : 1;
+                        }
+                    }
+                }
+            }
+            assertTrue(read >= 30, read + " read");
+        } finally {
+            pool.shutdown();
+        }
+    }
+
     private static GrayU8 mirror(GrayU8 strip) {
         GrayU8 out = new GrayU8(strip.width, strip.height);
         for (int y = 0; y < strip.height; y++) {

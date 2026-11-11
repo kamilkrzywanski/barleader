@@ -131,4 +131,9 @@ public final class TraceMatrix {
     public List<DataMatrixDetector.Found> dataMatrix() {
         return DataMatrixDetector.read(bits);
     }
+
+    /** {@link #dataMatrix()} with the directions of the edge trace side by side when {@code runAll} is not null. */
+    public List<DataMatrixDetector.Found> dataMatrix(java.util.function.Consumer<List<Runnable>> runAll) {
+        return DataMatrixDetector.read(bits, runAll);
+    }
 }
