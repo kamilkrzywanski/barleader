@@ -36,17 +36,44 @@ public final class GrayImages {
      * a fully transparent pixel as white, and the raw samples of an 8-bit gray image.
      */
     public static Converted convert(BufferedImage image, boolean withZxing) {
+        return convert(image, withZxing, tasks -> tasks.forEach(Runnable::run));
+    }
+
+    /**
+     * {@link #convert(BufferedImage, boolean)} in bands of rows that {@code runAll} may convert side
+     * by side, each pixel as before. An image in a layout of its own is converted through its colour
+     * model, which is not known to be safe for several threads, in one band.
+     */
+    public static Converted convert(BufferedImage image, boolean withZxing, java.util.function.Consumer<java.util.List<Runnable>> runAll) {
         int width = image.getWidth();
         int height = image.getHeight();
         GrayU8 gray = new GrayU8(width, height);
         GrayU8 zxing = withZxing ? new GrayU8(width, height) : null;
+        int bands = new RgbRows(image).isGeneric() ? 1 : Math.max(1, Math.min(CONVERT_BANDS, height / CONVERT_ROWS));
+        java.util.List<Runnable> tasks = new java.util.ArrayList<>(bands);
+        for (int band = 0; band < bands; band++) {
+            int from = (int) ((long) height * band / bands);
+            int to = (int) ((long) height * (band + 1) / bands);
+            tasks.add(() -> convertRows(image, withZxing, gray, zxing, from, to));
+        }
+        runAll.accept(tasks);
+        return new Converted(gray, zxing);
+    }
+
+    /** Bands {@link #convert} cuts an image into at most, and the rows a band holds at least. */
+    private static final int CONVERT_BANDS = 8;
+    private static final int CONVERT_ROWS = 64;
+
+    /** Rows {@code from} to {@code to} of {@code image} into {@code gray} and, when asked, {@code zxing}. */
+    private static void convertRows(BufferedImage image, boolean withZxing, GrayU8 gray, GrayU8 zxing, int from, int to) {
+        int width = image.getWidth();
         RgbRows rows = new RgbRows(image);
         boolean rawGray = withZxing && rows.isByteGray();
         int[] argb = new int[width];
         byte[] raw = rawGray ? new byte[width] : null;
         byte[] out = gray.data;
         byte[] zout = withZxing ? zxing.data : null;
-        for (int y = 0, row = 0; y < height; y++, row += width) {
+        for (int y = from, row = from * width; y < to; y++, row += width) {
             rows.read(y, argb);
             for (int x = 0; x < width; x++) {
                 out[row + x] = (byte) luma(argb[x]);
@@ -60,7 +87,6 @@ public final class GrayImages {
                 }
             }
         }
-        return new Converted(gray, zxing);
     }
 
     /**

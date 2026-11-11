@@ -45,6 +45,11 @@ final class Fanout {
         return SharedPool.FANOUT;
     }
 
+    /** Whether the pieces may run side by side, on an executor. */
+    boolean parallel() {
+        return executor != null;
+    }
+
     /** Runs every task and returns when all of them have finished. */
     void runAll(List<Runnable> tasks) {
         if (executor == null || tasks.size() < 2) {

@@ -38,6 +38,11 @@ final class RgbRows {
         this.grayToArgb = layout == Layout.BYTE_GRAY ? grayTable(image.getColorModel()) : null;
     }
 
+    /** {@code true} for a layout read through {@link BufferedImage#getRGB}, which goes through the colour model. */
+    boolean isGeneric() {
+        return layout == Layout.GENERIC;
+    }
+
     /** {@code true} for an 8-bit gray image whose raw samples {@link #readGray} returns. */
     boolean isByteGray() {
         return layout == Layout.BYTE_GRAY;

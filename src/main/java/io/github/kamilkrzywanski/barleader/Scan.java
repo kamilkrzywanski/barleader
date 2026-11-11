@@ -146,7 +146,7 @@ final class Scan {
         if (image.getWidth() < 2 || image.getHeight() < 2) {
             return List.of();
         }
-        GrayImages.Converted converted = GrayImages.convert(image, true);
+        GrayImages.Converted converted = GrayImages.convert(image, true, fanout::runAll);
         colour = image;
         return run(converted.gray(), converted.zxing());
     }
@@ -2962,7 +2962,9 @@ final class Scan {
             return;
         }
         attempts++;
-        accept(BitmapDecoder.read(source, PixelMap.IDENTITY, attempt, 0, confidence, formats, global, multi, options.eanAddOn()));
+        // Nothing runs beside the first attempts, so their matrix detectors run side by side.
+        accept(BitmapDecoder.read(source, PixelMap.IDENTITY, attempt, 0, confidence, formats, global, multi, options.eanAddOn(),
+                fanout.parallel() ? fanout::runAll : null));
     }
 
     private void tryBinary(GrayU8 binary, String attempt, boolean matrixOnly, double confidence) {

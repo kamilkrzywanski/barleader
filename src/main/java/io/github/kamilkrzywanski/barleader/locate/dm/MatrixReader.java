@@ -14,6 +14,7 @@ import io.github.kamilkrzywanski.barleader.locate.dm.DmGeometry.Bits;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * QR, Data Matrix, Aztec, and Micro QR on the black matrix this attempt already produced.
@@ -30,6 +31,9 @@ public final class MatrixReader {
     private static final Set<String> ONE_POLARITY = Set.of(
             "pad-4", "contrast-stretch", "illumination", "adaptive-mean", "otsu", "scale-2", "downscale-2", "downscale-4");
 
+    /** Runs the detectors one after another on the calling thread. */
+    private static final Consumer<List<Runnable>> IN_TURN = tasks -> tasks.forEach(Runnable::run);
+
     private MatrixReader() {
     }
 
@@ -43,19 +47,59 @@ public final class MatrixReader {
             Set<Symbology> symbologies,
             boolean findAll
     ) {
+        return read(black, toSource, attempt, rotationDegrees, confidence, symbologies, findAll, null);
+    }
+
+    /**
+     * {@link #read(BlackMatrix, PixelMap, String, int, double, Set, boolean)} with the detectors
+     * handed to {@code runAll}, which runs them side by side, or one after another when it is null.
+     * The detectors only read the matrix, and their symbols are put together in the same order as
+     * one after another. Side by side, the inverted copy is read together with the matrix as it is,
+     * when it would be read after a miss, and counts only as it did then.
+     */
+    public static List<BarcodeHit> read(
+            BlackMatrix black,
+            PixelMap toSource,
+            String attempt,
+            int rotationDegrees,
+            double confidence,
+            Set<Symbology> symbologies,
+            boolean findAll,
+            Consumer<List<Runnable>> runAll
+    ) {
         if (!wants(symbologies) || black == null || black.height() < 3 || black.width() < 3) {
             return List.of();
         }
         Bits bits = Bits.of(black);
-        List<BarcodeHit> normal = decode(bits, toSource, attempt, rotationDegrees, confidence, symbologies);
-        if (!findAll && !normal.isEmpty()) {
-            return List.of(normal.get(0));
+        boolean bothWays = findAll || !ONE_POLARITY.contains(attempt);
+        List<BarcodeHit> normal;
+        List<BarcodeHit> inverted;
+        if (runAll != null && bothWays) {
+            Bits flipped = bits.copy();
+            flipped.flipAll();
+            List<List<BarcodeHit>> asItIs = new ArrayList<>(5);
+            List<List<BarcodeHit>> asInverted = new ArrayList<>(5);
+            List<Runnable> detectors = new ArrayList<>(10);
+            detectors.addAll(detectors(bits, toSource, attempt, rotationDegrees, confidence, symbologies, asItIs));
+            detectors.addAll(detectors(flipped, toSource, attempt, rotationDegrees, confidence, symbologies, asInverted));
+            runAll.accept(detectors);
+            normal = joined(asItIs);
+            inverted = joined(asInverted);
+            if (!findAll && !normal.isEmpty()) {
+                return List.of(normal.get(0));
+            }
+        } else {
+            Consumer<List<Runnable>> run = runAll == null ? IN_TURN : runAll;
+            normal = decode(bits, toSource, attempt, rotationDegrees, confidence, symbologies, run);
+            if (!findAll && !normal.isEmpty()) {
+                return List.of(normal.get(0));
+            }
+            if (!bothWays) {
+                return List.of();
+            }
+            bits.flipAll();
+            inverted = decode(bits, toSource, attempt, rotationDegrees, confidence, symbologies, run);
         }
-        if (!findAll && ONE_POLARITY.contains(attempt)) {
-            return List.of();
-        }
-        bits.flipAll();
-        List<BarcodeHit> inverted = decode(bits, toSource, attempt, rotationDegrees, confidence, symbologies);
         if (!findAll) {
             return inverted.isEmpty() ? List.of() : List.of(inverted.get(0));
         }
@@ -82,40 +126,81 @@ public final class MatrixReader {
             String attempt,
             int rotationDegrees,
             double confidence,
-            Set<Symbology> symbologies
+            Set<Symbology> symbologies,
+            Consumer<List<Runnable>> runAll
     ) {
-        List<BarcodeHit> hits = new ArrayList<>();
+        List<List<BarcodeHit>> found = new ArrayList<>(5);
+        runAll.accept(detectors(bits, toSource, attempt, rotationDegrees, confidence, symbologies, found));
+        return joined(found);
+    }
+
+    /** The detectors asked for, each putting its symbols in a list of its own, in order, in {@code found}. */
+    private static List<Runnable> detectors(
+            Bits bits,
+            PixelMap toSource,
+            String attempt,
+            int rotationDegrees,
+            double confidence,
+            Set<Symbology> symbologies,
+            List<List<BarcodeHit>> found
+    ) {
+        List<Runnable> detectors = new ArrayList<>(5);
         if (symbologies.contains(Symbology.QR_CODE)) {
-            for (QrDetector.Found found : QrDetector.read(bits)) {
-                add(hits, found.text(), found.bytes(), Symbology.QR_CODE, found.corners(), found.orientationDegrees(),
-                        toSource, attempt, rotationDegrees, confidence);
-            }
+            detectors.add(detector(found, hits -> {
+                for (QrDetector.Found symbol : QrDetector.read(bits)) {
+                    add(hits, symbol.text(), symbol.bytes(), Symbology.QR_CODE, symbol.corners(), symbol.orientationDegrees(),
+                            toSource, attempt, rotationDegrees, confidence);
+                }
+            }));
         }
         if (symbologies.contains(Symbology.DATA_MATRIX)) {
-            for (DataMatrixDetector.Found found : DataMatrixDetector.read(bits)) {
-                add(hits, found.text(), found.bytes(), Symbology.DATA_MATRIX, found.corners(), found.orientationDegrees(),
-                        toSource, attempt, rotationDegrees, confidence);
-            }
+            detectors.add(detector(found, hits -> {
+                for (DataMatrixDetector.Found symbol : DataMatrixDetector.read(bits)) {
+                    add(hits, symbol.text(), symbol.bytes(), Symbology.DATA_MATRIX, symbol.corners(), symbol.orientationDegrees(),
+                            toSource, attempt, rotationDegrees, confidence);
+                }
+            }));
         }
         if (symbologies.contains(Symbology.AZTEC)) {
-            for (AztecDetector.Found found : AztecDetector.read(bits)) {
-                add(hits, found.text(), found.bytes(), Symbology.AZTEC, found.corners(), found.orientationDegrees(),
-                        toSource, attempt, rotationDegrees, confidence);
-            }
+            detectors.add(detector(found, hits -> {
+                for (AztecDetector.Found symbol : AztecDetector.read(bits)) {
+                    add(hits, symbol.text(), symbol.bytes(), Symbology.AZTEC, symbol.corners(), symbol.orientationDegrees(),
+                            toSource, attempt, rotationDegrees, confidence);
+                }
+            }));
         }
         if (symbologies.contains(Symbology.MICRO_QR)) {
-            for (MicroQrDetector.Found found : MicroQrDetector.read(bits)) {
-                add(hits, found.text(), found.bytes(), Symbology.MICRO_QR, found.corners(), found.orientationDegrees(),
-                        toSource, attempt, rotationDegrees, confidence);
-            }
+            detectors.add(detector(found, hits -> {
+                for (MicroQrDetector.Found symbol : MicroQrDetector.read(bits)) {
+                    add(hits, symbol.text(), symbol.bytes(), Symbology.MICRO_QR, symbol.corners(), symbol.orientationDegrees(),
+                            toSource, attempt, rotationDegrees, confidence);
+                }
+            }));
         }
         if (symbologies.contains(Symbology.RMQR)) {
-            for (RmqrDetector.Found found : RmqrDetector.read(bits)) {
-                add(hits, found.text(), found.bytes(), Symbology.RMQR, found.corners(), found.orientationDegrees(),
-                        toSource, attempt, rotationDegrees, confidence);
-            }
+            detectors.add(detector(found, hits -> {
+                for (RmqrDetector.Found symbol : RmqrDetector.read(bits)) {
+                    add(hits, symbol.text(), symbol.bytes(), Symbology.RMQR, symbol.corners(), symbol.orientationDegrees(),
+                            toSource, attempt, rotationDegrees, confidence);
+                }
+            }));
+        }
+        return detectors;
+    }
+
+    private static List<BarcodeHit> joined(List<List<BarcodeHit>> found) {
+        List<BarcodeHit> hits = new ArrayList<>();
+        for (List<BarcodeHit> part : found) {
+            hits.addAll(part);
         }
         return hits;
+    }
+
+    /** A detector that puts its symbols in a list of its own, at its place in {@code found}. */
+    private static Runnable detector(List<List<BarcodeHit>> found, Consumer<List<BarcodeHit>> read) {
+        List<BarcodeHit> hits = new ArrayList<>();
+        found.add(hits);
+        return () -> read.accept(hits);
     }
 
     private static void add(
