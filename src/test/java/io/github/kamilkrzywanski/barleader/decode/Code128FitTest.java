@@ -73,9 +73,16 @@ class Code128FitTest {
     void sideBySideFitsWhatOneAfterAnotherFits() {
         java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(4);
         java.util.function.Consumer<java.util.List<Runnable>> runAll = tasks -> {
-            java.util.List<java.util.concurrent.Future<?>> futures = new java.util.ArrayList<>();
-            tasks.forEach(task -> futures.add(pool.submit(task)));
-            for (java.util.concurrent.Future<?> future : futures) {
+            // As the reader's own pool does, the waiting thread runs what no thread has started, so
+            // pieces that run pieces of their own cannot all wait on work queued behind them.
+            java.util.List<java.util.concurrent.FutureTask<Void>> futures = new java.util.ArrayList<>();
+            for (Runnable task : tasks) {
+                java.util.concurrent.FutureTask<Void> future = new java.util.concurrent.FutureTask<>(task, null);
+                pool.execute(future);
+                futures.add(future);
+            }
+            for (java.util.concurrent.FutureTask<Void> future : futures) {
+                future.run();
                 try {
                     future.get();
                 } catch (Exception exception) {
