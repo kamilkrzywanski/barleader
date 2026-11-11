@@ -93,13 +93,13 @@ final class Scan {
      * forty attempts of fast mode, with four 5, and the eight read one code more.
      */
     private static final int MAX_READ_STRIPS = 4;
-    /** White pixels around a crop of {@link BarSegments} read again by {@link #tryCropRescue}. */
+    /** White pixels around a crop of {@link BarSegments} read again by {@link #rescueJobs}. */
     private static final int CROP_MARGIN = 8;
-    /** A crop at least this long on one side is located again by {@link #tryCropRescue}. */
+    /** A crop at least this long on one side is located again by {@link #rescueJobs}. */
     private static final int RELOCATE_SIDE = 360;
     /** Crops {@link BarSegments} finds inside such a crop. */
     private static final int RELOCATE_CROPS = 3;
-    /** How many times as long {@link #tryCropRescue} samples a crop again from the frame. */
+    /** How many times as long {@link #rescueJobs} samples a crop again from the frame. */
     private static final double LENGTHEN = 1.8;
     /** Symbologies whose readers read the rows of a bitmap and never its black matrix. */
     private static final Set<Symbology> ROW_READERS = EnumSet.of(Symbology.EAN_13, Symbology.EAN_8, Symbology.UPC_A,
@@ -1132,39 +1132,8 @@ final class Scan {
         return stripBands[index];
     }
 
-    /**
-     * The patches of parallel bars of {@link BarStrips}, sampled at the angle of their own
-     * gradients, for the linear readers. The band search tries a few angles and ranks bands of
-     * edges, so a symbol between its angles, or beside a block of printed text, is cut badly or
-     * not at all.
-     */
-    private void tryBarStrips(GrayU8 gray) {
-        Set<Symbology> formats = linearFormats();
-        if (formats.isEmpty() || stop()) {
-            return;
-        }
-        List<LinearBand.Crop> strips = barStrips(gray);
-        for (int i = 0; i < Math.min(MAX_READ_STRIPS, strips.size()) && !stop(); i++) {
-            LinearBand.Crop strip = strips.get(i);
-            tryGray(strip.image(), strip.toSource(), "bar-strip", strip.degrees(), false, formats, 0.70, false);
-        }
-    }
-
     /** How far, as a share of its length, a band read may lie from a read code's line to be that code. */
     private static final double ON_LINE = 0.1;
-
-    /** A band read in find-all mode beside a code with the same right half is that code's half with a wrong left. */
-    private void tryBandImage(GrayU8 image, LinearBand.Crop crop, String attempt, boolean global, Set<Symbology> formats) {
-        if (formats.isEmpty() || stop() || image.width < 2 || image.height < 2) {
-            return;
-        }
-        attempts++;
-        for (BarcodeHit hit : BitmapDecoder.read(image, crop.toSource(), attempt, crop.degrees(), 0.70, formats, global, false, options.eanAddOn())) {
-            if (!sameRightHalf(hit) && !(options.findAll() && onReadLine(hit))) {
-                hits.add(hit);
-            }
-        }
-    }
 
     /**
      * Whether the middle of a linear band read lies on the scan line of a linear code already read
@@ -1389,166 +1358,6 @@ final class Scan {
         return false;
     }
 
-    private void tryFastLinearBands(GrayU8 gray) {
-        Set<Symbology> formats = linearFormats();
-        if (formats.isEmpty()) {
-            return;
-        }
-        // The bars of a postal code stand on one track of unequal height, which gives segment
-        // voting no family of parallel edges of about one length; those read only when asked for.
-        boolean postal = formats.contains(Symbology.ROYAL_MAIL) || formats.contains(Symbology.JAPAN_POST);
-        bandCrops = postal ? LinearBand.find(gray, fanout, true) : segments(gray, options.findAll() ? 16 : 8);
-        segmentCrops = !postal;
-        // With findAll the crops past the eighth are read last: read first, they spent the
-        // attempts the thresholds of the first eight need on an image nothing has read yet.
-        int first = postal ? bandCrops.size() : Math.min(8, bandCrops.size());
-        readBandCrops(bandCrops.subList(0, first), formats);
-        tryBandThresholds(bandCrops.subList(0, first), formats);
-        readBandCrops(bandCrops.subList(first, bandCrops.size()), formats);
-    }
-
-    /** Each crop as it is and stretched, an attempt each. */
-    private void readBandCrops(List<LinearBand.Crop> crops, Set<Symbology> formats) {
-        for (LinearBand.Crop crop : crops) {
-            if (stop()) {
-                return;
-            }
-            tryBandImage(crop.image(), crop, "linear-band", false, formats);
-            if (stop()) {
-                return;
-            }
-            GrayU8 stretched = GrayImages.stretch(crop.image());
-            if (stretched != crop.image()) {
-                tryBandImage(stretched, crop, "linear-band-stretch", false, formats);
-            }
-        }
-    }
-
-    /** The crops thresholded by Otsu and by the local mean, for the longer codes, on an image nothing has read. */
-    private void tryBandThresholds(List<LinearBand.Crop> crops, Set<Symbology> formats) {
-        Set<Symbology> longer = EnumSet.noneOf(Symbology.class);
-        for (Symbology symbology : formats) {
-            if (symbology == Symbology.EAN_13 || symbology == Symbology.UPC_A
-                    || symbology == Symbology.CODE_128 || symbology == Symbology.CODE_39) {
-                longer.add(symbology);
-            }
-        }
-        // Only on an image nothing has read: in find-all mode, beside a symbol already read, the
-        // mean threshold returned 60 EAN-13 with the right half of that symbol and a wrong left.
-        if (longer.isEmpty() || !hits.isEmpty()) {
-            return;
-        }
-        for (LinearBand.Crop crop : crops) {
-            if (stop()) {
-                return;
-            }
-            tryGray(GrayImages.binaryToLuma(Thresholds.otsu(crop.image())), crop.toSource(), "linear-band-otsu",
-                    crop.degrees(), true, longer, 0.70, false);
-            if (stop()) {
-                return;
-            }
-            tryGray(GrayImages.binaryToLuma(Thresholds.mean(crop.image())), crop.toSource(), "linear-band-mean",
-                    crop.degrees(), true, longer, 0.70, false);
-        }
-    }
-
-    /**
-     * The crops of {@link BarSegments} read once more, five ways, each only while the budget lasts:
-     * <ul>
-     * <li>with a white margin: a tight crop cuts the bars at its edges, where the hybrid binarizer
-     * finds no quiet zone;</li>
-     * <li>turned by 90 degrees: text lines beside a symbol can join its cluster and turn the crop
-     * along the text, so that the bars lie across it;</li>
-     * <li>sampled again from the frame {@link #LENGTHEN} times as long: the bars a cluster takes in
-     * can stop short of the guards, more often on a short code;</li>
-     * <li>located again inside a large crop: a small symbol in a crop of a whole label has few
-     * edges on the 768-pixel raster of the frame, and many on that of the crop;</li>
-     * <li>for EAN-8 and UPC-E, thresholded by Otsu and by the local mean, as the longer codes
-     * already are, and like them only on an image nothing has read.</li>
-     * </ul>
-     * On the rotated photos of the public tapirscan benchmark that fast mode read upright and
-     * missed turned, a full read of a crop found the code on 22 of 62. A UPC-E read so counts only
-     * when {@link QuietZone} finds no bar of the frame just past its ends. Like the fits these reads
-     * take no attempt slot; only the time budget, or a hit without findAll, stops them.
-     */
-    private void tryCropRescue(GrayU8 gray) {
-        Set<Symbology> formats = linearFormats();
-        if (!segmentCrops || bandCrops == null || formats.isEmpty()) {
-            return;
-        }
-        Set<Symbology> shorter = EnumSet.noneOf(Symbology.class);
-        for (Symbology symbology : new Symbology[]{Symbology.EAN_8, Symbology.UPC_E}) {
-            if (formats.contains(symbology)) {
-                shorter.add(symbology);
-            }
-        }
-        boolean all = options.findAll();
-        for (LinearBand.Crop crop : bandCrops) {
-            if (rescueDone(all)) {
-                return;
-            }
-            Transformed padded = Geometry.pad(crop.image(), CROP_MARGIN);
-            acceptRescued(gray, readImage(padded.image(), padded.toSource().before(crop.toSource()), "linear-band-pad",
-                    crop.degrees(), false, formats, 0.68, false));
-            if (rescueDone(all)) {
-                return;
-            }
-            Transformed turned = Geometry.rotateOrthogonal(crop.image(), 90);
-            acceptRescued(gray, readImage(turned.image(), turned.toSource().before(crop.toSource()), "linear-band-90",
-                    (crop.degrees() + 90) % 360, false, formats, 0.66, false));
-            if (rescueDone(all)) {
-                return;
-            }
-            LinearBand.Crop longer = BarSegments.lengthened(gray, crop, LENGTHEN);
-            List<BarcodeHit> read = longer == null ? null : readImage(longer.image(), longer.toSource(),
-                    "linear-band-long", longer.degrees(), false, formats, 0.66, false);
-            if (read != null) {
-                // A short code read across the bars of another, or of itself at a slant, can be
-                // wrong; both halves of the crop must read it.
-                for (BarcodeHit hit : read) {
-                    if (!shorter.contains(hit.symbology())
-                            || halvesRead(longer.image(), hit.text(), EnumSet.of(hit.symbology()), false)) {
-                        acceptRescued(gray, List.of(hit));
-                    }
-                }
-            }
-            if (Math.max(crop.image().width, crop.image().height) >= RELOCATE_SIDE) {
-                for (LinearBand.Crop inner : BarSegments.find(crop.image(), RELOCATE_CROPS)) {
-                    if (rescueDone(all)) {
-                        return;
-                    }
-                    PixelMap map = inner.toSource().before(crop.toSource());
-                    int degrees = (inner.degrees() + crop.degrees()) % 360;
-                    acceptRescued(gray, readImage(inner.image(), map, "linear-band-inner", degrees, false, formats, 0.66, false));
-                    GrayU8 stretched = GrayImages.stretch(inner.image());
-                    if (stretched != inner.image() && !rescueDone(all)) {
-                        acceptRescued(gray, readImage(stretched, map, "linear-band-inner-stretch", degrees, false, formats, 0.66, false));
-                    }
-                }
-            }
-        }
-        if (shorter.isEmpty()) {
-            return;
-        }
-        for (LinearBand.Crop crop : bandCrops) {
-            if (!hits.isEmpty() || outOfTime()) {
-                return;
-            }
-            GrayU8 otsu = GrayImages.binaryToLuma(Thresholds.otsu(crop.image()));
-            GrayU8 mean = GrayImages.binaryToLuma(Thresholds.mean(crop.image()));
-            BarcodeHit byOtsu = firstRead(otsu, crop, "linear-band-short-otsu", shorter);
-            BarcodeHit byMean = firstRead(mean, crop, "linear-band-short-mean", shorter);
-            // A short code has few digits to check, and one threshold of a whole crop read wrong
-            // texts. A read counts when the other threshold reads the same text, or when the top
-            // and the bottom half of its own image each do.
-            if (byOtsu != null && (byMean != null && byMean.text().equals(byOtsu.text()) || halvesRead(otsu, byOtsu.text(), shorter, true))) {
-                acceptRescued(gray, List.of(byOtsu));
-            } else if (byMean != null && halvesRead(mean, byMean.text(), shorter, true)) {
-                acceptRescued(gray, List.of(byMean));
-            }
-        }
-    }
-
     private BarcodeHit firstRead(GrayU8 image, LinearBand.Crop crop, String attempt, Set<Symbology> formats) {
         List<BarcodeHit> read = readImage(image, crop.toSource(), attempt, crop.degrees(), true, formats, 0.64, false);
         return read == null || read.isEmpty() ? null : read.get(0);
@@ -1575,7 +1384,7 @@ final class Scan {
     }
 
     /**
-     * The reads of a crop of {@link #tryCropRescue} as {@link #acceptBand} takes them, without a
+     * The reads of a crop of {@link #rescueJobs} as {@link #acceptBand} takes them, without a
      * UPC-E the frame shows bars just past: a crop that ends, or is padded white, at the middle guard
      * of an EAN-13 reads its left half as a UPC-E, as two BarBeR photos did, one of them in place of
      * its EAN-13. An EAN-8 has no such counterpart, and the real ones of the public tapirscan
@@ -1600,7 +1409,7 @@ final class Scan {
         acceptBand(kept);
     }
 
-    /** The reads of a band crop, without those {@link #tryBandImage} also leaves out. */
+    /** The reads of a band crop, without a wrong left half beside a code read ({@link #sameRightHalf}) or, with findAll, a read across one ({@link #onReadLine}). */
     private void acceptBand(List<BarcodeHit> found) {
         if (found == null) {
             return;
@@ -2417,13 +2226,280 @@ final class Scan {
         return true;
     }
 
-    /** The patches of {@link BarStrips}, then the crops of {@link BarSegments} and their rescue. */
+    /**
+     * The patches of {@link BarStrips}, then the crops of {@link BarSegments} and their rescue,
+     * each read a job of its own: a parallel reader runs them side by side, and every read is
+     * taken here in this order with the checks it had when they ran one after another, so the hits
+     * are the same. A job no longer counted does not run ({@link #candidatesOff}).
+     * <ul>
+     * <li>The patches of parallel bars of {@link BarStrips}, sampled at the angle of their own
+     * gradients. The band search tries a few angles and ranks bands of edges, so a symbol between
+     * its angles, or beside a block of printed text, is cut badly or not at all.</li>
+     * <li>Each crop as it is and stretched, an attempt each, then on an image nothing has read the
+     * first eight thresholded by Otsu and by the local mean, for the longer codes: in find-all
+     * mode, beside a symbol already read, the mean threshold returned 60 EAN-13 with the right half
+     * of that symbol and a wrong left. With findAll the crops past the eighth are read last: read
+     * first, they spent the attempts the thresholds of the first eight need on an image nothing has
+     * read yet.</li>
+     * <li>The rescue of the crops ({@link #rescueJobs}).</li>
+     * </ul>
+     */
     private void readCandidates(GrayU8 gray) {
-        tryBarStrips(gray);
-        if (!stop()) {
-            tryFastLinearBands(gray);
+        Set<Symbology> formats = linearFormats();
+        if (formats.isEmpty() || stop()) {
+            return;
         }
-        tryCropRescue(gray);
+        List<LinearBand.Crop> strips = barStrips(gray);
+        List<Callable<List<BarcodeHit>>> stripReads = new ArrayList<>();
+        for (LinearBand.Crop strip : strips.subList(0, Math.min(MAX_READ_STRIPS, strips.size()))) {
+            stripReads.add(() -> readImage(strip.image(), strip.toSource(), "bar-strip", strip.degrees(), false, formats, 0.70, false));
+        }
+        fanout.inOrder(stripReads, this::stop, read -> {
+            if (read != null) {
+                attempts++;
+                accept(read);
+            }
+        });
+        if (stop()) {
+            return;
+        }
+        // The bars of a postal code stand on one track of unequal height, which gives segment
+        // voting no family of parallel edges of about one length; those read only when asked for.
+        boolean postal = formats.contains(Symbology.ROYAL_MAIL) || formats.contains(Symbology.JAPAN_POST);
+        bandCrops = postal ? LinearBand.find(gray, fanout, true) : segments(gray, options.findAll() ? 16 : 8);
+        segmentCrops = !postal;
+        List<LinearBand.Crop> crops = bandCrops;
+        int first = postal ? crops.size() : Math.min(8, crops.size());
+        Set<Symbology> longer = EnumSet.copyOf(formats);
+        longer.retainAll(EnumSet.of(Symbology.EAN_13, Symbology.UPC_A, Symbology.CODE_128, Symbology.CODE_39));
+        Set<Symbology> shorter = EnumSet.copyOf(formats);
+        shorter.retainAll(EnumSet.of(Symbology.EAN_8, Symbology.UPC_E));
+
+        List<Callable<Candidate>> jobs = new ArrayList<>();
+        cropJobs(jobs, crops.subList(0, first), formats);
+        jobs.add(() -> new Candidate(Take.THRESHOLDS, null));
+        if (!longer.isEmpty()) {
+            for (LinearBand.Crop crop : crops.subList(0, first)) {
+                jobs.add(thresholdJob(crop, longer, true));
+                jobs.add(thresholdJob(crop, longer, false));
+            }
+        }
+        cropJobs(jobs, crops.subList(first, crops.size()), formats);
+        if (segmentCrops) {
+            rescueJobs(jobs, gray, crops, formats, shorter);
+        }
+        boolean all = options.findAll();
+        boolean[] thresholds = new boolean[2];
+        // With findAll the variants have often read something already: the thresholds are off from the start.
+        candidatesOff = candidatesOff(thresholds, longer, all);
+        fanout.inOrder(jobs, () -> rescueDone(all), candidate -> {
+            List<BarcodeHit> read = candidate.read();
+            switch (candidate.take()) {
+                case CROP -> {
+                    if (!stop() && read != null) {
+                        attempts++;
+                        acceptBand(read);
+                    }
+                }
+                case THRESHOLDS -> {
+                    thresholds[0] = true;
+                    thresholds[1] = !longer.isEmpty() && hits.isEmpty();
+                }
+                case THRESHOLD -> {
+                    if (thresholds[1] && !stop() && read != null) {
+                        attempts++;
+                        accept(read);
+                    }
+                }
+                case RESCUE -> acceptRescued(gray, read);
+                case SHORT -> {
+                    if (hits.isEmpty() && !outOfTime()) {
+                        acceptRescued(gray, read);
+                    }
+                }
+            }
+            candidatesOff = candidatesOff(thresholds, longer, all);
+        });
+    }
+
+    /**
+     * What the jobs of {@link #readCandidates} can skip now: the crops and the thresholds once no
+     * attempt is left, the thresholds also once anything is read, as they count only on an image
+     * nothing has read when they start, the rescue once it is over, and the short codes once
+     * anything is read.
+     */
+    private int candidatesOff(boolean[] thresholds, Set<Symbology> longer, boolean all) {
+        boolean noThresholds = thresholds[0] ? !thresholds[1] : longer.isEmpty() || !hits.isEmpty();
+        return (stop() ? OFF_ATTEMPTS : 0) | (noThresholds ? OFF_THRESHOLDS : 0)
+                | (rescueDone(all) ? OFF_RESCUE : 0) | (!hits.isEmpty() || outOfTime() ? OFF_SHORT : 0);
+    }
+
+    /** The jobs of {@link #readCandidates} that can no longer count, which then do not run. */
+    private volatile int candidatesOff;
+    private static final int OFF_ATTEMPTS = 1;
+    private static final int OFF_THRESHOLDS = 2;
+    private static final int OFF_RESCUE = 4;
+    private static final int OFF_SHORT = 8;
+
+    /** How {@link #readCandidates} takes a read. */
+    private enum Take {
+        /** A crop, an attempt, without a read across a code already read ({@link #acceptBand}). */
+        CROP,
+        /** Where the thresholds start: they run only on an image nothing has read. */
+        THRESHOLDS,
+        /** A threshold of a crop for the longer codes, an attempt. */
+        THRESHOLD,
+        /** A rescue of a crop, without an attempt ({@link #acceptRescued}). */
+        RESCUE,
+        /** A short code thresholded on its crop, without an attempt, on an image nothing has read. */
+        SHORT
+    }
+
+    /** A read of {@link #readCandidates}, null when there was nothing to read or it did not run. */
+    private record Candidate(Take take, List<BarcodeHit> read) {
+    }
+
+    /** Each crop as it is and stretched. */
+    private void cropJobs(List<Callable<Candidate>> jobs, List<LinearBand.Crop> crops, Set<Symbology> formats) {
+        for (LinearBand.Crop crop : crops) {
+            jobs.add(() -> new Candidate(Take.CROP, (candidatesOff & OFF_ATTEMPTS) != 0 ? null
+                    : readImage(crop.image(), crop.toSource(), "linear-band", crop.degrees(), false, formats, 0.70, false)));
+            jobs.add(() -> {
+                if ((candidatesOff & OFF_ATTEMPTS) != 0) {
+                    return new Candidate(Take.CROP, null);
+                }
+                GrayU8 stretched = GrayImages.stretch(crop.image());
+                return new Candidate(Take.CROP, stretched == crop.image() ? null
+                        : readImage(stretched, crop.toSource(), "linear-band-stretch", crop.degrees(), false, formats, 0.70, false));
+            });
+        }
+    }
+
+    /** A crop thresholded by Otsu or by the local mean, read for the longer codes. */
+    private Callable<Candidate> thresholdJob(LinearBand.Crop crop, Set<Symbology> longer, boolean otsu) {
+        return () -> {
+            if ((candidatesOff & (OFF_ATTEMPTS | OFF_THRESHOLDS)) != 0) {
+                return new Candidate(Take.THRESHOLD, null);
+            }
+            GrayU8 binary = GrayImages.binaryToLuma(otsu ? Thresholds.otsu(crop.image()) : Thresholds.mean(crop.image()));
+            return new Candidate(Take.THRESHOLD, readImage(binary, crop.toSource(), otsu ? "linear-band-otsu" : "linear-band-mean",
+                    crop.degrees(), true, longer, 0.70, false));
+        };
+    }
+
+    /**
+     * The crops of {@link BarSegments} read once more, five ways, each only while the budget lasts:
+     * <ul>
+     * <li>with a white margin: a tight crop cuts the bars at its edges, where the hybrid binarizer
+     * finds no quiet zone;</li>
+     * <li>turned by 90 degrees: text lines beside a symbol can join its cluster and turn the crop
+     * along the text, so that the bars lie across it;</li>
+     * <li>sampled again from the frame {@link #LENGTHEN} times as long: the bars a cluster takes in
+     * can stop short of the guards, more often on a short code;</li>
+     * <li>located again inside a large crop: a small symbol in a crop of a whole label has few
+     * edges on the 768-pixel raster of the frame, and many on that of the crop;</li>
+     * <li>for EAN-8 and UPC-E, thresholded by Otsu and by the local mean, as the longer codes
+     * already are, and like them only on an image nothing has read.</li>
+     * </ul>
+     * On the rotated photos of the public tapirscan benchmark that fast mode read upright and
+     * missed turned, a full read of a crop found the code on 22 of 62. A UPC-E read so counts only
+     * when {@link QuietZone} finds no bar of the frame just past its ends. Like the fits these reads
+     * take no attempt slot; only the time budget, or a hit without findAll, stops them.
+     */
+    private void rescueJobs(List<Callable<Candidate>> jobs, GrayU8 gray, List<LinearBand.Crop> crops, Set<Symbology> formats,
+            Set<Symbology> shorter) {
+        AtomicReferenceArray<Object> located = new AtomicReferenceArray<>(crops.size());
+        for (int c = 0; c < crops.size(); c++) {
+            LinearBand.Crop crop = crops.get(c);
+            int slot = c;
+            jobs.add(rescueJob(() -> {
+                Transformed padded = Geometry.pad(crop.image(), CROP_MARGIN);
+                return readImage(padded.image(), padded.toSource().before(crop.toSource()), "linear-band-pad",
+                        crop.degrees(), false, formats, 0.68, false);
+            }));
+            jobs.add(rescueJob(() -> {
+                Transformed turned = Geometry.rotateOrthogonal(crop.image(), 90);
+                return readImage(turned.image(), turned.toSource().before(crop.toSource()), "linear-band-90",
+                        (crop.degrees() + 90) % 360, false, formats, 0.66, false);
+            }));
+            jobs.add(rescueJob(() -> lengthenedRead(gray, crop, formats, shorter)));
+            if (Math.max(crop.image().width, crop.image().height) >= RELOCATE_SIDE) {
+                for (int k = 0; k < RELOCATE_CROPS; k++) {
+                    int index = k;
+                    for (boolean stretch : new boolean[]{false, true}) {
+                        jobs.add(rescueJob(() -> innerRead(built(located, slot, () -> BarSegments.find(crop.image(), RELOCATE_CROPS)),
+                                index, crop, formats, stretch)));
+                    }
+                }
+            }
+        }
+        if (shorter.isEmpty()) {
+            return;
+        }
+        for (LinearBand.Crop crop : crops) {
+            jobs.add(() -> new Candidate(Take.SHORT, (candidatesOff & OFF_SHORT) != 0 ? null : shortRead(crop, shorter)));
+        }
+    }
+
+    private Callable<Candidate> rescueJob(java.util.function.Supplier<List<BarcodeHit>> read) {
+        return () -> new Candidate(Take.RESCUE, (candidatesOff & OFF_RESCUE) != 0 ? null : read.get());
+    }
+
+    /**
+     * The crop sampled again {@link #LENGTHEN} times as long and read. A short code read across the
+     * bars of another, or of itself at a slant, can be wrong; both halves of the crop must read it.
+     */
+    private List<BarcodeHit> lengthenedRead(GrayU8 gray, LinearBand.Crop crop, Set<Symbology> formats, Set<Symbology> shorter) {
+        LinearBand.Crop longer = BarSegments.lengthened(gray, crop, LENGTHEN);
+        List<BarcodeHit> read = longer == null ? null : readImage(longer.image(), longer.toSource(),
+                "linear-band-long", longer.degrees(), false, formats, 0.66, false);
+        if (read == null) {
+            return null;
+        }
+        List<BarcodeHit> kept = new ArrayList<>(read.size());
+        for (BarcodeHit hit : read) {
+            if (!shorter.contains(hit.symbology()) || halvesRead(longer.image(), hit.text(), EnumSet.of(hit.symbology()), false)) {
+                kept.add(hit);
+            }
+        }
+        return kept;
+    }
+
+    /** Crop {@code index} of those {@link BarSegments} located inside {@code crop}, as it is or stretched. */
+    private List<BarcodeHit> innerRead(List<LinearBand.Crop> located, int index, LinearBand.Crop crop, Set<Symbology> formats,
+            boolean stretch) {
+        if (index >= located.size()) {
+            return null;
+        }
+        LinearBand.Crop inner = located.get(index);
+        PixelMap map = inner.toSource().before(crop.toSource());
+        int degrees = (inner.degrees() + crop.degrees()) % 360;
+        if (!stretch) {
+            return readImage(inner.image(), map, "linear-band-inner", degrees, false, formats, 0.66, false);
+        }
+        GrayU8 stretched = GrayImages.stretch(inner.image());
+        return stretched == inner.image() ? null
+                : readImage(stretched, map, "linear-band-inner-stretch", degrees, false, formats, 0.66, false);
+    }
+
+    /**
+     * A short code on the crop thresholded by Otsu and by the local mean. A short code has few
+     * digits to check, and one threshold of a whole crop read wrong texts: a read counts when the
+     * other threshold reads the same text, or when the top and the bottom half of its own image
+     * each do.
+     */
+    private List<BarcodeHit> shortRead(LinearBand.Crop crop, Set<Symbology> shorter) {
+        GrayU8 otsu = GrayImages.binaryToLuma(Thresholds.otsu(crop.image()));
+        GrayU8 mean = GrayImages.binaryToLuma(Thresholds.mean(crop.image()));
+        BarcodeHit byOtsu = firstRead(otsu, crop, "linear-band-short-otsu", shorter);
+        BarcodeHit byMean = firstRead(mean, crop, "linear-band-short-mean", shorter);
+        if (byOtsu != null && (byMean != null && byMean.text().equals(byOtsu.text()) || halvesRead(otsu, byOtsu.text(), shorter, true))) {
+            return List.of(byOtsu);
+        }
+        if (byMean != null && halvesRead(mean, byMean.text(), shorter, true)) {
+            return List.of(byMean);
+        }
+        return null;
     }
 
     /** The matrix the QR, Micro QR, Aztec and Data Matrix traces of the frame share, built once. */
