@@ -55,6 +55,14 @@ public final class DataMatrixDetector {
 
     /** Edge trace on an existing matrix. {@code Scan} calls {@link #read(GrayU8)} once. */
     static List<Found> read(Bits bits) {
+        return read(bits, null);
+    }
+
+    /**
+     * {@link #read(Bits)} with the four directions of the edge trace handed to {@code runAll}, which
+     * runs them side by side, or one after another when it is null. The same grids come out.
+     */
+    static List<Found> read(Bits bits, java.util.function.Consumer<List<Runnable>> runAll) {
         List<Grid> grids = new ArrayList<>();
         Grid pure = detectPure(bits);
         if (pure != null) {
@@ -65,7 +73,11 @@ public final class DataMatrixDetector {
         }
         // zxing-cpp stops when DetectPure returns a grid, even if that grid does not decode.
         // A non-decoding pure candidate falls through here so the edge tracer can still run.
-        detectNew(bits, true, true, grids);
+        if (runAll == null) {
+            detectNew(bits, true, true, grids);
+        } else {
+            detectNewSideBySide(bits, grids, runAll);
+        }
         // zxing-cpp runs the white-rectangle detector only when the edge tracer yielded nothing.
         if (grids.isEmpty()) {
             Grid legacy = DmLegacy.detect(bits);
@@ -226,7 +238,7 @@ public final class DataMatrixDetector {
                 if (!image.isIn(tracer.p)) {
                     break;
                 }
-                scan(tracer, lines, out);
+                scan(tracer, lines, out, null);
                 if (!tryHarder || out.size() >= MAX_GRIDS) {
                     break;
                 }
@@ -237,7 +249,58 @@ public final class DataMatrixDetector {
         }
     }
 
-    private static void scan(Tracer start, Line[] lines, List<Grid> out) {
+    /**
+     * {@link #detectNew} with {@code tryHarder} and {@code tryRotate}, its four directions side by
+     * side. A direction ran from where the one before it stopped only for the grids it may still
+     * add: each direction keeps the grids of each symbol it traces on its own, and the symbols are
+     * then taken in the order of one after another while fewer than {@link #MAX_GRIDS} grids are
+     * in. Each direction keeps its own visits, as the history of {@link #detectNew} does with the
+     * number of the direction that wrote an entry, packed two bits a pixel.
+     */
+    private static void detectNewSideBySide(Bits image, List<Grid> out, java.util.function.Consumer<List<Runnable>> runAll) {
+        P[] dirs = {new P(-1, 0), new P(1, 0), new P(0, -1), new P(0, 1)};
+        List<List<List<Grid>>> found = new ArrayList<>(dirs.length);
+        List<Runnable> directions = new ArrayList<>(dirs.length);
+        for (P dir : dirs) {
+            List<List<Grid>> symbols = new ArrayList<>();
+            found.add(symbols);
+            directions.add(() -> scanDirection(image, dir, symbols));
+        }
+        runAll.accept(directions);
+        for (List<List<Grid>> symbols : found) {
+            for (List<Grid> grids : symbols) {
+                if (out.size() >= MAX_GRIDS) {
+                    return;
+                }
+                out.addAll(grids);
+            }
+        }
+    }
+
+    /** One direction of {@link #detectNew}, the grids of each symbol it traces into {@code symbols}. */
+    private static void scanDirection(Bits image, P dir, List<List<Grid>> symbols) {
+        Line[] lines = {new Line(), new Line(), new Line(), new Line()};
+        byte[] visits = new byte[(image.width * image.height + 3) / 4];
+        List<Grid> out = new ArrayList<>();
+        P center = new P(image.width / 2.0, image.height / 2.0);
+        P start = P.centered(P.add(P.sub(center, P.mul(center, dir)), P.mul(dir, MIN_SYMBOL_PIXELS / 2.0)));
+        for (int i = 1; ; i++) {
+            Tracer tracer = new Tracer(image, start, dir);
+            double scalar = (i / 2) * (double) MIN_SYMBOL_PIXELS * ((i & 1) == 1 ? -1 : 1);
+            tracer.p = P.add(tracer.p, P.mul(tracer.right(), scalar));
+            tracer.visits = visits;
+            if (!image.isIn(tracer.p)) {
+                break;
+            }
+            scan(tracer, lines, out, symbols);
+            if (out.size() >= MAX_GRIDS) {
+                break;
+            }
+        }
+    }
+
+    /** {@code symbols}, when not null, gets the grids each symbol trace adds to {@code out}. */
+    private static void scan(Tracer start, Line[] lines, List<Grid> out, List<List<Grid>> symbols) {
         int follows = 0;
         while (start.moveToNextWhiteAfterBlack()) {
             if (++follows > MAX_EDGE_FOLLOWS || out.size() >= MAX_GRIDS) {
@@ -246,7 +309,11 @@ public final class DataMatrixDetector {
             for (Line line : lines) {
                 line.reset();
             }
+            int before = out.size();
             traceSymbol(start, lines, out);
+            if (symbols != null && out.size() > before) {
+                symbols.add(List.copyOf(out.subList(before, out.size())));
+            }
         }
     }
 
@@ -767,6 +834,8 @@ public final class DataMatrixDetector {
         /** Pixels passed in this scan direction: the direction number times four, plus the state. */
         byte[] history;
         int direction;
+        /** The visits of this direction alone, two bits a pixel holding the state, when the directions run side by side. */
+        byte[] visits;
         int state;
 
         Tracer(Bits image, P origin, P direction) {
@@ -780,6 +849,7 @@ public final class DataMatrixDetector {
             copy.d = d.copy();
             copy.history = history;
             copy.direction = direction;
+            copy.visits = visits;
             copy.state = state;
             return copy;
         }
@@ -981,17 +1051,26 @@ public final class DataMatrixDetector {
                                     return Step.CLOSED;
                                 }
                                 p = next;
-                                if (history != null && maxStep == 1) {
+                                if ((history != null || visits != null) && maxStep == 1) {
                                     int hx = P.trunc(p.x);
                                     int hy = P.trunc(p.y);
                                     if (hx >= 0 && hy >= 0 && hx < img.width && hy < img.height) {
                                         int index = hy * img.width + hx;
-                                        int stamp = history[index] & 0xFF;
-                                        int seen = (stamp >>> 2) == direction ? stamp & 3 : 0;
-                                        if (seen == state) {
-                                            return Step.CLOSED;
+                                        if (visits != null) {
+                                            int shift = (index & 3) << 1;
+                                            int seen = visits[index >> 2] >> shift & 3;
+                                            if (seen == state) {
+                                                return Step.CLOSED;
+                                            }
+                                            visits[index >> 2] = (byte) (visits[index >> 2] & ~(3 << shift) | state << shift);
+                                        } else {
+                                            int stamp = history[index] & 0xFF;
+                                            int seen = (stamp >>> 2) == direction ? stamp & 3 : 0;
+                                            if (seen == state) {
+                                                return Step.CLOSED;
+                                            }
+                                            history[index] = (byte) (direction << 2 | state);
                                         }
-                                        history[index] = (byte) (direction << 2 | state);
                                     }
                                 }
                                 return Step.FOUND;

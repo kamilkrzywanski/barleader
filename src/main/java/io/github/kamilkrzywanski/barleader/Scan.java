@@ -1033,12 +1033,17 @@ final class Scan {
         for (int i = 0; i < strips.size(); i++) {
             int index = i;
             fits.add(() -> {
-                Code128Fit.Found found = Code128Fit.read(stripBands(index));
+                Code128Fit.Found found = Code128Fit.read(stripBands(index), within());
                 return found == null || !before.isEmpty() && !besideHits(found.text(), before)
                         ? null : code128Hit(strips.get(index), found);
             });
         }
         return fits;
+    }
+
+    /** What runs the pieces of one job side by side on the reader's pool, or null for one after another. */
+    private java.util.function.Consumer<List<Runnable>> within() {
+        return fanout.parallel() ? fanout::runAll : null;
     }
 
     private static BarcodeHit code128Hit(LinearBand.Crop strip, Code128Fit.Found found) {
@@ -1091,7 +1096,7 @@ final class Scan {
         List<Callable<BarcodeHit>> fits = new ArrayList<>(strips.size());
         for (int i = 0; i < strips.size(); i++) {
             int index = i;
-            fits.add(() -> eanFitHit(strips.get(index), EanFit.read(stripBands(index))));
+            fits.add(() -> eanFitHit(strips.get(index), EanFit.read(stripBands(index), within())));
         }
         return fits;
     }
@@ -1122,7 +1127,7 @@ final class Scan {
 
     private List<LinearBand.Crop> barStrips(GrayU8 gray) {
         if (barStrips == null) {
-            List<LinearBand.Crop> strips = BarStrips.find(gray, MAX_FIT_STRIPS);
+            List<LinearBand.Crop> strips = BarStrips.find(gray, MAX_FIT_STRIPS, fanout);
             StripBands[] bands = new StripBands[strips.size()];
             for (int i = 0; i < bands.length; i++) {
                 bands[i] = new StripBands(strips.get(i).image());
@@ -1234,7 +1239,20 @@ final class Scan {
             return null;
         }
         String[] names = {"linear-band-deghost", "linear-band-deghost-back", "linear-band-defocus"};
-        GrayU8[] copies = deblur.variants();
+        // Side by side the three copies are built and read at once, and taken in this order.
+        java.util.function.Consumer<List<Runnable>> within = within();
+        GrayU8[] copies = within == null ? deblur.variants() : deblur.variants(within);
+        @SuppressWarnings("unchecked")
+        List<BarcodeHit>[] reads = new List[copies.length];
+        if (within != null) {
+            List<Runnable> reading = new ArrayList<>(copies.length);
+            for (int i = 0; i < copies.length; i++) {
+                int index = i;
+                reading.add(() -> reads[index] = BitmapDecoder.read(copies[index], deblur.toSource(), names[index], deblur.degrees(), 0.60,
+                        retail, false, false, options.eanAddOn()));
+            }
+            within.accept(reading);
+        }
         BarcodeHit first = null;
         String key = null;
         int reading = 0;
@@ -1242,7 +1260,7 @@ final class Scan {
         int rival = 0;
         boolean conflict = false;
         for (int i = 0; i < copies.length && !conflict; i++) {
-            List<BarcodeHit> read = BitmapDecoder.read(copies[i], deblur.toSource(), names[i], deblur.degrees(), 0.60,
+            List<BarcodeHit> read = reads[i] != null ? reads[i] : BitmapDecoder.read(copies[i], deblur.toSource(), names[i], deblur.degrees(), 0.60,
                     retail, false, false, options.eanAddOn());
             if (read.isEmpty()) {
                 continue;
@@ -1268,7 +1286,7 @@ final class Scan {
         if (first == null || conflict) {
             return null;
         }
-        if (reading == copies.length || rival == 0 && (reading >= 2 || own >= 4 || fitted(deblur, copies, key))) {
+        if (reading == copies.length || rival == 0 && (reading >= 2 || own >= 4 || fitted(deblur, copies, key, within))) {
             return first;
         }
         return null;
@@ -1376,8 +1394,29 @@ final class Scan {
         return reads;
     }
 
-    /** Whether {@link EanFit} reads {@code key} on the resampled crop or on one of its copies. */
-    private static boolean fitted(Deblur deblur, GrayU8[] copies, String key) {
+    /**
+     * Whether {@link EanFit} reads {@code key} on the resampled crop or on one of its copies; with
+     * {@code within} the four fits run side by side and are taken in this order.
+     */
+    private static boolean fitted(Deblur deblur, GrayU8[] copies, String key, java.util.function.Consumer<List<Runnable>> within) {
+        if (within != null) {
+            GrayU8[] images = new GrayU8[copies.length + 1];
+            images[0] = deblur.original();
+            System.arraycopy(copies, 0, images, 1, copies.length);
+            EanFit.Found[] fits = new EanFit.Found[images.length];
+            List<Runnable> fitting = new ArrayList<>(images.length);
+            for (int i = 0; i < images.length; i++) {
+                int index = i;
+                fitting.add(() -> fits[index] = EanFit.read(new StripBands(images[index]), within));
+            }
+            within.accept(fitting);
+            for (EanFit.Found found : fits) {
+                if (found != null && BitmapDecoder.eanSupportKey(found.text()).equals(key)) {
+                    return true;
+                }
+            }
+            return false;
+        }
         EanFit.Found found = EanFit.read(deblur.original());
         if (found != null && BitmapDecoder.eanSupportKey(found.text()).equals(key)) {
             return true;
@@ -2042,10 +2081,10 @@ final class Scan {
     private Once<TraceMatrix> traceJobs(List<Callable<Runnable>> jobs, GrayU8 gray) {
         TraceMatrix cached = traced == gray ? trace : null;
         Once<TraceMatrix> matrix = new Once<>(() -> cached != null ? cached : TraceMatrix.of(gray));
-        traceJob(jobs, Symbology.QR_CODE, () -> qrTrace(gray, matrix.get()));
+        traceJob(jobs, Symbology.QR_CODE, () -> qrTrace(gray, matrix.get(), within()));
         traceJob(jobs, Symbology.MICRO_QR, () -> microQrTrace(matrix.get()));
         traceJob(jobs, Symbology.AZTEC, () -> aztecTrace(matrix.get()));
-        traceJob(jobs, Symbology.DATA_MATRIX, () -> dataMatrixTrace(matrix.get()));
+        traceJob(jobs, Symbology.DATA_MATRIX, () -> dataMatrixTrace(matrix.get(), within()));
         return matrix;
     }
 
@@ -2081,20 +2120,36 @@ final class Scan {
     }
 
     /** What the QR trace reads on {@code gray}, whose trace matrix is {@code matrix}. */
-    private static List<BarcodeHit> qrTrace(GrayU8 gray, TraceMatrix matrix) {
-        List<QrDetector.Found> found = matrix.qr();
-        // Raw local-average misses salt-and-pepper the same way zxing-cpp 3.1.1 does.
-        // The median is a second look inside this attempt, not a looser finder threshold.
-        if (found.isEmpty()) {
-            found = QrDetector.read(GrayImages.median3(gray));
-        }
-        // An upright symbol that fills the image reads without its finders, which BoofCV's
-        // pathological samples cut, dot and pierce (QrPure).
-        if (found.isEmpty()) {
-            QrDetector.Found pure = QrPure.read(gray);
-            if (pure != null) {
-                found = List.of(pure);
+    private static List<BarcodeHit> qrTrace(GrayU8 gray, TraceMatrix matrix, java.util.function.Consumer<List<Runnable>> within) {
+        List<QrDetector.Found> found;
+        if (within == null) {
+            found = matrix.qr();
+            // Raw local-average misses salt-and-pepper the same way zxing-cpp 3.1.1 does.
+            // The median is a second look inside this attempt, not a looser finder threshold.
+            if (found.isEmpty()) {
+                found = QrDetector.read(GrayImages.median3(gray));
             }
+            // An upright symbol that fills the image reads without its finders, which BoofCV's
+            // pathological samples cut, dot and pierce (QrPure).
+            if (found.isEmpty()) {
+                QrDetector.Found pure = QrPure.read(gray);
+                if (pure != null) {
+                    found = List.of(pure);
+                }
+            }
+        } else {
+            // The three looks side by side, the first that finds a symbol counting, as one after another.
+            Object[] looks = new Object[3];
+            within.accept(List.of(
+                    () -> looks[0] = matrix.qr(),
+                    () -> looks[1] = QrDetector.read(GrayImages.median3(gray)),
+                    () -> looks[2] = QrPure.read(gray)));
+            @SuppressWarnings("unchecked")
+            List<QrDetector.Found> asItIs = (List<QrDetector.Found>) looks[0];
+            @SuppressWarnings("unchecked")
+            List<QrDetector.Found> median = (List<QrDetector.Found>) looks[1];
+            QrDetector.Found pure = (QrDetector.Found) looks[2];
+            found = !asItIs.isEmpty() ? asItIs : !median.isEmpty() ? median : pure != null ? List.of(pure) : List.of();
         }
         List<BarcodeHit> read = new ArrayList<>(found.size());
         for (QrDetector.Found hit : found) {
@@ -2122,9 +2177,9 @@ final class Scan {
         return read;
     }
 
-    private static List<BarcodeHit> dataMatrixTrace(TraceMatrix matrix) {
+    private static List<BarcodeHit> dataMatrixTrace(TraceMatrix matrix, java.util.function.Consumer<List<Runnable>> within) {
         List<BarcodeHit> read = new ArrayList<>();
-        for (DataMatrixDetector.Found found : matrix.dataMatrix()) {
+        for (DataMatrixDetector.Found found : matrix.dataMatrix(within)) {
             read.add(new BarcodeHit(found.text(), Symbology.DATA_MATRIX, frameCorners(found.corners()), found.orientationDegrees(),
                     0.85, "dm-trace", found.bytes(), ""));
         }
@@ -2648,33 +2703,37 @@ final class Scan {
         }
         // Cheapest first: the traces read their matrix anyway, a quarter frame is small, and the
         // hybrid matrix of the frame and of the halved frame are built only when still needed.
-        BlackMatrix[] hybrid = new BlackMatrix[1];
-        java.util.function.Supplier<BlackMatrix> whole = () -> {
-            if (hybrid[0] == null) {
-                hybrid[0] = BinaryBitmap.hybrid(new GrayLuminanceSource(gray)).getBlackMatrix();
-            }
-            return hybrid[0];
-        };
+        // The signs of QR, Aztec and PDF417 are found side by side; each is built once.
+        Once<TraceMatrix> frameTrace = new Once<>(() -> trace(gray));
+        Once<BlackMatrix> whole = new Once<>(() -> {
+            BinaryBitmap bitmap = BinaryBitmap.hybrid(new GrayLuminanceSource(gray));
+            return (fanout.parallel() ? bitmap.sideBySide(fanout::runAll) : bitmap).getBlackMatrix();
+        });
+        List<Runnable> signs = new ArrayList<>(3);
         if (qr) {
-            qrEvidence = trace(gray).qrFinders();
-            if (!qrEvidence && Math.min(gray.width, gray.height) >= 1400) {
-                GrayU8 quarter = Geometry.boxDownscaled(gray, 4).image();
-                qrEvidence = TraceMatrix.qrFinders(BinaryBitmap.hybrid(new GrayLuminanceSource(quarter)).getBlackMatrix());
-            }
-            if (!qrEvidence) {
-                qrEvidence = TraceMatrix.qrFinders(whole.get());
-            }
-            if (!qrEvidence && Math.min(gray.width, gray.height) >= 800) {
-                Transformed half = built(built, 3, () -> Geometry.boxDownscaled(gray, 2));
-                qrEvidence = TraceMatrix.qrFinders(BinaryBitmap.hybrid(new GrayLuminanceSource(half.image())).getBlackMatrix());
-            }
+            signs.add(() -> {
+                boolean shown = frameTrace.get().qrFinders();
+                if (!shown && Math.min(gray.width, gray.height) >= 1400) {
+                    GrayU8 quarter = Geometry.boxDownscaled(gray, 4).image();
+                    shown = TraceMatrix.qrFinders(BinaryBitmap.hybrid(new GrayLuminanceSource(quarter)).getBlackMatrix());
+                }
+                if (!shown) {
+                    shown = TraceMatrix.qrFinders(whole.get());
+                }
+                if (!shown && Math.min(gray.width, gray.height) >= 800) {
+                    Transformed half = built(built, 3, () -> Geometry.boxDownscaled(gray, 2));
+                    shown = TraceMatrix.qrFinders(BinaryBitmap.hybrid(new GrayLuminanceSource(half.image())).getBlackMatrix());
+                }
+                qrEvidence = shown;
+            });
         }
         if (aztec) {
-            aztecEvidence = trace(gray).aztecCentres() || TraceMatrix.aztecCentres(whole.get());
+            signs.add(() -> aztecEvidence = frameTrace.get().aztecCentres() || TraceMatrix.aztecCentres(whole.get()));
         }
         if (pdf417) {
-            pdf417Guards = BitmapDecoder.pdf417Guards(whole.get());
+            signs.add(() -> pdf417Guards = BitmapDecoder.pdf417Guards(whole.get()));
         }
+        fanout.runAll(signs);
     }
 
     /**
@@ -2752,7 +2811,7 @@ final class Scan {
      */
     private List<LinearBand.Crop> segments(GrayU8 gray, int limit) {
         if (segments == null || segmentLimit < limit) {
-            segments = BarSegments.find(gray, limit);
+            segments = BarSegments.find(gray, limit, fanout);
             segmentLimit = limit;
         }
         return segments.subList(0, Math.min(limit, segments.size()));

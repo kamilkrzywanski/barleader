@@ -62,20 +62,37 @@ final class BarSegments {
 
     /** Up to {@code limit} crops, the clusters with the most segments first. */
     static List<LinearBand.Crop> find(GrayU8 gray, int limit) {
+        return find(gray, limit, Fanout.sequential());
+    }
+
+    /**
+     * {@link #find(GrayU8, int)} with the gradients measured in bands of rows and the first crops
+     * sampled side by side on {@code fanout}: the same crops.
+     */
+    static List<LinearBand.Crop> find(GrayU8 gray, int limit, Fanout fanout) {
         double scale = Math.min(1, WORK / Math.max(gray.width, gray.height));
         int w = Math.max(3, (int) Math.round(gray.width * scale));
         int h = Math.max(3, (int) Math.round(gray.height * scale));
         float[] raster = raster(gray, w, h, scale);
-        List<Segment> segments = segments(raster, w, h);
+        List<Segment> segments = segments(raster, w, h, fanout);
         if (segments.isEmpty()) {
             return List.of();
         }
+        // The first crops side by side, and the next ones after them only while some were empty.
+        List<Box> boxes = clusters(segments, w, h, scale);
+        LinearBand.Crop[] first = new LinearBand.Crop[Math.min(limit, boxes.size())];
+        List<Runnable> sampled = new ArrayList<>(first.length);
+        for (int k = 0; k < first.length; k++) {
+            int index = k;
+            sampled.add(() -> first[index] = crop(gray, boxes.get(index).quad));
+        }
+        fanout.runAll(sampled);
         List<LinearBand.Crop> crops = new ArrayList<>();
-        for (Box box : clusters(segments, w, h, scale)) {
+        for (int k = 0; k < boxes.size(); k++) {
             if (crops.size() >= limit) {
                 break;
             }
-            LinearBand.Crop crop = crop(gray, box.quad);
+            LinearBand.Crop crop = k < first.length ? first[k] : crop(gray, boxes.get(k).quad);
             if (crop != null) {
                 crops.add(crop);
             }
@@ -159,13 +176,46 @@ final class BarSegments {
         return r;
     }
 
-    private static List<Segment> segments(float[] g, int w, int h) {
+    private static List<Segment> segments(float[] g, int w, int h, Fanout fanout) {
         byte[] bin = new byte[w * h];
         Arrays.fill(bin, (byte) -1);
-        int[] strong = new int[w * h];
+        // The strong pixels of each band of rows, joined in the order of the rows.
+        int bands = fanout.parallel() ? Math.max(1, Math.min(BANDS, (h - 2) / BAND_ROWS)) : 1;
+        int[][] strongOf = new int[bands][];
+        int[] countOf = new int[bands];
+        List<Runnable> measured = new ArrayList<>(bands);
+        for (int band = 0; band < bands; band++) {
+            int index = band;
+            int from = 1 + (int) ((long) (h - 2) * band / bands);
+            int to = 1 + (int) ((long) (h - 2) * (band + 1) / bands);
+            measured.add(() -> {
+                int[] strong = new int[Math.max(0, to - from) * w];
+                countOf[index] = gradients(g, w, from, to, bin, strong);
+                strongOf[index] = strong;
+            });
+        }
+        fanout.runAll(measured);
+        int strongCount = 0;
+        for (int count : countOf) {
+            strongCount += count;
+        }
+        int[] strong = new int[strongCount];
+        for (int band = 0, at = 0; band < bands; band++) {
+            System.arraycopy(strongOf[band], 0, strong, at, countOf[band]);
+            at += countOf[band];
+        }
+        return segments(bin, w, strong, strongCount);
+    }
+
+    /** Bands {@link #segments} measures its gradients in at most, and the rows a band holds at least. */
+    private static final int BANDS = 8;
+    private static final int BAND_ROWS = 32;
+
+    /** The gradient bins of rows {@code from} to {@code to} into {@code bin}, and their strong pixels, in order, into {@code strong}; returns how many. */
+    private static int gradients(float[] g, int w, int from, int to, byte[] bin, int[] strong) {
         int strongCount = 0;
         float limit = EDGE * EDGE;
-        for (int y = 1; y < h - 1; y++) {
+        for (int y = from; y < to; y++) {
             int r0 = (y - 1) * w;
             int r1 = y * w;
             int r2 = (y + 1) * w;
@@ -184,6 +234,11 @@ final class BarSegments {
                 }
             }
         }
+        return strongCount;
+    }
+
+    /** The segments grown from the strong pixels, in their order. */
+    private static List<Segment> segments(byte[] bin, int w, int[] strong, int strongCount) {
         int[] stack = new int[strongCount + 8];
         long[] sums = new long[6];
         List<Segment> out = new ArrayList<>();

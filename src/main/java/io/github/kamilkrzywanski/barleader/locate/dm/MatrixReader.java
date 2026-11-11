@@ -80,8 +80,8 @@ public final class MatrixReader {
             List<List<BarcodeHit>> asItIs = new ArrayList<>(5);
             List<List<BarcodeHit>> asInverted = new ArrayList<>(5);
             List<Runnable> detectors = new ArrayList<>(10);
-            detectors.addAll(detectors(bits, toSource, attempt, rotationDegrees, confidence, symbologies, asItIs));
-            detectors.addAll(detectors(flipped, toSource, attempt, rotationDegrees, confidence, symbologies, asInverted));
+            detectors.addAll(detectors(bits, toSource, attempt, rotationDegrees, confidence, symbologies, asItIs, runAll));
+            detectors.addAll(detectors(flipped, toSource, attempt, rotationDegrees, confidence, symbologies, asInverted, runAll));
             runAll.accept(detectors);
             normal = joined(asItIs);
             inverted = joined(asInverted);
@@ -90,7 +90,7 @@ public final class MatrixReader {
             }
         } else {
             Consumer<List<Runnable>> run = runAll == null ? IN_TURN : runAll;
-            normal = decode(bits, toSource, attempt, rotationDegrees, confidence, symbologies, run);
+            normal = decode(bits, toSource, attempt, rotationDegrees, confidence, symbologies, run, runAll);
             if (!findAll && !normal.isEmpty()) {
                 return List.of(normal.get(0));
             }
@@ -98,7 +98,7 @@ public final class MatrixReader {
                 return List.of();
             }
             bits.flipAll();
-            inverted = decode(bits, toSource, attempt, rotationDegrees, confidence, symbologies, run);
+            inverted = decode(bits, toSource, attempt, rotationDegrees, confidence, symbologies, run, runAll);
         }
         if (!findAll) {
             return inverted.isEmpty() ? List.of() : List.of(inverted.get(0));
@@ -127,14 +127,18 @@ public final class MatrixReader {
             int rotationDegrees,
             double confidence,
             Set<Symbology> symbologies,
-            Consumer<List<Runnable>> runAll
+            Consumer<List<Runnable>> runAll,
+            Consumer<List<Runnable>> within
     ) {
         List<List<BarcodeHit>> found = new ArrayList<>(5);
-        runAll.accept(detectors(bits, toSource, attempt, rotationDegrees, confidence, symbologies, found));
+        runAll.accept(detectors(bits, toSource, attempt, rotationDegrees, confidence, symbologies, found, within));
         return joined(found);
     }
 
-    /** The detectors asked for, each putting its symbols in a list of its own, in order, in {@code found}. */
+    /**
+     * The detectors asked for, each putting its symbols in a list of its own, in order, in
+     * {@code found}; {@code within}, when not null, runs the directions of the Data Matrix trace side by side.
+     */
     private static List<Runnable> detectors(
             Bits bits,
             PixelMap toSource,
@@ -142,7 +146,8 @@ public final class MatrixReader {
             int rotationDegrees,
             double confidence,
             Set<Symbology> symbologies,
-            List<List<BarcodeHit>> found
+            List<List<BarcodeHit>> found,
+            Consumer<List<Runnable>> within
     ) {
         List<Runnable> detectors = new ArrayList<>(5);
         if (symbologies.contains(Symbology.QR_CODE)) {
@@ -155,7 +160,7 @@ public final class MatrixReader {
         }
         if (symbologies.contains(Symbology.DATA_MATRIX)) {
             detectors.add(detector(found, hits -> {
-                for (DataMatrixDetector.Found symbol : DataMatrixDetector.read(bits)) {
+                for (DataMatrixDetector.Found symbol : DataMatrixDetector.read(bits, within)) {
                     add(hits, symbol.text(), symbol.bytes(), Symbology.DATA_MATRIX, symbol.corners(), symbol.orientationDegrees(),
                             toSource, attempt, rotationDegrees, confidence);
                 }
