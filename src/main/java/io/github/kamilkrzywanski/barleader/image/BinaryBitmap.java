@@ -52,6 +52,8 @@ public final class BinaryBitmap {
     /** The runs of one row of {@link #blackRuns} while it is measured. */
     private int[] runScratch = new int[0];
     private int[][] reversedFineRuns;
+    /** Runs the bands of the hybrid matrix side by side ({@link #sideBySide}), or null for one after another. */
+    private java.util.function.Consumer<java.util.List<Runnable>> runAll;
 
     private BinaryBitmap(GrayLuminanceSource source, boolean hybrid) {
         this.source = source;
@@ -388,6 +390,15 @@ public final class BinaryBitmap {
         return java.util.Arrays.copyOf(out, count);
     }
 
+    /**
+     * This bitmap, whose hybrid matrix is built in bands of blocks that {@code runAll} runs side by
+     * side, the same matrix: for an attempt nothing else runs beside.
+     */
+    public BinaryBitmap sideBySide(java.util.function.Consumer<java.util.List<Runnable>> runAll) {
+        this.runAll = runAll;
+        return this;
+    }
+
     /** The binarized image, computed once. Null when a global threshold finds too little contrast. */
     public BlackMatrix getBlackMatrix() {
         if (!matrixDone) {
@@ -441,10 +452,143 @@ public final class BinaryBitmap {
         if ((height & BLOCK_SIZE_MASK) != 0) {
             subHeight++;
         }
+        if (runAll != null) {
+            return hybridMatrixInBands(local, subWidth, subHeight, width, height);
+        }
         int[][] blackPoints = calculateBlackPoints(local, subWidth, subHeight, width, height);
         BlackMatrix out = new BlackMatrix(width, height);
         calculateThresholdForBlock(local, subWidth, subHeight, width, height, blackPoints, out);
         return out;
+    }
+
+    /**
+     * {@link #hybridMatrix} with the blocks measured and thresholded in bands of block rows side by
+     * side. A flat block takes its black point from the blocks above and to its left, so those are
+     * settled in a second pass in the order {@link #calculateBlackPoints} goes; the last two block
+     * rows, which overlap when the height is not a multiple of the block, stay in one band.
+     */
+    private BlackMatrix hybridMatrixInBands(byte[] local, int subWidth, int subHeight, int width, int height) {
+        int bands = Math.max(1, Math.min(BLOCK_BANDS, subHeight / BLOCK_BAND_ROWS));
+        int[] edges = new int[bands + 1];
+        for (int band = 1; band < bands; band++) {
+            edges[band] = Math.min(subHeight - 2, (int) ((long) subHeight * band / bands));
+        }
+        edges[bands] = subHeight;
+        int[][] blackPoints = new int[subHeight][subWidth];
+        java.util.List<Runnable> measured = new java.util.ArrayList<>(bands);
+        for (int band = 0; band < bands; band++) {
+            int from = edges[band];
+            int to = edges[band + 1];
+            measured.add(() -> blockAverages(local, subWidth, width, height, from, to, blackPoints));
+        }
+        runAll.accept(measured);
+        settleFlatBlocks(blackPoints, subWidth, subHeight);
+        BlackMatrix out = new BlackMatrix(width, height);
+        java.util.List<Runnable> thresholded = new java.util.ArrayList<>(bands);
+        for (int band = 0; band < bands; band++) {
+            int from = edges[band];
+            int to = edges[band + 1];
+            thresholded.add(() -> thresholdBlocks(local, subWidth, subHeight, width, height, blackPoints, out, from, to));
+        }
+        runAll.accept(thresholded);
+        return out;
+    }
+
+    /** Bands {@link #hybridMatrixInBands} cuts the block rows into at most, and the block rows a band holds at least. */
+    private static final int BLOCK_BANDS = 8;
+    private static final int BLOCK_BAND_ROWS = 8;
+
+    /**
+     * The first pass of {@link #calculateBlackPoints} on block rows {@code from} to {@code to}: the
+     * average of a block with contrast, or {@code -1 - min} of a flat one, which {@link #settleFlatBlocks} settles.
+     */
+    private static void blockAverages(byte[] luminances, int subWidth, int width, int height, int from, int to, int[][] blackPoints) {
+        int maxYOffset = height - BLOCK_SIZE;
+        int maxXOffset = width - BLOCK_SIZE;
+        for (int y = from; y < to; y++) {
+            int yoffset = y << BLOCK_SIZE_POWER;
+            if (yoffset > maxYOffset) {
+                yoffset = maxYOffset;
+            }
+            for (int x = 0; x < subWidth; x++) {
+                int xoffset = x << BLOCK_SIZE_POWER;
+                if (xoffset > maxXOffset) {
+                    xoffset = maxXOffset;
+                }
+                int sum = 0;
+                int min = 0xFF;
+                int max = 0;
+                for (int yy = 0, offset = yoffset * width + xoffset; yy < BLOCK_SIZE; yy++, offset += width) {
+                    for (int xx = 0; xx < BLOCK_SIZE; xx++) {
+                        int pixel = luminances[offset + xx] & 0xFF;
+                        sum += pixel;
+                        if (pixel < min) {
+                            min = pixel;
+                        }
+                        if (pixel > max) {
+                            max = pixel;
+                        }
+                    }
+                    if (max - min > MIN_DYNAMIC_RANGE) {
+                        for (yy++, offset += width; yy < BLOCK_SIZE; yy++, offset += width) {
+                            for (int xx = 0; xx < BLOCK_SIZE; xx++) {
+                                sum += luminances[offset + xx] & 0xFF;
+                            }
+                        }
+                    }
+                }
+                blackPoints[y][x] = max - min <= MIN_DYNAMIC_RANGE ? -1 - min : sum >> (BLOCK_SIZE_POWER * 2);
+            }
+        }
+    }
+
+    /** The second pass of {@link #calculateBlackPoints}: each flat block, in its order, from its settled neighbours. */
+    private static void settleFlatBlocks(int[][] blackPoints, int subWidth, int subHeight) {
+        for (int y = 0; y < subHeight; y++) {
+            for (int x = 0; x < subWidth; x++) {
+                int value = blackPoints[y][x];
+                if (value >= 0) {
+                    continue;
+                }
+                int min = -1 - value;
+                int average = min / 2;
+                if (y > 0 && x > 0) {
+                    int averageNeighborBlackPoint =
+                            (blackPoints[y - 1][x] + (2 * blackPoints[y][x - 1]) + blackPoints[y - 1][x - 1]) / 4;
+                    if (min < averageNeighborBlackPoint) {
+                        average = averageNeighborBlackPoint;
+                    }
+                }
+                blackPoints[y][x] = average;
+            }
+        }
+    }
+
+    /** {@link #calculateThresholdForBlock} on block rows {@code from} to {@code to}. */
+    private static void thresholdBlocks(byte[] luminances, int subWidth, int subHeight, int width, int height,
+                                        int[][] blackPoints, BlackMatrix out, int from, int to) {
+        int maxYOffset = height - BLOCK_SIZE;
+        int maxXOffset = width - BLOCK_SIZE;
+        for (int y = from; y < to; y++) {
+            int yoffset = y << BLOCK_SIZE_POWER;
+            if (yoffset > maxYOffset) {
+                yoffset = maxYOffset;
+            }
+            int top = cap(y, subHeight - 3);
+            for (int x = 0; x < subWidth; x++) {
+                int xoffset = x << BLOCK_SIZE_POWER;
+                if (xoffset > maxXOffset) {
+                    xoffset = maxXOffset;
+                }
+                int left = cap(x, subWidth - 3);
+                int sum = 0;
+                for (int z = -2; z <= 2; z++) {
+                    int[] blackRow = blackPoints[top + z];
+                    sum += blackRow[left - 2] + blackRow[left - 1] + blackRow[left] + blackRow[left + 1] + blackRow[left + 2];
+                }
+                thresholdBlock(luminances, xoffset, yoffset, sum / 25, width, out);
+            }
+        }
     }
 
     /** The threshold of each 8 by 8 block is the average black point of the 5 by 5 blocks around it. */

@@ -23,6 +23,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -36,6 +37,7 @@ import java.util.function.Supplier;
  * bars can checksum as a short UPC-E on a single row, and that row is not a barcode.
  */
 public final class BitmapDecoder {
+
     private static final double MIN_LINEAR_SPAN_SQ = 30.0 * 30.0;
     /** Pixels between the row a scanner accepted and the confirming strip. */
     private static final int PARALLEL_SHIFT = 4;
@@ -95,7 +97,7 @@ public final class BitmapDecoder {
             return List.of();
         }
         return read(new GrayLuminanceSource(luma), toSource, attempt, rotationDegrees, confidence, symbologies, binary, findAll,
-                addOn, linearRows);
+                addOn, linearRows, null);
     }
 
     public static List<BarcodeHit> read(
@@ -123,7 +125,27 @@ public final class BitmapDecoder {
             boolean findAll,
             EanAddOn addOn
     ) {
-        return read(source, toSource, attempt, rotationDegrees, confidence, symbologies, binary, findAll, addOn, null);
+        return read(source, toSource, attempt, rotationDegrees, confidence, symbologies, binary, findAll, addOn, null, null);
+    }
+
+    /**
+     * {@link #read(GrayLuminanceSource, PixelMap, String, int, double, Set, boolean, boolean, EanAddOn)}
+     * with the matrix detectors handed to {@code runAll}, which runs them side by side, for an
+     * attempt nothing else runs beside; null runs them one after another.
+     */
+    public static List<BarcodeHit> read(
+            GrayLuminanceSource source,
+            PixelMap toSource,
+            String attempt,
+            int rotationDegrees,
+            double confidence,
+            Set<Symbology> symbologies,
+            boolean binary,
+            boolean findAll,
+            EanAddOn addOn,
+            Consumer<List<Runnable>> runAll
+    ) {
+        return read(source, toSource, attempt, rotationDegrees, confidence, symbologies, binary, findAll, addOn, null, runAll);
     }
 
     private static List<BarcodeHit> read(
@@ -136,7 +158,8 @@ public final class BitmapDecoder {
             boolean binary,
             boolean findAll,
             EanAddOn addOn,
-            boolean[] linearRows
+            boolean[] linearRows,
+            Consumer<List<Runnable>> runAll
     ) {
         if ((!wantsOwned(symbologies) && !MatrixReader.wants(symbologies))
                 || source.getWidth() < 2
@@ -144,8 +167,11 @@ public final class BitmapDecoder {
             return List.of();
         }
         BinaryBitmap owned = bitmap(source, binary).restrictRows(linearRows);
+        if (runAll != null) {
+            owned.sideBySide(runAll);
+        }
         List<Supplier<List<BarcodeHit>>> byPriority = List.of(
-                () -> matrixHits(owned, toSource, attempt, rotationDegrees, confidence, symbologies, findAll),
+                () -> matrixHits(owned, toSource, attempt, rotationDegrees, confidence, symbologies, findAll, runAll),
                 () -> pdf417Hits(owned, toSource, attempt, rotationDegrees, confidence, symbologies, findAll),
                 () -> microPdf417Hits(owned, toSource, attempt, rotationDegrees, confidence, symbologies),
                 () -> eanHits(source, owned, toSource, attempt, rotationDegrees, confidence, symbologies, binary, addOn),
@@ -157,6 +183,10 @@ public final class BitmapDecoder {
                 () -> dataBarHits(owned, toSource, attempt, rotationDegrees, confidence, symbologies),
                 () -> otherHits(owned, toSource, attempt, rotationDegrees, confidence, symbologies)
         );
+        if (runAll != null) {
+            return sideBySide(byPriority, source, toSource, attempt, rotationDegrees, confidence, symbologies, binary, findAll,
+                    addOn, linearRows, runAll);
+        }
         // Without findAll one attempt returns one symbol, so the readers after the first hit do not run.
         if (!findAll) {
             for (Supplier<List<BarcodeHit>> reader : byPriority) {
@@ -175,6 +205,82 @@ public final class BitmapDecoder {
     }
 
     /**
+     * {@code byPriority} with its readers of the black matrix (QR and the other matrix codes, PDF417,
+     * MicroPDF417) and its row readers (EAN/UPC to Codabar) side by side, the row readers on a bitmap
+     * of their own, as a bitmap measures its rows for one thread. The row readers stop once the
+     * others read, and the reads are taken in the order of {@code byPriority}, so the attempt returns
+     * what it returns one after another; DataBar and the rest come after, on the attempt's bitmap.
+     */
+    private static List<BarcodeHit> sideBySide(
+            List<Supplier<List<BarcodeHit>>> byPriority,
+            GrayLuminanceSource source,
+            PixelMap toSource,
+            String attempt,
+            int rotationDegrees,
+            double confidence,
+            Set<Symbology> symbologies,
+            boolean binary,
+            boolean findAll,
+            EanAddOn addOn,
+            boolean[] linearRows,
+            Consumer<List<Runnable>> runAll
+    ) {
+        BinaryBitmap rows = bitmap(source, binary).restrictRows(linearRows);
+        List<Supplier<List<BarcodeHit>>> rowReaders = List.of(
+                () -> eanHits(source, rows, toSource, attempt, rotationDegrees, confidence, symbologies, binary, addOn),
+                () -> code39Hits(source, rows, toSource, attempt, rotationDegrees, confidence, symbologies),
+                () -> code93Hits(source, rows, toSource, attempt, rotationDegrees, confidence, symbologies),
+                () -> code128Hits(source, rows, toSource, attempt, rotationDegrees, confidence, symbologies),
+                () -> itfHits(source, rows, toSource, attempt, rotationDegrees, confidence, symbologies),
+                () -> codabarHits(source, rows, toSource, attempt, rotationDegrees, confidence, symbologies)
+        );
+        List<Supplier<List<BarcodeHit>>> matrixReaders = byPriority.subList(0, 3);
+        List<List<BarcodeHit>> matrixRead = new ArrayList<>(3);
+        List<List<BarcodeHit>> rowsRead = new ArrayList<>(rowReaders.size());
+        java.util.concurrent.atomic.AtomicBoolean matrixFound = new java.util.concurrent.atomic.AtomicBoolean();
+        runAll.accept(List.of(
+                () -> {
+                    for (Supplier<List<BarcodeHit>> reader : matrixReaders) {
+                        List<BarcodeHit> hits = reader.get();
+                        matrixRead.add(hits);
+                        if (!findAll && !hits.isEmpty()) {
+                            matrixFound.set(true);
+                            return;
+                        }
+                    }
+                },
+                () -> {
+                    for (Supplier<List<BarcodeHit>> reader : rowReaders) {
+                        if (matrixFound.get()) {
+                            return;
+                        }
+                        List<BarcodeHit> hits = reader.get();
+                        rowsRead.add(hits);
+                        if (!findAll && !hits.isEmpty()) {
+                            return;
+                        }
+                    }
+                }));
+        List<List<BarcodeHit>> read = new ArrayList<>(matrixRead);
+        read.addAll(rowsRead);
+        List<BarcodeHit> all = new ArrayList<>();
+        for (List<BarcodeHit> hits : read) {
+            if (!findAll && !hits.isEmpty()) {
+                return List.of(hits.get(0));
+            }
+            all.addAll(hits);
+        }
+        for (Supplier<List<BarcodeHit>> reader : byPriority.subList(9, byPriority.size())) {
+            List<BarcodeHit> hits = reader.get();
+            if (!findAll && !hits.isEmpty()) {
+                return List.of(hits.get(0));
+            }
+            all.addAll(hits);
+        }
+        return findAll ? all : List.of();
+    }
+
+    /**
      * QR, Data Matrix, Aztec, and Micro QR from this attempt's binarizer. The reader copies the
      * matrix before it inverts it, since the other readers share it. Matrix symbols skip the linear strip.
      */
@@ -185,7 +291,8 @@ public final class BitmapDecoder {
             int rotationDegrees,
             double confidence,
             Set<Symbology> symbologies,
-            boolean findAll
+            boolean findAll,
+            Consumer<List<Runnable>> runAll
     ) {
         if (!MatrixReader.wants(symbologies)) {
             return List.of();
@@ -194,7 +301,7 @@ public final class BitmapDecoder {
         if (matrix == null) {
             return List.of();
         }
-        return MatrixReader.read(matrix, toSource, attempt, rotationDegrees, confidence, symbologies, findAll);
+        return MatrixReader.read(matrix, toSource, attempt, rotationDegrees, confidence, symbologies, findAll, runAll);
     }
 
     private static boolean wantsOwned(Set<Symbology> symbologies) {

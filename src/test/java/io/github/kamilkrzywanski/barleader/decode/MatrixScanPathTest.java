@@ -71,6 +71,48 @@ class MatrixScanPathTest {
         assertTrue(hits.get(0).attempt().startsWith("original"), hits.get(0).attempt());
     }
 
+    /**
+     * The first attempt with its readers side by side returns what it returns one after another,
+     * with and without findAll, on every sample and its inverted copy.
+     */
+    @Test
+    void sideBySideReadsWhatOneAfterAnotherReads() {
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(4);
+        try {
+            java.util.function.Consumer<List<Runnable>> runAll = tasks -> {
+                List<java.util.concurrent.Future<?>> futures = new java.util.ArrayList<>();
+                tasks.forEach(task -> futures.add(pool.submit(task)));
+                for (java.util.concurrent.Future<?> future : futures) {
+                    try {
+                        future.get();
+                    } catch (Exception exception) {
+                        throw new IllegalStateException(exception);
+                    }
+                }
+            };
+            EnumSet<Symbology> every = EnumSet.allOf(Symbology.class);
+            List<Samples.Sample> samples = new java.util.ArrayList<>(Samples.all());
+            samples.add(Samples.qrAndCode128());
+            samples.add(Samples.twoQrCodes());
+            int read = 0;
+            for (Samples.Sample sample : samples) {
+                for (BufferedImage image : List.of(sample.image(), invert(sample.image()))) {
+                    for (boolean findAll : new boolean[]{false, true}) {
+                        List<BarcodeHit> inTurn = BitmapDecoder.read(ZxingLuminance.of(image), PixelMap.IDENTITY, "original-hybrid",
+                                0, 0.92, every, false, findAll, io.github.kamilkrzywanski.barleader.EanAddOn.IGNORE);
+                        List<BarcodeHit> together = BitmapDecoder.read(ZxingLuminance.of(image), PixelMap.IDENTITY, "original-hybrid",
+                                0, 0.92, every, false, findAll, io.github.kamilkrzywanski.barleader.EanAddOn.IGNORE, runAll);
+                        assertEquals(inTurn, together, sample.name() + (findAll ? " findAll" : ""));
+                        read += inTurn.size();
+                    }
+                }
+            }
+            assertTrue(read > samples.size(), "the samples read: " + read);
+        } finally {
+            pool.shutdown();
+        }
+    }
+
     private static void assertMatrix(BitMatrix modules, Symbology symbology, String text) throws Exception {
         EnumSet<Symbology> requested = EnumSet.of(symbology);
         List<BarcodeHit> hits = BitmapDecoder.read(

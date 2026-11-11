@@ -100,4 +100,58 @@ class BinaryBitmapTest {
         assertArrayEquals(new int[]{120, 8, 31, 6, 27}, bitmap.runs(1, false, 4));
         assertArrayEquals(new int[]{4, 93, 95}, bitmap.runs(2, false, 4));
     }
+
+    /**
+     * The hybrid matrix built in bands side by side is the matrix built in one pass: on noise with
+     * flat patches, whose black points come from their neighbours, and on heights and widths that
+     * are and are not multiples of a block.
+     */
+    @Test
+    void hybridMatrixInBandsIsTheSameMatrix() throws Exception {
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(4);
+        try {
+            java.util.function.Consumer<java.util.List<Runnable>> runAll = tasks -> {
+                java.util.List<java.util.concurrent.Future<?>> futures = new java.util.ArrayList<>();
+                tasks.forEach(task -> futures.add(pool.submit(task)));
+                for (java.util.concurrent.Future<?> future : futures) {
+                    try {
+                        future.get();
+                    } catch (Exception exception) {
+                        throw new IllegalStateException(exception);
+                    }
+                }
+            };
+            java.util.Random random = new java.util.Random(9);
+            int[][] sizes = {{40, 40}, {643, 517}, {200, 1003}, {64, 136}, {517, 64}, {1001, 777}};
+            for (int[] size : sizes) {
+                GrayU8 gray = new GrayU8(size[0], size[1]);
+                for (int i = 0; i < gray.data.length; i++) {
+                    gray.data[i] = (byte) random.nextInt(256);
+                }
+                for (int patch = 0; patch < 30; patch++) {
+                    int w = 1 + random.nextInt(size[0] / 2);
+                    int h = 1 + random.nextInt(size[1] / 2);
+                    int x0 = random.nextInt(size[0] - w + 1);
+                    int y0 = random.nextInt(size[1] - h + 1);
+                    int shade = random.nextInt(256);
+                    for (int y = y0; y < y0 + h; y++) {
+                        for (int x = x0; x < x0 + w; x++) {
+                            gray.set(x, y, Math.max(0, Math.min(255, shade + random.nextInt(9) - 4)));
+                        }
+                    }
+                }
+                BlackMatrix plain = BinaryBitmap.hybrid(new GrayLuminanceSource(gray)).getBlackMatrix();
+                BlackMatrix banded = BinaryBitmap.hybrid(new GrayLuminanceSource(gray)).sideBySide(runAll).getBlackMatrix();
+                boolean[] a = new boolean[size[0]];
+                boolean[] b = new boolean[size[0]];
+                for (int y = 0; y < size[1]; y++) {
+                    plain.copyRow(y, a, 0);
+                    banded.copyRow(y, b, 0);
+                    assertArrayEquals(a, b, size[0] + "x" + size[1] + " row " + y);
+                }
+            }
+        } finally {
+            pool.shutdown();
+        }
+    }
 }

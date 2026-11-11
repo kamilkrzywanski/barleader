@@ -71,6 +71,36 @@ class GrayConversionTest {
         assertSame(new BufferedImage(model, raster, false, null), "linear RGB");
     }
 
+    /** Bands of rows converted side by side give the same grays as the image in one band, the odd colour model included. */
+    @Test
+    void bandsSideBySideConvertAsOneBand() throws Exception {
+        java.util.concurrent.ExecutorService pool = java.util.concurrent.Executors.newFixedThreadPool(4);
+        try {
+            java.util.function.Consumer<java.util.List<Runnable>> runAll = tasks -> {
+                java.util.List<java.util.concurrent.Future<?>> futures = new java.util.ArrayList<>();
+                tasks.forEach(task -> futures.add(pool.submit(task)));
+                for (java.util.concurrent.Future<?> future : futures) {
+                    try {
+                        future.get();
+                    } catch (Exception exception) {
+                        throw new IllegalStateException(exception);
+                    }
+                }
+            };
+            Random random = new Random(5);
+            for (int type : TYPES) {
+                BufferedImage image = noisy(type, 53, 611, random);
+                GrayImages.Converted one = GrayImages.convert(image, true);
+                GrayImages.Converted bands = GrayImages.convert(image, true, runAll);
+                assertArrayEquals(one.gray().data, bands.gray().data, "type " + type + " gray");
+                assertArrayEquals(one.zxing().data, bands.zxing().data, "type " + type + " zxing");
+                assertArrayEquals(one.gray().data, GrayImages.convert(image, false, runAll).gray().data, "type " + type + " gray only");
+            }
+        } finally {
+            pool.shutdown();
+        }
+    }
+
     @Test
     void withoutZxingOnlyTheLadderGrayIsBuilt() {
         BufferedImage image = noisy(BufferedImage.TYPE_3BYTE_BGR, 9, 9, new Random(1));
