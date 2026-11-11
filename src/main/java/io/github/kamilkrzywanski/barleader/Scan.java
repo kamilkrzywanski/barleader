@@ -116,7 +116,8 @@ final class Scan {
     private boolean evidence;
     private boolean qrEvidence;
     private boolean aztecEvidence;
-    private boolean pdf417Evidence;
+    /** The PDF417 start and stop patterns of the frame, as x and y ({@link #pdf417Shown}). */
+    private List<int[]> pdf417Guards = List.of();
     /** Where the linear readers of the whole-frame variants read ({@link #linearRegions}). */
     private volatile List<double[]> linearRegions;
     private int segmentLimit;
@@ -2554,15 +2555,15 @@ final class Scan {
             aztecEvidence = trace(gray).aztecCentres() || TraceMatrix.aztecCentres(whole.get());
         }
         if (pdf417) {
-            pdf417Evidence = BitmapDecoder.showsPdf417Guard(whole.get());
+            pdf417Guards = BitmapDecoder.pdf417Guards(whole.get());
         }
     }
 
     /**
      * {@code formats} without what a variant of this frame has no sign of: QR, Micro QR and rMQR
      * without a finder ring, Aztec without a bullseye ({@link #matrixEvidence}), and PDF417
-     * without a start or stop pattern on the frame or when the linear locators found nothing; each
-     * of 31 PDF417 that snapshot variants read had both. Unchanged before the evidence is in.
+     * without a start or stop pattern in a region of the linear locators ({@link #pdf417Shown}).
+     * Unchanged before the evidence is in.
      */
     private Set<Symbology> gated(Set<Symbology> formats) {
         if (!evidence || formats.isEmpty()) {
@@ -2575,10 +2576,31 @@ final class Scan {
         if (!aztecEvidence) {
             out.remove(Symbology.AZTEC);
         }
-        if (!pdf417Evidence || linearRegions != null && linearRegions.isEmpty()) {
+        if (!pdf417Shown()) {
             out.remove(Symbology.PDF_417);
         }
         return out;
+    }
+
+    /**
+     * Whether a PDF417 start or stop pattern of the frame lies in a region of {@link #linearRegions},
+     * or anywhere when there are no regions to go by. Each of the 73 PDF417 that variants read on
+     * the snapshot photos, 31 in fast mode and 42 with findAll, had one there; of 300 KAIST photos
+     * without a barcode, 144 have a pattern and a region, 94 a pattern in a region.
+     */
+    private boolean pdf417Shown() {
+        List<double[]> regions = linearRegions;
+        if (regions == null) {
+            return !pdf417Guards.isEmpty();
+        }
+        for (int[] guard : pdf417Guards) {
+            for (double[] region : regions) {
+                if (guard[0] >= region[0] && guard[0] <= region[2] && guard[1] >= region[1] && guard[1] <= region[3]) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**

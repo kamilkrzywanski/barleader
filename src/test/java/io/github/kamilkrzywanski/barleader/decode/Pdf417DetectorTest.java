@@ -7,9 +7,13 @@ import com.google.zxing.pdf417.encoder.Compaction;
 import org.junit.jupiter.api.Test;
 
 import java.util.EnumMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -55,6 +59,53 @@ class Pdf417DetectorTest {
         assertNull(Pdf417Detector.detect(null, false, true));
         assertNull(Pdf417Detector.detect(new boolean[40][40], false, true));
         assertNull(Pdf417Detector.detect(new boolean[0][], false, true));
+    }
+
+    @Test
+    void placesTheStartPatternOnTheLeftEdgeAndTheStopPatternOnTheRight() throws Exception {
+        boolean[][] image = scale(matrix("PDF417"), 3);
+        int width = image[0].length;
+        int margin = 4 * 3;
+        List<int[]> guards = Pdf417Detector.guards(image);
+        assertFalse(guards.isEmpty());
+        boolean start = false;
+        boolean stop = false;
+        for (int[] guard : guards) {
+            assertTrue(guard[0] >= 0 && guard[0] < width && guard[1] >= 0 && guard[1] < image.length);
+            assertTrue(guard[1] > margin && guard[1] < image.length - margin);
+            start |= guard[0] == margin;
+            stop |= guard[0] == width - 1 - margin;
+        }
+        assertTrue(start);
+        assertTrue(stop);
+    }
+
+    @Test
+    void findsTheSameGuardsDownTheColumnsOfATurnedSymbol() throws Exception {
+        boolean[][] image = scale(matrix("COLUMNS"), 2);
+        boolean[][] turned = new boolean[image[0].length][image.length];
+        for (int y = 0; y < image.length; y++) {
+            for (int x = 0; x < image[0].length; x++) {
+                turned[x][y] = image[y][x];
+            }
+        }
+        Set<String> upright = new HashSet<>();
+        for (int[] guard : Pdf417Detector.guards(image)) {
+            upright.add(guard[1] + "," + guard[0]);
+        }
+        Set<String> across = new HashSet<>();
+        for (int[] guard : Pdf417Detector.guards(turned)) {
+            across.add(guard[0] + "," + guard[1]);
+        }
+        assertFalse(upright.isEmpty());
+        assertEquals(upright, across);
+    }
+
+    @Test
+    void findsNoGuardOnABlankOrARaggedImage() {
+        assertTrue(Pdf417Detector.guards(null).isEmpty());
+        assertTrue(Pdf417Detector.guards(new boolean[40][40]).isEmpty());
+        assertTrue(Pdf417Detector.guards(new boolean[][]{new boolean[4], new boolean[5]}).isEmpty());
     }
 
     private static boolean[][] matrix(String text) throws Exception {

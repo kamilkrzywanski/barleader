@@ -1074,12 +1074,11 @@ public final class BitmapDecoder {
     }
 
     /**
-     * Whether {@code matrix} shows a PDF417 start or stop pattern along its rows or columns, which
-     * the PDF417 detector begins from. Of 31 snapshot photos whose PDF417 a variant of the ladder
-     * read, every original showed one; of 300 KAIST photos without a barcode 169 did.
+     * Where {@code matrix} shows a PDF417 start or stop pattern along its rows or columns, which the
+     * PDF417 detector begins from, as x and y ({@link Pdf417Detector#guards}).
      */
-    public static boolean showsPdf417Guard(BlackMatrix matrix) {
-        return matrix != null && Pdf417Detector.showsGuard(matrix.rows());
+    public static List<int[]> pdf417Guards(BlackMatrix matrix) {
+        return matrix == null ? List.of() : Pdf417Detector.guards(matrix.rows());
     }
 
     private static BinaryBitmap bitmap(GrayLuminanceSource source, boolean binary) {
