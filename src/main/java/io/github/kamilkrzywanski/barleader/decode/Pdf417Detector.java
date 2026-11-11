@@ -124,21 +124,40 @@ final class Pdf417Detector {
     }
 
     /**
-     * Whether {@link #detect} would find a start or a stop pattern to begin from on {@code image},
-     * along its rows or its columns.
+     * Where {@link #detect} would find a start or a stop pattern to begin from on {@code image}: on
+     * every {@link #ROW_STEP}th row and column, read both ways, the first pixel of the first start
+     * and of the first stop pattern, as x and y.
      */
-    static boolean showsGuard(boolean[][] image) {
+    static List<int[]> guards(boolean[][] image) {
+        List<int[]> found = new ArrayList<>();
         if (!rectangular(image)) {
-            return false;
+            return found;
         }
         for (boolean rotate90 : new boolean[]{false, true}) {
-            for (boolean stop : new boolean[]{false, true}) {
-                if (hasGuard(image, rotate90, stop)) {
-                    return true;
+            int end = rotate90 ? image[0].length : image.length;
+            for (int row = ROW_STEP; row < end; row += ROW_STEP) {
+                boolean[] line = rotate90 ? column(image, row) : image[row];
+                for (boolean reversed : new boolean[]{false, true}) {
+                    int[] runs = OneDRow.runs(reversed ? reverse(line) : line);
+                    for (boolean stop : new boolean[]{false, true}) {
+                        View guard = OneDRow.findLeftGuard(View.of(runs), MIN_SYMBOL_WIDTH,
+                                stop ? STOP_REVERSED : START_PATTERN, stop ? STOP_SUM : START_SUM, 2);
+                        if (guard == null) {
+                            continue;
+                        }
+                        int at = 0;
+                        for (int i = 0; i < guard.data(); i++) {
+                            at += runs[i];
+                        }
+                        if (reversed) {
+                            at = line.length - 1 - at;
+                        }
+                        found.add(rotate90 ? new int[]{row, at} : new int[]{at, row});
+                    }
                 }
             }
         }
-        return false;
+        return found;
     }
 
     /**
