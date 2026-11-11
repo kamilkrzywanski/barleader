@@ -109,8 +109,9 @@ final class Scan {
     private StripBands[] stripBands;
     /** The crops of {@link BarSegments}, found once ({@link #segments}). */
     private List<LinearBand.Crop> segments;
-    /** The matrix of the 2D traces ({@link #trace}). */
+    /** The matrix of the 2D traces ({@link #trace}), and the image it is of. */
     private TraceMatrix trace;
+    private GrayU8 traced;
     /** Whether {@link #matrixEvidence} ran, and what it found. */
     private boolean evidence;
     private boolean qrEvidence;
@@ -2039,7 +2040,7 @@ final class Scan {
 
     /** The traces of {@code gray} asked for, added to {@code jobs}, and the matrix they share. */
     private Once<TraceMatrix> traceJobs(List<Callable<Runnable>> jobs, GrayU8 gray) {
-        TraceMatrix cached = trace;
+        TraceMatrix cached = traced == gray ? trace : null;
         Once<TraceMatrix> matrix = new Once<>(() -> cached != null ? cached : TraceMatrix.of(gray));
         traceJob(jobs, Symbology.QR_CODE, () -> qrTrace(gray, matrix.get()));
         traceJob(jobs, Symbology.MICRO_QR, () -> microQrTrace(matrix.get()));
@@ -2064,11 +2065,12 @@ final class Scan {
         });
     }
 
-    /** The matrix the traces built, if one of them did, kept as {@link #trace} keeps it. */
+    /** The matrix of {@code gray}'s traces, if one of them built it, kept for the next trace of {@code gray}. */
     private void keepTrace(GrayU8 gray, Once<TraceMatrix> matrix) {
         TraceMatrix made = matrix.made();
-        if (made != null && trace == null) {
+        if (made != null && traced != gray) {
             trace = made;
+            traced = gray;
         }
     }
 
@@ -2614,10 +2616,15 @@ final class Scan {
         }
     }
 
-    /** The matrix the QR, Micro QR, Aztec and Data Matrix traces of the frame share, built once. */
+    /**
+     * The matrix the QR, Micro QR, Aztec and Data Matrix traces of {@code gray} share, built once:
+     * the frame's, or late in aggressive mode its inverted copy's, which the detectors read in the
+     * one polarity of the matrix.
+     */
     private TraceMatrix trace(GrayU8 gray) {
-        if (trace == null) {
+        if (trace == null || traced != gray) {
             trace = TraceMatrix.of(gray);
+            traced = gray;
         }
         return trace;
     }
