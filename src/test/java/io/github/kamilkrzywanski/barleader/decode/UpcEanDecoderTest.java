@@ -38,6 +38,26 @@ class UpcEanDecoderTest {
         }
     }
 
+    /**
+     * Two strokes of a letter after a margin are a start guard to look at. zxing-cpp's row loop goes
+     * on from the bar after a guard that did not hold; with one guard a row, the symbol behind the
+     * strokes was lost.
+     */
+    @Test
+    void readsASymbolBehindAGuardThatDidNotHold() throws Exception {
+        boolean[] symbol = pixels(new EAN13Writer().encode("400638133393"), 2, 10);
+        boolean[] strokes = ink("0".repeat(24), "110011", "0".repeat(30));
+        boolean[] row = new boolean[strokes.length + symbol.length];
+        System.arraycopy(strokes, 0, row, 0, strokes.length);
+        System.arraycopy(symbol, 0, row, strokes.length, symbol.length);
+        assertEquals(ean13(symbol), UpcEanDecoder.decode(row));
+        assertEquals(strokes.length + 10 * 2, UpcEanDecoder.decodeSpan(row).left());
+
+        boolean[] alone = new boolean[strokes.length + 200];
+        System.arraycopy(strokes, 0, alone, 0, strokes.length);
+        assertNull(UpcEanDecoder.decode(alone));
+    }
+
     @Test
     void agreesWithZxingOnAQuietRow() throws Exception {
         boolean[] row = pixels(new EAN8Writer().encode("5512345"), 2, 10);
