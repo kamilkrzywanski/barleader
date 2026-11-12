@@ -102,7 +102,7 @@ When they are asked for, the opt-in symbologies read all of their samples: 245 o
 
 | | ZXing | fast | aggressive |
 | --- | ---: | ---: | ---: |
-| Labels read | 205 | 381 | 399 |
+| Labels read | 205 | 384 | 399 |
 | Wrong texts | 9 | 6 | 6 |
 
 The aggressive ladder was tuned on these photos, so treat 399 as what the ladder can reach on this kind of image, not as a measurement on unseen data.
@@ -111,10 +111,10 @@ The aggressive ladder was tuned on these photos, so treat 399 as what the ladder
 
 | Set | Labelled | ZXing | fast | aggressive | fast, `findAll` |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| KAIST DEAL test split, EAN-13 photos (wrong texts) | 2000 | 1224 (73) | 1797 (31) | 1806 (33) | 1821 (7) |
+| KAIST DEAL test split, EAN-13 photos (wrong texts) | 2000 | 1224 (73) | 1803 (30) | 1811 (32) | 1826 (7) |
 | KAIST DEAL EAN-8 photos | 90 | 70 | 88 | 89 | 89 |
 | BoofCV QR v3, QR codes found by place | 1232 | 149 | 455 | 466 | 1083 |
-| BarBeR without its Arte-Lab and KAIST parts, codes read | 5176 | 2484 | 3964 | 3999 | 4480 |
+| BarBeR without its Arte-Lab and KAIST parts, codes read | 5176 | 2484 | 3965 | 3999 | 4481 |
 
 On KAIST's 788 photos without a barcode, ZXing reads something on 7, fast on none and aggressive on one. On BarBeR's ParcelBar part, Code 128 on parcels with modules of one to two and a half pixels, fast reads 698 of the 1,142 codes and aggressive 704, where ZXing reads 228; under about 1.3 pixels a module a threshold hardly reads any code, and what fast mode reads there comes from the fit of the gray profile. BarBeR counts codes ZXing knows but Barleader reads only when asked, such as the Interleaved 2 of 5 of its SKUU DSP Lab part. Its annotation tool saved the texts HTML-escaped (`&amp;` for `&` in 154 URLs and XML payloads), broke some lines where the symbol has none, and wrote binary payloads with NUL as `^`, as the hex of their characters in ISO-8859-1 (Aztec, Data Matrix) or in code page 437 (PDF417), or as code page 437 text; the scorer undoes all of it. A real Data Matrix or QR Code that a set leaves unlabelled counts as a wrong text, and without `findAll` it can take the place of the labelled code on the same photo: that is the one code fewer on BarBeR since large and bent Data Matrix symbols are read. Without `findAll` the linear symbols the locators find are read before the variants of the whole frame, so on a package the EAN-13 now comes back before a QR Code beside it: two KAIST photos that returned the QR Code read their labelled EAN-13, and one BoofCV photo returns the UPC-A beside its QR Code.
 
