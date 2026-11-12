@@ -65,6 +65,26 @@ class QrPureTest {
         assertEquals("qr-trace", hits.get(0).attempt(), "the finder search does not read it");
     }
 
+    /** The timing patterns, which a grid has to show before it is decoded, lie along other edges in each quarter turn. */
+    @Test
+    void aTurnedSymbolWithDamagedFindersReads() {
+        String text = "MAILTO:name@myemail.com";
+        BufferedImage image = damaged(text);
+        for (int turn = 1; turn < 4; turn++) {
+            BufferedImage turned = new BufferedImage(image.getHeight(), image.getWidth(), BufferedImage.TYPE_INT_RGB);
+            for (int y = 0; y < image.getHeight(); y++) {
+                for (int x = 0; x < image.getWidth(); x++) {
+                    turned.setRGB(image.getHeight() - 1 - y, x, image.getRGB(x, y));
+                }
+            }
+            image = turned;
+            List<BarcodeHit> hits = new BarcodeReader().read(image, ReadOptions.fast().timeBudgetMillis(Long.MAX_VALUE));
+            assertEquals(1, hits.size(), "turn " + turn);
+            assertEquals(text, hits.get(0).text());
+            assertEquals("qr-trace", hits.get(0).attempt());
+        }
+    }
+
     @Test
     void theCornersAreThoseOfTheSymbol() {
         String text = "https://example.com/pure";
