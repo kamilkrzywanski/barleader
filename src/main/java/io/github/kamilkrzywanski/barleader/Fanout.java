@@ -40,7 +40,11 @@ final class Fanout {
         return new Fanout(executor);
     }
 
-    /** The pool behind {@code new BarcodeReader()}: daemon threads, one fewer than the processors. */
+    /**
+     * The pool behind {@link BarcodeReader#parallel()}: daemon threads, one fewer than the
+     * processors and at most three. A read runs on the pool and its calling thread; past four
+     * threads it returned the Arte-Lab photos a fifth sooner for two thirds more CPU time.
+     */
     static Fanout shared() {
         return SharedPool.FANOUT;
     }
@@ -143,7 +147,7 @@ final class Fanout {
 
     private static final class SharedPool {
         static final ExecutorService EXECUTOR = Executors.newFixedThreadPool(
-                Math.max(1, Runtime.getRuntime().availableProcessors() - 1),
+                Math.max(1, Math.min(3, Runtime.getRuntime().availableProcessors() - 1)),
                 runnable -> {
                     Thread thread = new Thread(runnable, "barleader");
                     thread.setDaemon(true);

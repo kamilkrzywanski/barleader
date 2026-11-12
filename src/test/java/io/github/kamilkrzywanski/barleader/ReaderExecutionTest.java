@@ -15,7 +15,7 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
-/** The parallel, caller-supplied and sequential readers return the same hits, and none of them deadlocks. */
+/** The default, parallel, caller-supplied and sequential readers return the same hits, and none of them deadlocks. */
 class ReaderExecutionTest {
     private static final ReadOptions FAST = ReadOptions.fast().timeBudgetMillis(Long.MAX_VALUE);
     private static final ReadOptions AGGRESSIVE = ReadOptions.aggressive().timeBudgetMillis(Long.MAX_VALUE);
@@ -25,14 +25,16 @@ class ReaderExecutionTest {
     void everyExecutionModeReturnsTheSameHits() throws Exception {
         ExecutorService pool = Executors.newFixedThreadPool(3);
         try {
-            BarcodeReader shared = new BarcodeReader();
+            BarcodeReader shared = BarcodeReader.parallel();
             BarcodeReader own = new BarcodeReader(pool);
             BarcodeReader sequential = BarcodeReader.sequential();
+            BarcodeReader plain = new BarcodeReader();
             for (Sample sample : Samples.all()) {
                 for (ReadOptions options : List.of(FAST, AGGRESSIVE, FAST.findAll(true), AGGRESSIVE.findAll(true))) {
                     List<BarcodeHit> expected = shared.read(sample.image(), options);
                     assertEquals(expected, own.read(sample.image(), options), sample.name());
                     assertEquals(expected, sequential.read(sample.image(), options), sample.name());
+                    assertEquals(expected, plain.read(sample.image(), options), sample.name());
                 }
             }
         } finally {
@@ -71,7 +73,7 @@ class ReaderExecutionTest {
 
     @Test
     void manyCallersShareOneReader() throws Exception {
-        BarcodeReader reader = new BarcodeReader();
+        BarcodeReader reader = BarcodeReader.parallel();
         List<Sample> samples = Samples.all();
         List<List<BarcodeHit>> expected = new ArrayList<>();
         for (Sample sample : samples) {
