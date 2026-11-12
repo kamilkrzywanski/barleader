@@ -64,8 +64,9 @@ final class UpcEanDecoder {
      * One symbol. {@code text} is 13 digits for EAN-13, 8 for EAN-8, and 8 for UPC-E.
      * {@code left} and {@code right} are inclusive pixel columns of the guards.
      * {@code addOn} is the 2- or 5-digit supplement when one was asked for and read, else empty.
+     * {@code later} says that the symbol starts behind a guard of its row that did not hold.
      */
-    record Span(Kind kind, String text, int left, int right, String addOn) {
+    record Span(Kind kind, String text, int left, int right, String addOn, boolean later) {
     }
 
     /** {@code true} is black. Returns the digit string, or null. Add-on digits are ignored. */
@@ -82,7 +83,7 @@ final class UpcEanDecoder {
         if (black == null || black.length == 0) {
             return null;
         }
-        Raw raw = read(OneDRow.runs(black));
+        Raw raw = read(OneDRow.runs(black), true);
         if (raw == null) {
             return null;
         }
@@ -108,7 +109,15 @@ final class UpcEanDecoder {
 
     /** {@link #decodeSpan(boolean[], boolean, boolean)} on the run lengths of a non-empty row. */
     static Span decodeSpan(int[] runs, boolean addOn, boolean require) {
-        Raw raw = read(runs);
+        return decodeSpan(runs, addOn, require, true);
+    }
+
+    /**
+     * {@link #decodeSpan(int[], boolean, boolean)} that without {@code everyGuard} tries only the
+     * first guard of the row, as a thresholded image is read.
+     */
+    static Span decodeSpan(int[] runs, boolean addOn, boolean require, boolean everyGuard) {
+        Raw raw = read(runs, everyGuard);
         if (raw == null) {
             return null;
         }
@@ -121,31 +130,48 @@ final class UpcEanDecoder {
         if (require && extra == null) {
             return null;
         }
-        return new Span(raw.kind, raw.digits, left, right, extra == null ? "" : extra);
+        return new Span(raw.kind, raw.digits, left, right, extra == null ? "" : extra, raw.later);
     }
 
-    private record Raw(Kind kind, String digits, View begin, View end) {
+    private record Raw(Kind kind, String digits, View begin, View end, boolean later) {
     }
 
-    private static Raw read(int[] runs) {
-        View row = OneDRow.View.of(runs);
-        View guard = OneDRow.findLeftGuard(row, MIN_SIZE, START_END, START_END.length, QUIET_LEFT);
-        if (guard == null) {
-            return null;
+    private static Raw read(int[] runs, boolean everyGuard) {
+        View next = OneDRow.View.of(runs);
+        boolean later = false;
+        // ODReader's DoDecode with tryHarder: a failed try goes on from the bar after its guard, so
+        // two strokes of a letter in front of the symbol, a guard to look at, do not cost the row.
+        while (next.size() > 0) {
+            View guard = OneDRow.findLeftGuard(next, MIN_SIZE, START_END, START_END.length, QUIET_LEFT);
+            if (guard == null) {
+                return null;
+            }
+            Raw raw = readAt(guard, later);
+            if (raw != null || !everyGuard) {
+                return raw;
+            }
+            later = true;
+            next = guard;
+            next.shift(2 - (next.data() - 1) % 2);
+            next.extend();
         }
+        return null;
+    }
+
+    private static Raw readAt(View guard, boolean later) {
         String text = ean13(guard);
         if (text != null) {
-            return gtin(text) ? new Raw(Kind.EAN_13, text, guard, guard.sub(56, START_END.length)) : null;
+            return gtin(text) ? new Raw(Kind.EAN_13, text, guard, guard.sub(56, START_END.length), later) : null;
         }
         text = ean8(guard);
         if (text != null) {
-            return gtin(text) ? new Raw(Kind.EAN_8, text, guard, guard.sub(40, START_END.length)) : null;
+            return gtin(text) ? new Raw(Kind.EAN_8, text, guard, guard.sub(40, START_END.length), later) : null;
         }
         text = upce(guard);
         if (text == null || !gtin("0" + expandUpce(text))) {
             return null;
         }
-        return new Raw(Kind.UPC_E, text, guard, guard.sub(27, UPCE_END.length));
+        return new Raw(Kind.UPC_E, text, guard, guard.sub(27, UPCE_END.length), later);
     }
 
     /** Append a checksummed add-on. {@code begin} is the left guard and {@code end} is the right guard. */

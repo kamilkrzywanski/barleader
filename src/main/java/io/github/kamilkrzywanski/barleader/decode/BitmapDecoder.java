@@ -391,47 +391,15 @@ public final class BitmapDecoder {
         if (!wantsEan(symbologies)) {
             return List.of();
         }
-        UpcEanScanner.Found found = UpcEanScanner.read(image, symbologies, addOn);
-        if (found == null || found.text() == null || found.text().isBlank()) {
-            return List.of();
-        }
-        // A short UPC-E or EAN-8 has to repeat on the parallel strip: one row of slanted bars can
-        // checksum as one. A full EAN-13 or UPC-A may instead repeat on any other row of this
-        // bitmap, which is zxing-cpp's two-line rule and keeps small blurred labels whose only
-        // clean rows are far from the strip or right next to the first one. Not on a shrunken
-        // image or a band crop: their neighbouring rows are near copies, and on the Arte-Lab
-        // photos they repeated checksum-valid wrong codes such as 6328925005431.
-        if (!confirmedEan(source, found, symbologies)
-                && !(fullRetail(found.symbology())
-                        && fullResolution(attempt)
-                        && UpcEanScanner.seenOnAnotherRow(image, symbologies, found))) {
-            return List.of();
-        }
-        // The first row that confirms can be a short glitch while the same bitmap's real bars
-        // span a much taller run. Foto(726) hybrid returned 2094297032262 on rows 5 px apart
-        // and the labeled 8023222032262 on a 54 px run of the same crop.
-        if (stripCrop(attempt) && widerRival(image, found.text(), found.scale())) {
-            return List.of();
-        }
-        // On a shrunken frame a blurred EAN can read wrong on a row or two of whole-pixel edges
-        // while its own text reads on more rows of quarter-pixel edges: Foto(763) halved gave
-        // 9037172414831 on 2 rows and the labeled 051122414831 on 12. The text more rows agree
-        // on wins, whichever scale found it.
-        if (!fullResolution(attempt) && outvoted(image, found.text())) {
-            return List.of();
-        }
-        // A binary strip hit on one or two adjacent rows is a threshold glitch.
-        // Four rows, or two rows at least 8 px apart, still required on a 48-row strip.
-        // A taller crop may keep just two intact rows under glare.
-        if (binary && stripCrop(attempt) && !separatedEanRows(image, found.text(), found.scale())) {
+        // A thresholded image is read as every image was, without the late reads of the scan.
+        UpcEanScanner.Found found = UpcEanScanner.read(image, symbologies, addOn,
+                candidate -> eanCounts(source, image, toSource, attempt, symbologies, binary, candidate), !binary);
+        if (found == null) {
             return List.of();
         }
         List<ImagePoint> corners = new ArrayList<>(2);
         addCorner(corners, toSource.toSource(found.left(), found.row()));
         addCorner(corners, toSource.toSource(found.right(), found.row()));
-        if (!plausibleLinear(corners)) {
-            return List.of();
-        }
         return List.of(new BarcodeHit(
                 found.text(),
                 found.symbology(),
@@ -442,6 +410,70 @@ public final class BitmapDecoder {
                 null,
                 found.addOn()
         ));
+    }
+
+    /**
+     * Whether the read of a row of {@link #eanHits} counts. On an image that is not thresholded a
+     * refused read does not end the scan of the whole-pixel rows
+     * ({@link UpcEanScanner#read(BinaryBitmap, Set, EanAddOn, java.util.function.Predicate, boolean)}),
+     * and the rows that confirm a read are read from every guard, as the scan reads them.
+     */
+    private static boolean eanCounts(
+            GrayLuminanceSource source,
+            BinaryBitmap image,
+            PixelMap toSource,
+            String attempt,
+            Set<Symbology> symbologies,
+            boolean binary,
+            UpcEanScanner.Found found
+    ) {
+        if (found.text() == null || found.text().isBlank()) {
+            return false;
+        }
+        // A read the scan could not make before, behind a guard that did not hold or after a refused
+        // row, counts only as an EAN-13 or UPC-A. A short code has few digits to check: with findAll
+        // such reads of bar strips gave a UPC-E out of the left half of an EAN-13 on two BarBeR photos.
+        if (found.late() && !fullRetail(found.symbology())) {
+            return false;
+        }
+        // A short UPC-E or EAN-8 has to repeat on the parallel strip: one row of slanted bars can
+        // checksum as one. A full EAN-13 or UPC-A may instead repeat on any other row of this
+        // bitmap, which is zxing-cpp's two-line rule and keeps small blurred labels whose only
+        // clean rows are far from the strip or right next to the first one. Not on a shrunken
+        // image or a band crop: their neighbouring rows are near copies, and on the Arte-Lab
+        // photos they repeated checksum-valid wrong codes such as 6328925005431.
+        if (!confirmedEan(source, found, symbologies, !binary)
+                && !(fullRetail(found.symbology())
+                        && fullResolution(attempt)
+                        && UpcEanScanner.seenOnAnotherRow(image, symbologies, found, !binary))) {
+            return false;
+        }
+        // The first row that confirms can be a short glitch while the same bitmap's real bars
+        // span a much taller run. Foto(726) hybrid returned 2094297032262 on rows 5 px apart
+        // and the labeled 8023222032262 on a 54 px run of the same crop.
+        if (stripCrop(attempt) && widerRival(image, found.text(), found.scale(), !binary)) {
+            return false;
+        }
+        // On a shrunken frame a blurred EAN can read wrong on a row or two of whole-pixel edges
+        // while its own text reads on more rows of quarter-pixel edges: Foto(763) halved gave
+        // 9037172414831 on 2 rows and the labeled 051122414831 on 12. The text more rows agree
+        // on wins, whichever scale found it. So it does, at any resolution, over a read the scan
+        // could not make before: on KAIST's rec/3343929291218 five whole-pixel rows read
+        // 1343822291218 behind a guard that did not hold, a wrong left half, and 26 rows of
+        // quarter-pixel edges the label.
+        if ((found.late() || !fullResolution(attempt)) && outvoted(image, found.text(), !binary)) {
+            return false;
+        }
+        // A binary strip hit on one or two adjacent rows is a threshold glitch.
+        // Four rows, or two rows at least 8 px apart, still required on a 48-row strip.
+        // A taller crop may keep just two intact rows under glare.
+        if (binary && stripCrop(attempt) && !separatedEanRows(image, found.text(), found.scale())) {
+            return false;
+        }
+        List<ImagePoint> corners = new ArrayList<>(2);
+        addCorner(corners, toSource.toSource(found.left(), found.row()));
+        addCorner(corners, toSource.toSource(found.right(), found.row()));
+        return plausibleLinear(corners);
     }
 
     /**
@@ -841,15 +873,15 @@ public final class BitmapDecoder {
      * A hit that already spans 8 px stays: that is the same separation the binary gate accepts.
      * The rows are read at the {@code scale} of the hit.
      */
-    private static boolean widerRival(BinaryBitmap image, String text, int scale) {
+    private static boolean widerRival(BinaryBitmap image, String text, int scale, boolean everyGuard) {
         Map<String, int[]> support = new HashMap<>();
         for (int y = 0; y < image.getHeight(); y++) {
             int[] runs = image.runs(y, false, scale);
             if (runs == null) {
                 continue;
             }
-            noteEanRow(support, runs, y);
-            noteEanRow(support, image.runs(y, true, scale), y);
+            noteEanRow(support, runs, y, everyGuard);
+            noteEanRow(support, image.runs(y, true, scale), y, everyGuard);
         }
         String hitKey = eanKey(text);
         int[] hit = support.get(hitKey);
@@ -878,8 +910,8 @@ public final class BitmapDecoder {
      * count. On the 16382 snapshot images this dropped only wrong reads from shrunken frames; at
      * full resolution it also dropped labeled ones.
      */
-    private static boolean outvoted(BinaryBitmap image, String text) {
-        Map<String, Integer> best = eanRowSupport(image);
+    private static boolean outvoted(BinaryBitmap image, String text, boolean everyGuard) {
+        Map<String, Integer> best = eanRowSupport(image, everyGuard);
         String key = eanKey(text);
         int own = best.getOrDefault(key, 0);
         for (Map.Entry<String, Integer> entry : best.entrySet()) {
@@ -891,11 +923,11 @@ public final class BitmapDecoder {
     }
 
     /**
-     * The rows of the hybrid bitmap of {@code luma} that read each EAN/UPC text, as {@link #eanRowSupport(BinaryBitmap)}
+     * The rows of the hybrid bitmap of {@code luma} that read each EAN/UPC text, as {@link #eanRowSupport(BinaryBitmap, boolean)}
      * counts them. A UPC-A and its EAN-13 with a leading zero are one key, the 12 digits.
      */
     public static Map<String, Integer> eanRowSupport(GrayU8 luma) {
-        return eanRowSupport(bitmap(new GrayLuminanceSource(luma), false));
+        return eanRowSupport(bitmap(new GrayLuminanceSource(luma), false), true);
     }
 
     /** The key {@link #eanRowSupport(GrayU8)} counts {@code text} under. */
@@ -904,7 +936,7 @@ public final class BitmapDecoder {
     }
 
     /** Rows reading each EAN/UPC text at whole and at quarter pixels, each text's better count. */
-    private static Map<String, Integer> eanRowSupport(BinaryBitmap image) {
+    private static Map<String, Integer> eanRowSupport(BinaryBitmap image, boolean everyGuard) {
         Map<String, Integer> best = new HashMap<>();
         for (int scale : new int[]{1, 4}) {
             Map<String, int[]> support = new HashMap<>();
@@ -913,8 +945,8 @@ public final class BitmapDecoder {
                 if (runs == null) {
                     continue;
                 }
-                noteEanRow(support, runs, y);
-                noteEanRow(support, image.runs(y, true, scale), y);
+                noteEanRow(support, runs, y, everyGuard);
+                noteEanRow(support, image.runs(y, true, scale), y, everyGuard);
             }
             for (Map.Entry<String, int[]> entry : support.entrySet()) {
                 best.merge(entry.getKey(), entry.getValue()[0], Math::max);
@@ -924,8 +956,8 @@ public final class BitmapDecoder {
     }
 
     /** {@code stats} is count, first row, last row. The same row in both directions counts once. */
-    private static void noteEanRow(Map<String, int[]> support, int[] runs, int y) {
-        String span = spanText(runs);
+    private static void noteEanRow(Map<String, int[]> support, int[] runs, int y, boolean everyGuard) {
+        String span = spanText(runs, everyGuard);
         if (span == null) {
             return;
         }
@@ -950,7 +982,7 @@ public final class BitmapDecoder {
         return text;
     }
 
-    /** The rows are read at the {@code scale} of the hit. */
+    /** The rows are read at the {@code scale} of the hit, from their first guard: only a thresholded crop asks. */
     private static boolean separatedEanRows(BinaryBitmap image, String text, int scale) {
         int count = 0;
         int first = -1;
@@ -979,7 +1011,7 @@ public final class BitmapDecoder {
     }
 
     private static boolean eanRowMatches(int[] runs, String text) {
-        String span = spanText(runs);
+        String span = spanText(runs, false);
         if (span == null) {
             return false;
         }
@@ -992,8 +1024,8 @@ public final class BitmapDecoder {
                 && span.regionMatches(1, text, 0, 12);
     }
 
-    private static String spanText(int[] runs) {
-        UpcEanDecoder.Span span = UpcEanDecoder.decodeSpan(runs, false, false);
+    private static String spanText(int[] runs, boolean everyGuard) {
+        UpcEanDecoder.Span span = UpcEanDecoder.decodeSpan(runs, false, false, everyGuard);
         return span == null ? null : span.text();
     }
 
@@ -1014,7 +1046,8 @@ public final class BitmapDecoder {
         return symbology == Symbology.EAN_13 || symbology == Symbology.UPC_A;
     }
 
-    private static boolean confirmedEan(GrayLuminanceSource source, UpcEanScanner.Found found, Set<Symbology> symbologies) {
+    private static boolean confirmedEan(GrayLuminanceSource source, UpcEanScanner.Found found, Set<Symbology> symbologies,
+            boolean late) {
         boolean sawStrip = false;
         for (int shift : new int[]{PARALLEL_SHIFT, -PARALLEL_SHIFT}) {
             GrayLuminanceSource strip = parallelStrip(source, found.row(), found.left(), found.right(), shift, true);
@@ -1022,7 +1055,7 @@ public final class BitmapDecoder {
                 continue;
             }
             sawStrip = true;
-            UpcEanScanner.Found again = UpcEanScanner.read(bitmap(strip, true), symbologies);
+            UpcEanScanner.Found again = UpcEanScanner.read(bitmap(strip, true), symbologies, EanAddOn.IGNORE, read -> true, late);
             if (again != null && found.symbology() == again.symbology() && found.text().equals(again.text())) {
                 return true;
             }
