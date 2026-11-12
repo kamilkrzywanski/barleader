@@ -109,7 +109,8 @@ public final class Main {
         if (formats != null && !formats.isEmpty()) {
             options = options.symbologies(formats);
         }
-        BarcodeReader reader = new BarcodeReader();
+        // One image at a time, as soon as possible: the variants of a read side by side.
+        BarcodeReader reader = BarcodeReader.parallel();
         int status = 0;
         for (Path file : files) {
             BufferedImage image;

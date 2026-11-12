@@ -16,20 +16,23 @@ import java.util.concurrent.Executor;
  * {@link #read} call keeps its own state.
  *
  * <p>A read tries a ladder of image variants until one decodes (see {@link ReadOptions}). Many of
- * those variants do not depend on each other. {@code new BarcodeReader()} runs them in parallel
- * on a pool shared by every reader, {@link #BarcodeReader(Executor)} on an executor of your own,
- * and {@link #sequential()} one after another on the calling thread. All three return the same
- * hits when the read is not cut short by its time budget.
+ * those variants do not depend on each other. {@code new BarcodeReader()} reads them one after
+ * another on the calling thread, which uses the least CPU; {@link #parallel()} runs them side by
+ * side on a small pool shared by every reader, which returns a single image sooner; and
+ * {@link #BarcodeReader(Executor)} on an executor of your own. All three return the same hits when
+ * the read is not cut short by its time budget.
  */
 public final class BarcodeReader {
     private final Fanout fanout;
 
     /**
-     * Runs independent variants of a read in parallel, on a pool of daemon threads shared by all
-     * readers, one thread fewer than the available processors.
+     * Does all the work on the calling thread, one variant after another, and stops at the first
+     * hit. It uses the least CPU per image, which suits a server that reads one image per request
+     * or an application that reads many images at once; {@link #parallel()} returns a single image
+     * sooner.
      */
     public BarcodeReader() {
-        this(Fanout.shared());
+        this(Fanout.sequential());
     }
 
     /**
@@ -46,12 +49,20 @@ public final class BarcodeReader {
     }
 
     /**
-     * A reader that does all the work on the calling thread and stops at the first hit. It uses
-     * the least CPU per image, which suits an application that already reads many images in
-     * parallel. A single image takes longer than with the parallel reader.
+     * A reader that does all the work on the calling thread, the same as {@code new BarcodeReader()}.
      */
     public static BarcodeReader sequential() {
         return new BarcodeReader(Fanout.sequential());
+    }
+
+    /**
+     * A reader that runs the independent variants of a read side by side, on the calling thread
+     * and a pool of daemon threads shared by every such reader, at most three. On the Arte-Lab
+     * photos it returned in about 60% of the time of {@code new BarcodeReader()}, for about one and
+     * a half times its CPU time; more threads saved little more time for much more CPU.
+     */
+    public static BarcodeReader parallel() {
+        return new BarcodeReader(Fanout.shared());
     }
 
     /** {@link #read(BufferedImage, ReadOptions)} with {@link ReadOptions#fast()}. */

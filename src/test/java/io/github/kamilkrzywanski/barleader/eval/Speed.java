@@ -16,9 +16,10 @@ import java.util.stream.Stream;
 
 /**
  * How long a read takes: every image of the given directories read one after another by the
- * default reader, which runs the variants of one read on its pool, in fast and then aggressive mode
- * without a time budget. Prints the wall time and the CPU time of the process per image, after a
- * warm-up pass over the first images.
+ * default reader, on the calling thread, and then by {@link BarcodeReader#parallel()}, which runs
+ * the variants of one read on its pool, each in fast and then aggressive mode without a time
+ * budget. Prints the wall time and the CPU time of the process per image, after a warm-up pass
+ * over the first images.
  *
  * <pre>
  * mvn -q -Pspeed test-compile exec:java -Dexec.args="datasets/artelab-medium-barcode-1d"
@@ -49,7 +50,11 @@ public final class Speed {
                 }
             }
         }
-        BarcodeReader reader = new BarcodeReader();
+        measure(new BarcodeReader(), "one thread", images);
+        measure(BarcodeReader.parallel(), "parallel()", images);
+    }
+
+    private static void measure(BarcodeReader reader, String name, List<BufferedImage> images) {
         for (ReadOptions options : List.of(ReadOptions.fast(), ReadOptions.aggressive())) {
             options = options.timeBudgetMillis(Long.MAX_VALUE);
             for (int i = 0; i < Math.min(WARM_UP, images.size()); i++) {
@@ -63,8 +68,8 @@ public final class Speed {
             }
             double wall = (System.nanoTime() - start) / 1e9 / images.size();
             double used = (cpu() - cpu) / 1e9 / images.size();
-            System.out.printf(Locale.ROOT, "%-10s %d images, %d read: %.3f s a photo, %.3f s of CPU a photo, %d cores%n",
-                    options.mode(), images.size(), read, wall, used, Runtime.getRuntime().availableProcessors());
+            System.out.printf(Locale.ROOT, "%-10s %-10s %d images, %d read: %.3f s a photo, %.3f s of CPU a photo%n",
+                    name, options.mode(), images.size(), read, wall, used);
         }
     }
 
