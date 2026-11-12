@@ -18,7 +18,10 @@ import java.util.List;
  * symbol drawn upright on a plain background needs none of that: the box around its dark pixels,
  * leaving out rows and columns that are dark from edge to edge, is its outline, and a grid of
  * 21, 25, ... modules across it is sampled for each size and each quarter turn until one decodes.
- * The decoder's format and error correction reject every wrong size.
+ * A grid goes to the decoder only when it shows the timing patterns, which the samples leave
+ * alone: the format bits of a random grid pass about every second time, and the error correction
+ * then rejected it at the cost of a whole decode. The decoder's format and error correction
+ * reject every wrong size the timing let through.
  */
 public final class QrPure {
     /** Rows or columns at least this dark are a band across the image, not the symbol. */
@@ -30,12 +33,20 @@ public final class QrPure {
     private QrPure() {
     }
 
+    /** A timing pattern holds when this share of its modules alternate as they should. */
+    private static final double TIMED = 0.8;
+
     /** The symbol, or null. Corners are TL, TR, BR, BL of the outline in {@code gray}. */
     public static QrDetector.Found read(GrayU8 gray) {
+        return read(gray, null);
+    }
+
+    /** {@link #read(GrayU8)} on {@code matrix}, the matrix {@link DmBinarizer} makes of {@code gray}, or null to build it. */
+    static QrDetector.Found read(GrayU8 gray, Bits matrix) {
         if (gray.width < 21 * MIN_MODULE || gray.height < 21 * MIN_MODULE) {
             return null;
         }
-        Bits bits = DmBinarizer.blackMatrix(gray);
+        Bits bits = matrix != null ? matrix : DmBinarizer.blackMatrix(gray);
         int w = bits.width;
         int h = bits.height;
         int[] rowDark = new int[h];
@@ -95,6 +106,9 @@ public final class QrPure {
                     }
                 }
             }
+            if (!timed(grid)) {
+                continue;
+            }
             for (int turn = 0; turn < 4; turn++) {
                 Decoded decoded = QrDecoder.decodeContent(grid);
                 if (decoded != null && !decoded.text().isBlank()) {
@@ -128,6 +142,30 @@ public final class QrPure {
             }
         }
         return all > 0 && 2 * dark > all;
+    }
+
+    /**
+     * Whether {@code grid} shows the two timing patterns of a QR Code in some quarter turn: a row
+     * and a column seven modules from an edge that alternate, dark on the even modules, between the
+     * finders.
+     */
+    static boolean timed(Bits grid) {
+        int n = grid.width;
+        int span = n - 16;
+        boolean row = false;
+        boolean column = false;
+        for (int line : new int[]{6, n - 7}) {
+            int alongRow = 0;
+            int alongColumn = 0;
+            for (int i = 8; i < n - 8; i++) {
+                boolean dark = (i & 1) == 0;
+                alongRow += grid.get(i, line) == dark ? 1 : 0;
+                alongColumn += grid.get(line, i) == dark ? 1 : 0;
+            }
+            row |= alongRow >= TIMED * span;
+            column |= alongColumn >= TIMED * span;
+        }
+        return row && column;
     }
 
     /** {@code grid} turned a quarter clockwise. */

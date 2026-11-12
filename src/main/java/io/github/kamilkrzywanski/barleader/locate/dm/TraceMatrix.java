@@ -112,6 +112,11 @@ public final class TraceMatrix {
     }
 
     /** The QR codes of the trace, as {@link QrDetector#read(GrayU8)} reads them. */
+    /** What {@link QrPure} reads on {@code gray}, whose matrix this is, without building it again. */
+    public QrDetector.Found qrPure(GrayU8 gray) {
+        return QrPure.read(gray, bits);
+    }
+
     public List<QrDetector.Found> qr() {
         // The QR detector sorts the patterns it is given: it gets its own list.
         return width < 3 || height < 3 || !atLeast(3) ? List.of() : QrDetector.read(bits, new ArrayList<>(rings()));

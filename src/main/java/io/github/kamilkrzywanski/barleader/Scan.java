@@ -25,7 +25,6 @@ import io.github.kamilkrzywanski.barleader.locate.dm.AztecDetector;
 import io.github.kamilkrzywanski.barleader.locate.dm.DataMatrixDetector;
 import io.github.kamilkrzywanski.barleader.locate.dm.MicroQrDetector;
 import io.github.kamilkrzywanski.barleader.locate.dm.QrDetector;
-import io.github.kamilkrzywanski.barleader.locate.dm.QrPure;
 import io.github.kamilkrzywanski.barleader.locate.dm.TraceMatrix;
 import io.github.kamilkrzywanski.barleader.preprocess.Thresholds;
 
@@ -86,6 +85,13 @@ final class Scan {
     private static final long BAND_EXTRA_PIXELS = 1_000_000L;
     /** Strips of {@link BarStrips} that {@link Code128Fit} reads, the most energy first. */
     private static final int MAX_FIT_STRIPS = 8;
+    /**
+     * Strips of {@link BarStrips} that {@link EanFit} reads, without findAll and with it. Each of the
+     * 69 snapshot photos {@code ean-fit} read in fast mode read on the first or the second strip;
+     * with findAll, where a photo holds several symbols, two more read on the third and the fourth.
+     */
+    private static final int MAX_EAN_FIT_STRIPS = 2;
+    private static final int MAX_EAN_FIT_STRIPS_ALL = 4;
     /**
      * Strips of {@link BarStrips} that the linear readers read, the most energy first. Each is an
      * attempt: with eight, the thresholded band crops after them lost 20 of BarBeR's codes to the
@@ -1203,6 +1209,9 @@ final class Scan {
 
     /** {@link #tryCode128Fit} on each strip, side by side, a fit beside {@code before} only as {@link #besideHits} lets it. */
     private List<Callable<BarcodeHit>> code128Fits(GrayU8 gray, List<BarcodeHit> before) {
+        if (noCrops(gray)) {
+            return List.of();
+        }
         List<LinearBand.Crop> strips = barStrips(gray);
         List<Callable<BarcodeHit>> fits = new ArrayList<>(strips.size());
         for (int i = 0; i < strips.size(); i++) {
@@ -1265,11 +1274,15 @@ final class Scan {
         fanout.inOrder(eanFits(gray), () -> outOfTime() || !options.findAll() && !hits.isEmpty(), this::added);
     }
 
-    /** {@link #tryEanFit} on each strip, side by side. */
+    /** {@link #tryEanFit} on each of the first strips ({@link #MAX_EAN_FIT_STRIPS}), side by side. */
     private List<Callable<BarcodeHit>> eanFits(GrayU8 gray) {
+        if (noCrops(gray)) {
+            return List.of();
+        }
         List<LinearBand.Crop> strips = barStrips(gray);
-        List<Callable<BarcodeHit>> fits = new ArrayList<>(strips.size());
-        for (int i = 0; i < strips.size(); i++) {
+        int limit = Math.min(strips.size(), options.findAll() ? MAX_EAN_FIT_STRIPS_ALL : MAX_EAN_FIT_STRIPS);
+        List<Callable<BarcodeHit>> fits = new ArrayList<>(limit);
+        for (int i = 0; i < limit; i++) {
             int index = i;
             fits.add(() -> eanFitHit(strips.get(index), EanFit.read(stripBands(index), within())));
         }
@@ -1298,6 +1311,16 @@ final class Scan {
                 0.60,
                 "ean-fit"
         );
+    }
+
+    /**
+     * Whether {@link BarSegments} found no crop on the frame: the fits and the EAN halves then do
+     * not run. Every one of the 448 snapshot photos these steps read in fast mode had a crop, and of
+     * KAIST's 788 photos without a barcode 300 have none. Not with the postal codes, which the
+     * segment voting does not find.
+     */
+    private boolean noCrops(GrayU8 gray) {
+        return !postal() && segments(gray, options.findAll() ? 16 : 8).isEmpty();
     }
 
     private List<LinearBand.Crop> barStrips(GrayU8 gray) {
@@ -1489,6 +1512,9 @@ final class Scan {
      * by side, each at whole and then at quarter pixels.
      */
     private List<Callable<BarcodeHit>> halves(GrayU8 gray) {
+        if (noCrops(gray)) {
+            return List.of();
+        }
         linearRegions(gray);
         List<java.util.function.Supplier<Transformed>> sources = new ArrayList<>();
         sources.add(() -> Geometry.rotateOrthogonal(gray, 0));
@@ -2267,7 +2293,12 @@ final class Scan {
     private Once<TraceMatrix> traceJobs(List<Callable<Runnable>> jobs, GrayU8 gray) {
         TraceMatrix cached = traced == gray ? trace : null;
         Once<TraceMatrix> matrix = new Once<>(() -> cached != null ? cached : TraceMatrix.of(gray));
-        traceJob(jobs, Symbology.QR_CODE, () -> qrTrace(gray, matrix.get(), within()));
+        // The look at the median of the frame is for finder rings that noise broke: it runs when the
+        // frame shows a ring somewhere, or when nothing has looked for one. Of the snapshot photos
+        // that look read, 5 without findAll and 44 with it, all show a ring but one pathological
+        // sample, which then reads from its outline; of 300 KAIST photos without a barcode 21 show one.
+        boolean median = !evidence || qrEvidence;
+        traceJob(jobs, Symbology.QR_CODE, () -> qrTrace(gray, matrix.get(), within(), median));
         traceJob(jobs, Symbology.MICRO_QR, () -> microQrTrace(matrix.get()));
         traceJob(jobs, Symbology.AZTEC, () -> aztecTrace(matrix.get()));
         traceJob(jobs, Symbology.DATA_MATRIX, () -> dataMatrixTrace(matrix.get(), within()));
@@ -2305,20 +2336,21 @@ final class Scan {
         missedOff |= stop() ? OFF_TRACES : 0;
     }
 
-    /** What the QR trace reads on {@code gray}, whose trace matrix is {@code matrix}. */
-    private static List<BarcodeHit> qrTrace(GrayU8 gray, TraceMatrix matrix, java.util.function.Consumer<List<Runnable>> within) {
+    /** What the QR trace reads on {@code gray}, whose trace matrix is {@code matrix}; its second look, at the median of the frame, only with {@code median}. */
+    private static List<BarcodeHit> qrTrace(GrayU8 gray, TraceMatrix matrix, java.util.function.Consumer<List<Runnable>> within,
+            boolean median) {
         List<QrDetector.Found> found;
         if (within == null) {
             found = matrix.qr();
             // Raw local-average misses salt-and-pepper the same way zxing-cpp 3.1.1 does.
             // The median is a second look inside this attempt, not a looser finder threshold.
-            if (found.isEmpty()) {
+            if (found.isEmpty() && median) {
                 found = QrDetector.read(GrayImages.median3(gray));
             }
             // An upright symbol that fills the image reads without its finders, which BoofCV's
             // pathological samples cut, dot and pierce (QrPure).
             if (found.isEmpty()) {
-                QrDetector.Found pure = QrPure.read(gray);
+                QrDetector.Found pure = matrix.qrPure(gray);
                 if (pure != null) {
                     found = List.of(pure);
                 }
@@ -2328,14 +2360,14 @@ final class Scan {
             Object[] looks = new Object[3];
             within.accept(List.of(
                     () -> looks[0] = matrix.qr(),
-                    () -> looks[1] = QrDetector.read(GrayImages.median3(gray)),
-                    () -> looks[2] = QrPure.read(gray)));
+                    () -> looks[1] = median ? QrDetector.read(GrayImages.median3(gray)) : List.of(),
+                    () -> looks[2] = matrix.qrPure(gray)));
             @SuppressWarnings("unchecked")
             List<QrDetector.Found> asItIs = (List<QrDetector.Found>) looks[0];
             @SuppressWarnings("unchecked")
-            List<QrDetector.Found> median = (List<QrDetector.Found>) looks[1];
+            List<QrDetector.Found> smoothed = (List<QrDetector.Found>) looks[1];
             QrDetector.Found pure = (QrDetector.Found) looks[2];
-            found = !asItIs.isEmpty() ? asItIs : !median.isEmpty() ? median : pure != null ? List.of(pure) : List.of();
+            found = !asItIs.isEmpty() ? asItIs : !smoothed.isEmpty() ? smoothed : pure != null ? List.of(pure) : List.of();
         }
         List<BarcodeHit> read = new ArrayList<>(found.size());
         for (QrDetector.Found hit : found) {
