@@ -91,6 +91,32 @@ class ProfileLinesTest {
         assertEquals("scan-line-highpass", any.get(0).profile());
     }
 
+    /**
+     * Dark bars on a blue label: the gray of the blue is that of the bars, so the lines of the
+     * frame show nothing, and its brightest channel shows the bars dark on light.
+     */
+    @Test
+    void theSecondLookReadsTheBrightestChannelWhereTheGrayShowsNoBars() {
+        GrayU8 bars = shaded(3.0, 1.0);
+        GrayU8 gray = new GrayU8(bars.width, bars.height);
+        java.util.Arrays.fill(gray.data, (byte) 20);
+        GrayU8 bright = new GrayU8(bars.width, bars.height);
+        for (int i = 0; i < bars.data.length; i++) {
+            bright.data[i] = (byte) ((bars.data[i] & 255) < 120 ? 20 : 175);
+        }
+        List<ProfileLines.Quad> boxes = List.of(box(gray));
+        assertTrue(ProfileLines.recover(gray, boxes, List.of(0), List.of(0), EnumSet.of(Symbology.EAN_13)).isEmpty());
+        List<ProfileLines.Found> found = ProfileLines.recover(gray, boxes, List.of(0), List.of(0), EnumSet.of(Symbology.EAN_13), () -> bright);
+        assertEquals(1, found.size());
+        assertEquals(TEXT, found.get(0).text());
+        assertEquals("scan-line-colour", found.get(0).profile());
+        assertTrue(found.get(0).support() >= 4);
+        // The channel is asked for only where a box showed the signs of a symbol.
+        assertTrue(ProfileLines.recover(gray, boxes, List.of(), List.of(), EnumSet.of(Symbology.EAN_13), () -> {
+            throw new AssertionError("no strongest box");
+        }).isEmpty());
+    }
+
     @Test
     void theSecondLookReadsOnlyTheLongRetailCodesAndNothingOnAFlatBox() {
         GrayU8 image = shaded(3.0, 1.0);

@@ -71,7 +71,8 @@ public final class ProfileLines {
         DEGHOST_BACK("scan-line-deghost", 1f), SHARPENED("scan-line-sharp", SHARPENED_CONTRAST),
         // The profiles of Medium's second look at a box, for EAN-13 and UPC-A: one sample a pixel where the profile is restored, two where it is restored wide.
         SOFT("scan-line-soft", 1f, 1, 768), HIGHPASS_UNIT("scan-line-highpass", 1.5f, 1, 768), DEGHOST_UNIT("scan-line-deghost", 1f, 1, 768),
-        DEGHOST_BACK_UNIT("scan-line-deghost", 1f, 1, 768), WIDE("scan-line-wide", 2.25f, 2, 1536), BAND("scan-line-band", 2.25f, 2, 1536);
+        DEGHOST_BACK_UNIT("scan-line-deghost", 1f, 1, 768), WIDE("scan-line-wide", 2.25f, 2, 1536), BAND("scan-line-band", 2.25f, 2, 1536),
+        COLOUR("scan-line-colour", 0f, 1.5, 1024);
 
         final String attempt;
         final float contrast;
@@ -110,6 +111,9 @@ public final class ProfileLines {
 
     private final GrayU8 frame;
     private final ProfileSampler sampler = new ProfileSampler();
+    /** The gray of a line whose brightest channel is read, and that channel of the frame. */
+    private final ProfileSampler gray = new ProfileSampler();
+    private GrayU8 bright;
     private int[] scaled = new int[256];
     private float[] reversed = new float[256];
 
@@ -235,6 +239,20 @@ public final class ProfileLines {
      * lines, with pixels that follow it ({@link SourceCheck}).
      */
     public static List<Found> recover(GrayU8 frame, List<Quad> quads, List<Integer> strongest, List<Integer> shaken, Set<Symbology> symbologies) {
+        return recover(frame, quads, strongest, shaken, symbologies, () -> null);
+    }
+
+    /**
+     * {@link #recover(GrayU8, List, List, List, Set)} for a colour frame: {@code brightest} gives
+     * the brightest channel of each of its pixels, or null, and is asked only when a strongest box
+     * is read. On that channel a coloured background turns light under dark bars. The strongest
+     * boxes are read from it after the sharpened profile, as Medium reads its
+     * {@code SourceProfile::Color(2)}: only lines along which the channel differs from the gray
+     * by a changing amount, and a text needs four of them and no lines of the frame across it
+     * that read another text.
+     */
+    public static List<Found> recover(GrayU8 frame, List<Quad> quads, List<Integer> strongest, List<Integer> shaken, Set<Symbology> symbologies,
+            java.util.function.Supplier<GrayU8> brightest) {
         Set<Symbology> full = EnumSet.noneOf(Symbology.class);
         for (Symbology symbology : symbologies) {
             if (symbology == Symbology.EAN_13 || symbology == Symbology.UPC_A) {
@@ -244,14 +262,21 @@ public final class ProfileLines {
         if (full.isEmpty() || quads.isEmpty()) {
             return List.of();
         }
-        return new ProfileLines(frame).recover(quads, strongest, shaken, full);
+        return new ProfileLines(frame).recover(quads, strongest, shaken, full, brightest);
     }
 
-    private List<Found> recover(List<Quad> quads, List<Integer> strongest, List<Integer> shaken, Set<Symbology> full) {
+    private List<Found> recover(List<Quad> quads, List<Integer> strongest, List<Integer> shaken, Set<Symbology> full,
+            java.util.function.Supplier<GrayU8> brightest) {
         List<Integer> two = strongest.subList(0, Math.min(2, strongest.size()));
         List<Found> reads = new ArrayList<>();
         for (int index : two) {
             secondLook(quads, index, Profile.SOFT, full, 3, false, reads);
+        }
+        bright = two.isEmpty() ? null : brightest.get();
+        if (bright != null) {
+            for (int index : two) {
+                secondLook(quads, index, Profile.COLOUR, full, 0, false, reads);
+            }
         }
         List<Found> unshaded = new ArrayList<>();
         for (int index = 0; index < Math.min(8, quads.size()); index++) {
@@ -309,8 +334,8 @@ public final class ProfileLines {
         boolean refined = refine(new int[1], new int[1]) > 0;
         double height = height();
         for (Observation o : observations) {
-            // A restored profile repeats its own errors: four lines, unless three read the text before it was restored.
-            int required = Long.bitCount(o.originalRows) < 3 ? 4 : 3;
+            // A restored profile repeats its own errors: four lines, unless three read the text before it was restored. A channel is no restoration, and needs four.
+            int required = hypothesis == Profile.COLOUR || Long.bitCount(o.originalRows) < 3 ? 4 : 3;
             int confirmation = refined ? Math.max(required, o.dense ? 4 : 3) : required;
             if (o.support < confirmation || refined && (o.last - o.first) * height < o.minSpan || agreement && o.support < 4) {
                 continue;
@@ -350,6 +375,20 @@ public final class ProfileLines {
         double[] b = quad.point(1 + MARGIN, v);
         if (profile == Profile.BAND) {
             sampler.sampleBand(frame, a[0], a[1], b[0], b[1], profile.density, profile.limit, BAND_OFFSET);
+        } else if (profile == Profile.COLOUR) {
+            // The brightest channel tells something only where the line has colour: where it differs from the gray by a changing amount.
+            sampler.sample(bright, a[0], a[1], b[0], b[1], profile.density, profile.limit);
+            gray.sample(frame, a[0], a[1], b[0], b[1], profile.density, profile.limit);
+            float least = Float.POSITIVE_INFINITY;
+            float most = Float.NEGATIVE_INFINITY;
+            for (int i = 0; i < sampler.samples(); i++) {
+                float delta = sampler.values()[i] - gray.values()[i];
+                least = Math.min(least, delta);
+                most = Math.max(most, delta);
+            }
+            if (most - least < 8f) {
+                return;
+            }
         } else if (profile.density > 0 && !twice) {
             sampler.sample(frame, a[0], a[1], b[0], b[1], profile.density, profile.limit);
         } else {

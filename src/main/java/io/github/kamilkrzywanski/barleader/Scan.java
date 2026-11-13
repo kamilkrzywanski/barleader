@@ -1631,6 +1631,24 @@ final class Scan {
         fanout.inOrder(channelReads(), () -> outOfTime() || !options.findAll() && !hits.isEmpty(), this::accept);
     }
 
+    /** The brightest and the darkest channel of the colour image, built the first time a step asks for them; null for a gray image, one with little colour or a frame read in parts. */
+    private GrayU8[] channelPlanes() {
+        BufferedImage image = colour;
+        if (image == null) {
+            return null;
+        }
+        Once<GrayU8[]> planes;
+        synchronized (this) {
+            if (channels == null) {
+                channels = new Once<>(() -> GrayImages.channels(image));
+            }
+            planes = channels;
+        }
+        return planes.get();
+    }
+
+    private Once<GrayU8[]> channels;
+
     /** {@link #tryColourChannels} on the brightest and on the darkest channel, side by side; none for a gray image. */
     private List<Callable<List<BarcodeHit>>> channelReads() {
         BufferedImage image = colour;
@@ -1639,13 +1657,12 @@ final class Scan {
             return List.of();
         }
         boolean all = options.findAll();
-        Once<GrayU8[]> planes = new Once<>(() -> GrayImages.channels(image));
         List<Callable<List<BarcodeHit>>> reads = new ArrayList<>(2);
         for (int plane = 0; plane < 2; plane++) {
             int index = plane;
             String attempt = plane == 0 ? "channel-max" : "channel-min";
             reads.add(() -> {
-                GrayU8[] made = planes.get();
+                GrayU8[] made = channelPlanes();
                 return made == null ? List.of() : readVariant(made[index], PixelMap.IDENTITY, attempt, 0, false, formats, 0.72, all);
             });
         }
@@ -2616,7 +2633,10 @@ final class Scan {
         // Single lines across the boxes of BarSegments, sampled from the frame, come before any crop
         // is read as an image: they cost a few milliseconds a photo and read symbols under shading
         // and low contrast, which the crops and the variants of the whole frame read after them.
-        List<BarcodeHit> lines = postal() ? null : lineReads(gray, segments(gray, options.findAll() ? 16 : 8), lineFormats(formats));
+        List<BarcodeHit> lines = postal() ? null : lineReads(gray, segments(gray, options.findAll() ? 16 : 8), lineFormats(formats), () -> {
+            GrayU8[] planes = channelPlanes();
+            return planes == null ? null : planes[0];
+        });
         BarcodeHit pending = null;
         if (lines != null) {
             attempts++;
@@ -2746,7 +2766,7 @@ final class Scan {
      * The symbols {@link ProfileLines} reads on lines across {@code boxes}, as hits with the two
      * ends of the middle line; null when there is no box or nothing it reads is asked for.
      */
-    private static List<BarcodeHit> lineReads(GrayU8 gray, List<LinearBand.Crop> boxes, Set<Symbology> read) {
+    private static List<BarcodeHit> lineReads(GrayU8 gray, List<LinearBand.Crop> boxes, Set<Symbology> read, java.util.function.Supplier<GrayU8> brightest) {
         if (read.isEmpty() || boxes.isEmpty()) {
             return null;
         }
@@ -2778,7 +2798,7 @@ final class Scan {
             List<RetailEngine.Found> symbols = seen.symbols();
             if (symbols.isEmpty()) {
                 // A second look at the lines of the boxes that showed guards, from restored profiles the frame's pixels must confirm.
-                for (ProfileLines.Found found : ProfileLines.recover(gray, quads, seen.strongest(), seen.signed(), read)) {
+                for (ProfileLines.Found found : ProfileLines.recover(gray, quads, seen.strongest(), seen.signed(), read, brightest)) {
                     if (Math.hypot(found.rightX() - found.leftX(), found.rightY() - found.leftY()) < 30) {
                         continue;
                     }
