@@ -31,6 +31,7 @@ import java.util.Locale;
  *
  * <pre>
  * java -jar barleader.jar [options] image...
+ *   --quick             the shortest ladder: the image as it is and the located linear symbols
  *   --aggressive        the full ladder: small-angle rotations, band search, thresholds
  *   --all               every symbol, not only the first
  *   --formats=A,B,...   only these symbologies, for example QR_CODE,EAN_13
@@ -60,6 +61,7 @@ public final class Main {
             return WriteCommand.run(Arrays.copyOfRange(args, 1, args.length), out, err);
         }
         boolean aggressive = false;
+        boolean quick = false;
         boolean findAll = false;
         boolean json = false;
         EnumSet<Symbology> formats = null;
@@ -71,6 +73,8 @@ public final class Main {
                 return 0;
             } else if (arg.equals("--aggressive")) {
                 aggressive = true;
+            } else if (arg.equals("--quick")) {
+                quick = true;
             } else if (arg.equals("--all")) {
                 findAll = true;
             } else if (arg.equals("--json")) {
@@ -104,7 +108,7 @@ public final class Main {
             usage(err);
             return 2;
         }
-        ReadOptions options = aggressive ? ReadOptions.aggressive() : ReadOptions.fast();
+        ReadOptions options = aggressive ? ReadOptions.aggressive() : quick ? ReadOptions.quick() : ReadOptions.fast();
         options = options.findAll(findAll).eanAddOn(addOn);
         if (formats != null && !formats.isEmpty()) {
             options = options.symbologies(formats);
@@ -139,7 +143,7 @@ public final class Main {
     }
 
     private static void usage(PrintStream stream) {
-        stream.println("Usage: java -jar barleader.jar [--aggressive] [--all] [--formats=QR_CODE,EAN_13,...]"
+        stream.println("Usage: java -jar barleader.jar [--quick|--aggressive] [--all] [--formats=QR_CODE,EAN_13,...]"
                 + " [--addon=read|require] [--json] image...");
         WriteCommand.usage(stream);
         QrCommand.usage(stream);
