@@ -10,6 +10,7 @@ import io.github.kamilkrzywanski.barleader.decode.Code128Fit;
 import io.github.kamilkrzywanski.barleader.decode.EanCrossCheck;
 import io.github.kamilkrzywanski.barleader.decode.EanFit;
 import io.github.kamilkrzywanski.barleader.decode.ProfileLines;
+import io.github.kamilkrzywanski.barleader.retail.RetailEngine;
 import io.github.kamilkrzywanski.barleader.decode.StripBands;
 import io.github.kamilkrzywanski.barleader.decode.EanHalves;
 import io.github.kamilkrzywanski.barleader.image.BinaryBitmap;
@@ -2520,7 +2521,7 @@ final class Scan {
     private static boolean confirmedEarly(BarcodeHit hit, GrayU8 gray) {
         // A read of the lines across a box counts at once when three lines of the frame's own
         // pixels agree on it; one on two lines only ({@link #PAIR}) is checked as a crop's read is.
-        if (hit.attempt().startsWith("scan-line") && !hit.attempt().equals(PAIR)) {
+        if (hit.attempt().startsWith("scan-line") && !hit.attempt().equals(PAIR) || hit.attempt().equals(ROWS)) {
             return true;
         }
         if (hit.symbology() == Symbology.UPC_E) {
@@ -2666,6 +2667,9 @@ final class Scan {
 
     /** The attempt of a read of {@link ProfileLines} that only two lines of its box agree on. */
     private static final String PAIR = "scan-line-2";
+    /** The attempts of a read of {@link RetailEngine}: on three rows or more, and on two. */
+    private static final String ROWS = "scan-rows";
+    private static final String ROW_PAIR = "scan-rows-2";
     /** What {@link ProfileLines} reads: the codes with a check that two lines of a box confirm; the short retail codes have too few digits for that. */
     private static final Set<Symbology> LINE_FORMATS = EnumSet.of(Symbology.EAN_13, Symbology.UPC_A, Symbology.CODE_128);
 
@@ -2712,6 +2716,22 @@ final class Scan {
             hits.add(new BarcodeHit(found.text(), found.symbology(),
                     List.of(new ImagePoint(found.leftX(), found.leftY()), new ImagePoint(found.rightX(), found.rightY())),
                     degrees, 0.70, found.support() == 2 ? PAIR : found.profile()));
+        }
+        // Where no line read: the rows of the retail engine, which follow up a box whose rows show guards.
+        if (hits.isEmpty() && (read.contains(Symbology.EAN_13) || read.contains(Symbology.UPC_A))) {
+            for (RetailEngine.Found found : RetailEngine.read(gray, quads)) {
+                double[] p = found.polygon();
+                ImagePoint left = new ImagePoint((p[0] + p[6]) / 2, (p[1] + p[7]) / 2);
+                ImagePoint right = new ImagePoint((p[2] + p[4]) / 2, (p[3] + p[5]) / 2);
+                boolean upcA = found.text().charAt(0) == '0' && read.contains(Symbology.UPC_A);
+                if (Math.hypot(right.x() - left.x(), right.y() - left.y()) < 30 || !upcA && !read.contains(Symbology.EAN_13)) {
+                    continue;
+                }
+                int turned = boxes.get(found.box()).degrees();
+                int degrees = !found.upsideDown() && turned == 0 ? -1 : Math.floorMod(turned + (found.upsideDown() ? 180 : 0), 360);
+                hits.add(new BarcodeHit(upcA ? found.text().substring(1) : found.text(), upcA ? Symbology.UPC_A : Symbology.EAN_13,
+                        List.of(left, right), degrees, 0.70, found.support() == 2 ? ROW_PAIR : ROWS));
+            }
         }
         return hits;
     }
