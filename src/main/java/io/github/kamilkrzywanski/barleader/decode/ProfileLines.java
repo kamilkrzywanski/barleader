@@ -62,18 +62,32 @@ public final class ProfileLines {
     private static final float SHARPENED_CONTRAST = 6f;
     /** The runs handed to the row decoders are in this many units a sample. */
     private static final int SCALE = 8;
+    /** The lines of a band lie this many pixels to either side of its middle line. */
+    private static final double BAND_OFFSET = 1.5;
     private static final Set<Symbology> RETAIL = EnumSet.of(Symbology.EAN_13, Symbology.UPC_A, Symbology.EAN_8, Symbology.UPC_E);
 
     private enum Profile {
         GRAY("scan-line", 0f), CONTRAST("scan-line-contrast", 2.25f), HIGHPASS("scan-line-highpass", 1.5f), DEGHOST("scan-line-deghost", 1f),
-        DEGHOST_BACK("scan-line-deghost", 1f), SHARPENED("scan-line-sharp", SHARPENED_CONTRAST);
+        DEGHOST_BACK("scan-line-deghost", 1f), SHARPENED("scan-line-sharp", SHARPENED_CONTRAST),
+        // The profiles of Medium's second look at a box, for EAN-13 and UPC-A: one sample a pixel where the profile is restored, two where it is restored wide.
+        SOFT("scan-line-soft", 1f, 1, 768), HIGHPASS_UNIT("scan-line-highpass", 1.5f, 1, 768), DEGHOST_UNIT("scan-line-deghost", 1f, 1, 768),
+        DEGHOST_BACK_UNIT("scan-line-deghost", 1f, 1, 768), WIDE("scan-line-wide", 2.25f, 2, 1536), BAND("scan-line-band", 2.25f, 2, 1536);
 
         final String attempt;
         final float contrast;
+        /** Samples a pixel and the most samples of a line; zero for those of the first look. */
+        final double density;
+        final int limit;
 
         Profile(String attempt, float contrast) {
+            this(attempt, contrast, 0, 0);
+        }
+
+        Profile(String attempt, float contrast, double density, int limit) {
             this.attempt = attempt;
             this.contrast = contrast;
+            this.density = density;
+            this.limit = limit;
         }
     }
 
@@ -207,6 +221,117 @@ public final class ProfileLines {
         return reads;
     }
 
+    /**
+     * A second look at the boxes of a frame nothing read, for EAN-13 and UPC-A, as Medium takes
+     * it after its rows ({@code recover_primary_profiles} of
+     * {@code bindings/rust/src/pipeline.rs}). The boxes of {@code strongest}, at most two, are
+     * read from profiles sharpened a little at a sample a pixel; the first eight boxes without
+     * their slow shading, and when that reads nothing those of {@code shaken}, at most four, with
+     * a ghost of camera shake removed. When all that reads nothing, the strongest are read
+     * sampled twice as finely and sharpened wide, and then from bands of three lines. A text
+     * needs three lines, four unless three read it before the profile was restored, and the
+     * frame's own pixels: no lines across it that read another text, and pixels that follow its
+     * modules unless five lines agree; from the wide and band profiles one text only, on four
+     * lines, with pixels that follow it ({@link SourceCheck}).
+     */
+    public static List<Found> recover(GrayU8 frame, List<Quad> quads, List<Integer> strongest, List<Integer> shaken, Set<Symbology> symbologies) {
+        Set<Symbology> full = EnumSet.noneOf(Symbology.class);
+        for (Symbology symbology : symbologies) {
+            if (symbology == Symbology.EAN_13 || symbology == Symbology.UPC_A) {
+                full.add(symbology);
+            }
+        }
+        if (full.isEmpty() || quads.isEmpty()) {
+            return List.of();
+        }
+        return new ProfileLines(frame).recover(quads, strongest, shaken, full);
+    }
+
+    private List<Found> recover(List<Quad> quads, List<Integer> strongest, List<Integer> shaken, Set<Symbology> full) {
+        List<Integer> two = strongest.subList(0, Math.min(2, strongest.size()));
+        List<Found> reads = new ArrayList<>();
+        for (int index : two) {
+            secondLook(quads, index, Profile.SOFT, full, 3, false, reads);
+        }
+        List<Found> unshaded = new ArrayList<>();
+        for (int index = 0; index < Math.min(8, quads.size()); index++) {
+            secondLook(quads, index, Profile.HIGHPASS_UNIT, full, 5, false, unshaded);
+        }
+        for (Profile hypothesis : new Profile[]{Profile.DEGHOST_UNIT, Profile.DEGHOST_BACK_UNIT}) {
+            if (unshaded.isEmpty()) {
+                for (int index : shaken.subList(0, Math.min(4, shaken.size()))) {
+                    secondLook(quads, index, hypothesis, full, 5, false, unshaded);
+                }
+            }
+        }
+        reads.addAll(unshaded);
+        if (!reads.isEmpty()) {
+            return reads;
+        }
+        for (Profile hypothesis : new Profile[]{Profile.WIDE, Profile.BAND}) {
+            List<Found> found = new ArrayList<>();
+            for (int index : two) {
+                if (hypothesis == Profile.BAND && !bandHasEvidence(quads, index, full)) {
+                    continue;
+                }
+                secondLook(quads, index, hypothesis, full, 4, true, found);
+            }
+            // Two reads there are no independent confirmation of either.
+            if (found.size() == 1) {
+                return found;
+            }
+        }
+        return reads;
+    }
+
+    /** Whether one of seven lines of a band across the box reads anything: the bands are read in full only then. */
+    private boolean bandHasEvidence(List<Quad> quads, int index, Set<Symbology> formats) {
+        start(quads, index, Profile.BAND, formats);
+        for (double v : new double[]{0.08, 0.22, 0.36, 0.5, 0.64, 0.78, 0.92}) {
+            sampleLine(v, false);
+            if (!observations.isEmpty()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Reads box {@code index} from {@code hypothesis} and adds its texts that the frame confirms:
+     * with pixels that follow the text when {@code agreement} asks for it or fewer than
+     * {@code free} lines read it, and never with lines that read another text.
+     */
+    private void secondLook(List<Quad> quads, int index, Profile hypothesis, Set<Symbology> formats, int free, boolean agreement, List<Found> out) {
+        start(quads, index, hypothesis, formats);
+        for (double v : ROWS) {
+            sampleLine(v, false);
+        }
+        boolean refined = refine(new int[1], new int[1]) > 0;
+        double height = height();
+        for (Observation o : observations) {
+            // A restored profile repeats its own errors: four lines, unless three read the text before it was restored.
+            int required = Long.bitCount(o.originalRows) < 3 ? 4 : 3;
+            int confirmation = refined ? Math.max(required, o.dense ? 4 : 3) : required;
+            if (o.support < confirmation || refined && (o.last - o.first) * height < o.minSpan || agreement && o.support < 4) {
+                continue;
+            }
+            double[] p0 = quad.point(o.left, o.first);
+            double[] p1 = quad.point(o.right, o.first);
+            double[] p2 = quad.point(o.right, o.last);
+            double[] p3 = quad.point(o.left, o.last);
+            double[] polygon = o.upsideDown ? new double[]{p2[0], p2[1], p3[0], p3[1], p0[0], p0[1], p1[0], p1[1]}
+                    : new double[]{p0[0], p0[1], p1[0], p1[1], p2[0], p2[1], p3[0], p3[1]};
+            String digits = o.symbology == Symbology.UPC_A ? "0" + o.text : o.text;
+            if ((agreement || o.support < free) && !SourceCheck.agrees(frame, polygon, digits) || SourceCheck.contradicted(frame, polygon, digits)) {
+                continue;
+            }
+            double middle = (o.first + o.last) / 2;
+            double[] left = quad.point(o.left, middle);
+            double[] right = quad.point(o.right, middle);
+            out.add(new Found(box, o.symbology, o.text, left[0], left[1], right[0], right[1], o.upsideDown, o.support, hypothesis.attempt));
+        }
+    }
+
     private void start(List<Quad> quads, int index, Profile hypothesis, Set<Symbology> formats) {
         box = index;
         quad = quads.get(index);
@@ -223,7 +348,13 @@ public final class ProfileLines {
     private void sampleLine(double v, boolean twice) {
         double[] a = quad.point(-MARGIN, v);
         double[] b = quad.point(1 + MARGIN, v);
-        sampler.sample(frame, a[0], a[1], b[0], b[1], twice ? 2 * DENSITY : DENSITY, SAMPLE_LIMIT);
+        if (profile == Profile.BAND) {
+            sampler.sampleBand(frame, a[0], a[1], b[0], b[1], profile.density, profile.limit, BAND_OFFSET);
+        } else if (profile.density > 0 && !twice) {
+            sampler.sample(frame, a[0], a[1], b[0], b[1], profile.density, profile.limit);
+        } else {
+            sampler.sample(frame, a[0], a[1], b[0], b[1], twice ? 2 * DENSITY : DENSITY, SAMPLE_LIMIT);
+        }
         if (!sampler.hasContrast()) {
             return;
         }
@@ -234,9 +365,10 @@ public final class ProfileLines {
                 switch (profile) {
                     // The profile spans 1.3 box lengths and an EAN-13 has 95 modules; a box holds some quiet zone,
                     // so 0.8 of a box module is about one module of the symbol.
-                    case DEGHOST -> sampler.restoreDeghost((float) (0.8 / (1.3 * 95)), 0.5f, false);
-                    case DEGHOST_BACK -> sampler.restoreDeghost((float) (0.8 / (1.3 * 95)), 0.5f, true);
-                    case HIGHPASS -> sampler.restoreHighpass(HIGHPASS_BOXES, profile.contrast);
+                    case DEGHOST, DEGHOST_UNIT -> sampler.restoreDeghost((float) (0.8 / (1.3 * 95)), 0.5f, false);
+                    case DEGHOST_BACK, DEGHOST_BACK_UNIT -> sampler.restoreDeghost((float) (0.8 / (1.3 * 95)), 0.5f, true);
+                    case HIGHPASS, HIGHPASS_UNIT -> sampler.restoreHighpass(HIGHPASS_BOXES, profile.contrast);
+                    case WIDE, BAND -> sampler.restoreContrastWide(1.5f);
                     default -> sampler.restoreContrast(profile.contrast);
                 }
             }
@@ -268,7 +400,8 @@ public final class ProfileLines {
 
     /** A line that read nothing is read once more without its specks; a box no line decoded stops after a few tries. */
     private boolean despeckle() {
-        if (restored || observations.isEmpty() && speckMisses >= SPECK_MISSES) {
+        // The second look reads no line without its specks.
+        if (restored || profile.density > 0 || observations.isEmpty() && speckMisses >= SPECK_MISSES) {
             return false;
         }
         boolean removed = sampler.removeSpecks(SPECK_FRACTION);

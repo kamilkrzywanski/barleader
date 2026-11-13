@@ -43,6 +43,11 @@ final class ProfileSampler {
     private int samples;
     private boolean firstBlack;
 
+    /** The samples of the profile, the first {@link #samples()} of the array. */
+    float[] values() {
+        return values;
+    }
+
     /** How many samples the profile has. */
     int samples() {
         return samples;
@@ -105,6 +110,48 @@ final class ProfileSampler {
         runCount = 0;
     }
 
+    /**
+     * {@link #sample} with each sample the mean of three: the one on the line and those
+     * {@code offset} pixels to either side of it, along the bars. The noise of single pixels
+     * averages out and no bar moves.
+     */
+    void sampleBand(GrayU8 image, double ax, double ay, double bx, double by, double density, int limit, double offset) {
+        sample(image, ax, ay, bx, by, density, limit);
+        double length = Math.hypot(bx - ax, by - ay);
+        if (length <= 0) {
+            return;
+        }
+        double nx = -(by - ay) / length * offset;
+        double ny = (bx - ax) / length * offset;
+        for (int i = 0; i < samples; i++) {
+            double t = i / (double) (samples - 1);
+            double x = ax + (bx - ax) * t;
+            double y = ay + (by - ay) * t;
+            values[i] = (values[i] + pixel(image, x + nx, y + ny) + pixel(image, x - nx, y - ny)) / 3f;
+        }
+    }
+
+    /** The bilinear mean of the four pixels around ({@code x}, {@code y}), white outside the image. */
+    private static float pixel(GrayU8 image, double x, double y) {
+        int maxX = image.width - 1;
+        int maxY = image.height - 1;
+        if (x < 0 || y < 0 || x > maxX || y > maxY) {
+            return 255f;
+        }
+        int x0 = (int) x;
+        int y0 = (int) y;
+        int x1 = Math.min(x0 + 1, maxX);
+        int y1 = Math.min(y0 + 1, maxY);
+        double fx = x - x0;
+        double fy = y - y0;
+        int row0 = image.startIndex + y0 * image.stride;
+        int row1 = image.startIndex + y1 * image.stride;
+        byte[] data = image.data;
+        double top = (data[row0 + x0] & 255) * (1 - fx) + (data[row0 + x1] & 255) * fx;
+        double bottom = (data[row1 + x0] & 255) * (1 - fx) + (data[row1 + x1] & 255) * fx;
+        return (float) (top * (1 - fy) + bottom * fy);
+    }
+
     /** Whether the profile spans eight gray levels: below that no threshold makes a transition. */
     boolean hasContrast() {
         float lo = 255f;
@@ -130,6 +177,20 @@ final class ProfileSampler {
                     + original[Math.min(i + 1, n - 1)] * 4f
                     + original[Math.min(i + 2, n - 1)]) / 16f;
             values[i] = clamp(original[i] + strength * (original[i] - smooth));
+        }
+    }
+
+    /** Unsharp mask with a nine-sample blur, for a profile sampled more finely or blurred more. */
+    void restoreContrastWide(float strength) {
+        float[] original = copyOfValues();
+        int n = samples;
+        float[] weights = {1f, 4f, 11f, 21f, 26f, 21f, 11f, 4f, 1f};
+        for (int i = 0; i < n; i++) {
+            float smooth = 0f;
+            for (int k = 0; k < weights.length; k++) {
+                smooth += original[Math.min(Math.max(i + k - 4, 0), n - 1)] * weights[k];
+            }
+            values[i] = clamp(original[i] + strength * (original[i] - smooth / 100f));
         }
     }
 
