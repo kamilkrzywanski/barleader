@@ -1279,7 +1279,7 @@ final class Scan {
 
     /** {@link #tryEanFit} on each of the first strips ({@link #MAX_EAN_FIT_STRIPS}), side by side. */
     private List<Callable<BarcodeHit>> eanFits(GrayU8 gray) {
-        if (noCrops(gray)) {
+        if (noCrops(gray) || noRetailSign) {
             return List.of();
         }
         List<LinearBand.Crop> strips = barStrips(gray);
@@ -1325,6 +1325,16 @@ final class Scan {
     private boolean noCrops(GrayU8 gray) {
         return !postal() && segments(gray, options.findAll() ? 16 : 8).isEmpty();
     }
+
+    /**
+     * Whether the rows of {@link RetailEngine} read the boxes of the frame and showed no sign of
+     * an EAN-13 or UPC-A: no window of 61 runs with guards that look like guards, and at most one
+     * pair of ends whose guards could be blurred guards. The steps that read only those two
+     * symbologies after a miss, the deblurred crops, the fit of the gray profile and the halves,
+     * then do not run. False where the rows did not read the boxes: when a line read something,
+     * with a supplement asked for, and with the postal codes.
+     */
+    private boolean noRetailSign;
 
     private List<LinearBand.Crop> barStrips(GrayU8 gray) {
         if (barStrips == null) {
@@ -1425,7 +1435,7 @@ final class Scan {
             }
         }
         List<Callable<BarcodeHit>> crops = new ArrayList<>();
-        if (!retail.isEmpty() && segmentCrops) {
+        if (!retail.isEmpty() && segmentCrops && !noRetailSign) {
             for (LinearBand.Crop crop : bandCrops) {
                 crops.add(() -> deblurred(crop, retail, gray));
             }
@@ -1569,7 +1579,7 @@ final class Scan {
      * by side, each at whole and then at quarter pixels.
      */
     private List<Callable<BarcodeHit>> halves(GrayU8 gray) {
-        if (noCrops(gray)) {
+        if (noCrops(gray) || noRetailSign) {
             return List.of();
         }
         linearRegions(gray);
@@ -2616,7 +2626,9 @@ final class Scan {
         // Single lines across the boxes of BarSegments, sampled from the frame, come before any crop
         // is read as an image: they cost a few milliseconds a photo and read symbols under shading
         // and low contrast, which the crops and the variants of the whole frame read after them.
-        List<BarcodeHit> lines = postal() ? null : lineReads(gray, segments(gray, options.findAll() ? 16 : 8), lineFormats(formats));
+        boolean[] bare = new boolean[1];
+        List<BarcodeHit> lines = postal() ? null : lineReads(gray, segments(gray, options.findAll() ? 16 : 8), lineFormats(formats), bare);
+        noRetailSign = bare[0];
         BarcodeHit pending = null;
         if (lines != null) {
             attempts++;
@@ -2746,7 +2758,7 @@ final class Scan {
      * The symbols {@link ProfileLines} reads on lines across {@code boxes}, as hits with the two
      * ends of the middle line; null when there is no box or nothing it reads is asked for.
      */
-    private static List<BarcodeHit> lineReads(GrayU8 gray, List<LinearBand.Crop> boxes, Set<Symbology> read) {
+    private static List<BarcodeHit> lineReads(GrayU8 gray, List<LinearBand.Crop> boxes, Set<Symbology> read, boolean[] bare) {
         if (read.isEmpty() || boxes.isEmpty()) {
             return null;
         }
@@ -2775,6 +2787,8 @@ final class Scan {
         // Where no line read: the rows of the retail engine, which follow up a box whose rows show guards.
         if (hits.isEmpty() && (read.contains(Symbology.EAN_13) || read.contains(Symbology.UPC_A))) {
             RetailEngine.Seen seen = RetailEngine.look(gray, quads);
+            // No window of the rows with guards like those of an EAN, and at most one pair of ends that could be blurred guards.
+            bare[0] = seen.guards() == 0 && seen.blurredGuards() < 2;
             List<RetailEngine.Found> symbols = seen.symbols();
             if (symbols.isEmpty()) {
                 // A second look at the lines of the boxes that showed guards, from restored profiles the frame's pixels must confirm.
