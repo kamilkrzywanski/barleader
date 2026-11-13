@@ -140,4 +140,10 @@ core/src/ean.rs and core/src/ean_blur.rs; retail/RetailEngine.java of
 core/src/candidate_scanner.rs and its sampling, decoding and association
 modules, core/src/multi_scan.rs with its execution and plan modules,
 core/src/invalid_visual.rs, the reconciliation of core/src/frame.rs and the
-retry mask of bindings/rust/src/detail.rs.
+retry mask of bindings/rust/src/detail.rs. The checks of a read against the
+frame in decode/SourceCheck.java are a port of
+bindings/rust/src/pipeline/source_evidence.rs, the sharpened crops in
+retail/CropSharpen.java of restore_with_kernel in
+bindings/rust/src/pipeline/restoration.rs, and the second look at the lines
+of a box in decode/ProfileLines.java follows recover_primary_profiles of
+bindings/rust/src/pipeline.rs and bindings/rust/src/fast_linear/recovery.rs.
