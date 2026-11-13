@@ -123,3 +123,9 @@ under the Apache License 2.0 (the project is MIT OR Apache-2.0).
 
 The deconvolution of blurred crops in Deblur.java is a Java port of
 bindings/rust/src/pipeline/deblur.rs from tapirscan 1.5.0, under the same terms.
+
+The line profiles in decode/ProfileSampler.java are a Java port of
+core/src/fast_profile.rs, the lines read across a box in
+decode/ProfileLines.java follow bindings/rust/src/fast_linear.rs, and the
+retail decoder of their runs in decode/RunEan.java is a port of the EAN part
+of multiformat/src/linear.rs, all from tapirscan 1.5.0, under the same terms.
