@@ -44,7 +44,7 @@ List<BarcodeHit> hits = reader.read(image, options);
 
 | | `ReadOptions.fast()` (default) | `ReadOptions.aggressive()` |
 | --- | --- | --- |
-| Ladder | original image; without `findAll` then single lines across the boxes of linear symbols found at any angle by voting parallel edge segments, each cut into bars between its own peaks and valleys, the patches of parallel bars at the angle of their own gradients and the crops of those boxes, also thresholded for EAN-13, UPC-A, Code 128 and Code 39 and read again padded, turned, lengthened and located again inside large crops; then inversion, contrast stretch, illumination, 90/180/270°, mean and Otsu thresholds, 2× scale, 2× and 4× box downscale of large photos, the thresholds, illumination, contrast stretch and halved frame turned by 90° for vertical linear symbols, and QR/Micro QR/Aztec/Data Matrix finders; after a miss, with `findAll` the patches and crops, then EAN-13 and UPC-A on deblurred copies of those crops, fits of Code 128 with modules of about a pixel to the gray profile of every patch of bars and of EAN-13 and UPC-A to that of the two strongest, and last EAN-13 and UPC-A joined from halves read on different rows, the fits and the halves only on a photo where the edge segments found a crop | every step of the fast ladder, then ±15° and ±30°, a finer search for tilted linear symbols, a pyramid, tiles, Sauvola, Gaussian threshold, scales, morphology and quadrilateral candidates |
+| Ladder | original image; without `findAll` then single lines across the boxes of linear symbols found at any angle by voting parallel edge segments, each cut into bars between its own peaks and valleys, where they read nothing rows of those boxes read for EAN-13 and UPC-A with more rows where the first show the guards of a symbol, the patches of parallel bars at the angle of their own gradients and the crops of those boxes, also thresholded for EAN-13, UPC-A, Code 128 and Code 39 and read again padded, turned, lengthened and located again inside large crops; then inversion, contrast stretch, illumination, 90/180/270°, mean and Otsu thresholds, 2× scale, 2× and 4× box downscale of large photos, the thresholds, illumination, contrast stretch and halved frame turned by 90° for vertical linear symbols, and QR/Micro QR/Aztec/Data Matrix finders; after a miss, with `findAll` the patches and crops, then EAN-13 and UPC-A on deblurred copies of those crops, fits of Code 128 with modules of about a pixel to the gray profile of every patch of bars and of EAN-13 and UPC-A to that of the two strongest, and last EAN-13 and UPC-A joined from halves read on different rows, the fits and the halves only on a photo where the edge segments found a crop | every step of the fast ladder, then ±15° and ±30°, a finer search for tilted linear symbols, a pyramid, tiles, Sauvola, Gaussian threshold, scales, morphology and quadrilateral candidates |
 | Budget | 2.5 s, 40 attempts | 8 s, 100 attempts besides those the last steps of the fast ladder take |
 
 A clean symbol is read on the first attempt in either mode, so `aggressive()` only costs more on images that need it.
@@ -102,7 +102,7 @@ When they are asked for, the opt-in symbologies read all of their samples: 245 o
 
 | | ZXing | fast | aggressive |
 | --- | ---: | ---: | ---: |
-| Labels read | 205 | 386 | 399 |
+| Labels read | 205 | 388 | 399 |
 | Wrong texts | 9 | 6 | 6 |
 
 The aggressive ladder was tuned on these photos, so treat 399 as what the ladder can reach on this kind of image, not as a measurement on unseen data.
@@ -111,10 +111,10 @@ The aggressive ladder was tuned on these photos, so treat 399 as what the ladder
 
 | Set | Labelled | ZXing | fast | aggressive | fast, `findAll` |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| KAIST DEAL test split, EAN-13 photos (wrong texts) | 2000 | 1224 (73) | 1812 (29) | 1819 (30) | 1834 (6) |
+| KAIST DEAL test split, EAN-13 photos (wrong texts) | 2000 | 1224 (73) | 1821 (29) | 1827 (30) | 1841 (6) |
 | KAIST DEAL EAN-8 photos | 90 | 70 | 88 | 89 | 89 |
 | BoofCV QR v3, QR codes found by place | 1232 | 149 | 455 | 466 | 1083 |
-| BarBeR without its Arte-Lab and KAIST parts, codes read | 5176 | 2484 | 3985 | 4011 | 4509 |
+| BarBeR without its Arte-Lab and KAIST parts, codes read | 5176 | 2484 | 3995 | 4019 | 4514 |
 
 On KAIST's 788 photos without a barcode, ZXing reads something on 7, fast on none and aggressive on one. On BarBeR's ParcelBar part, Code 128 on parcels with modules of one to two and a half pixels, fast reads 698 of the 1,142 codes and aggressive 703, where ZXing reads 228; under about 1.3 pixels a module a threshold hardly reads any code, and what fast mode reads there comes from the fit of the gray profile. BarBeR counts codes ZXing knows but Barleader reads only when asked, such as the Interleaved 2 of 5 of its SKUU DSP Lab part. Its annotation tool saved the texts HTML-escaped (`&amp;` for `&` in 154 URLs and XML payloads), broke some lines where the symbol has none, and wrote binary payloads with NUL as `^`, as the hex of their characters in ISO-8859-1 (Aztec, Data Matrix) or in code page 437 (PDF417), or as code page 437 text; the scorer undoes all of it. A real Data Matrix or QR Code that a set leaves unlabelled counts as a wrong text, and without `findAll` it can take the place of the labelled code on the same photo: that is the one code fewer on BarBeR since large and bent Data Matrix symbols are read. Without `findAll` the linear symbols the locators find are read before the variants of the whole frame, so on a package the EAN-13 now comes back before a QR Code beside it: two KAIST photos that returned the QR Code read their labelled EAN-13, and one BoofCV photo returns the UPC-A beside its QR Code.
 
@@ -214,6 +214,7 @@ This needs JDK 17 or later and Maven 3.9. CI builds on JDK 17, 21 and 25: [.gith
 | `….encode` | The other writers: the linear symbologies, GS1 element strings, and the Data Matrix, PDF417 and Aztec encoders. |
 | `….preprocess` | Thresholds and morphology: Otsu, local mean, Gaussian, Sauvola, erosion, dilation. |
 | `….decode` | Linear readers, the lines read across a located symbol, PDF417, MicroPDF417, MaxiCode, DataBar, the fits of Code 128 and EAN to the gray profile, text decoding. |
+| `….retail` | The rows of a located symbol read for EAN-13 and UPC-A: run widths and module darkness cut and read several ways, rows that agree linked where the frame shows the bars unbroken. |
 | `….locate` | QR, Micro QR, rMQR, Aztec and Data Matrix detectors and bit decoders. |
 | `….cli` | The command line. |
 
