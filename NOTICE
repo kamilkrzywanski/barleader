@@ -129,3 +129,15 @@ core/src/fast_profile.rs, the lines read across a box in
 decode/ProfileLines.java follow bindings/rust/src/fast_linear.rs, and the
 retail decoder of their runs in decode/RunEan.java is a port of the EAN part
 of multiformat/src/linear.rs, all from tapirscan 1.5.0, under the same terms.
+
+The row engine in the retail package is a Java port of the primary pass of
+tapirscan 1.5.0's Medium mode, under the same terms: retail/EanRuns.java of
+core/src/run_ean.rs; retail/RunWindows.java of core/src/multi_profile.rs and
+the merge of core/src/transition.rs; retail/SignalModels.java of
+core/src/local_signal.rs, core/src/extrema_runs.rs and the cleanup of
+core/src/transition.rs; retail/EanModules.java of core/src/profile.rs,
+core/src/ean.rs and core/src/ean_blur.rs; retail/RetailEngine.java of
+core/src/candidate_scanner.rs and its sampling, decoding and association
+modules, core/src/multi_scan.rs with its execution and plan modules,
+core/src/invalid_visual.rs, the reconciliation of core/src/frame.rs and the
+retry mask of bindings/rust/src/detail.rs.
