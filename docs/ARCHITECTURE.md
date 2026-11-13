@@ -39,6 +39,8 @@ BarcodeReader.read(image, ReadOptions)
    the linear crops of `BarSegments` and their rescue; an EAN-13 or UPC-A of a
    crop that no line of the frame beside it repeats, and a UPC-E, wait for 3 and 4
    and count only when those read nothing
+      ↓ QUICK ends here, with findAll after reading the candidates of 2 as well;
+        a read that waits counts
 3. the cheap ladder, computed together, accepted in order
    inverted-luma, pad-4, contrast-stretch, illumination,
    rotate-90/180/270 (linear and PDF417 only), adaptive-mean, otsu,
