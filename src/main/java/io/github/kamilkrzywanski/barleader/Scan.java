@@ -9,6 +9,7 @@ import io.github.kamilkrzywanski.barleader.decode.BitmapDecoder;
 import io.github.kamilkrzywanski.barleader.decode.Code128Fit;
 import io.github.kamilkrzywanski.barleader.decode.EanCrossCheck;
 import io.github.kamilkrzywanski.barleader.decode.EanFit;
+import io.github.kamilkrzywanski.barleader.decode.ProfileLines;
 import io.github.kamilkrzywanski.barleader.decode.StripBands;
 import io.github.kamilkrzywanski.barleader.decode.EanHalves;
 import io.github.kamilkrzywanski.barleader.image.BinaryBitmap;
@@ -2517,6 +2518,11 @@ final class Scan {
      * had one. A UPC-E always waits.
      */
     private static boolean confirmedEarly(BarcodeHit hit, GrayU8 gray) {
+        // A read of the lines across a box counts at once when three lines of the frame's own
+        // pixels agree on it; one on two lines only ({@link #PAIR}) is checked as a crop's read is.
+        if (hit.attempt().startsWith("scan-line") && !hit.attempt().equals(PAIR)) {
+            return true;
+        }
         if (hit.symbology() == Symbology.UPC_E) {
             return false;
         }
@@ -2551,6 +2557,31 @@ final class Scan {
         if (formats.isEmpty() || stop()) {
             return;
         }
+        // Single lines across the boxes of BarSegments, sampled from the frame, come before any crop
+        // is read as an image: they cost a few milliseconds a photo and read symbols under shading
+        // and low contrast, which the crops and the variants of the whole frame read after them.
+        List<BarcodeHit> lines = postal() ? null : lineReads(gray, segments(gray, options.findAll() ? 16 : 8), lineFormats(formats));
+        BarcodeHit pending = null;
+        if (lines != null) {
+            attempts++;
+            if (options.findAll()) {
+                // A read on two lines only counts with findAll when the frame confirms it.
+                lines.removeIf(hit -> !confirmedEarly(hit, gray));
+                acceptBand(lines);
+            } else if (!lines.isEmpty()) {
+                // Without findAll a read returns one symbol: the first of the strongest box. One
+                // that the frame does not confirm waits for the crops, and counts when they read nothing.
+                if (confirmedEarly(lines.get(0), gray)) {
+                    acceptBand(lines.subList(0, 1));
+                } else {
+                    pending = lines.get(0);
+                }
+            }
+            if (stop()) {
+                return;
+            }
+        }
+        BarcodeHit waiting = pending;
         List<LinearBand.Crop> strips = barStrips(gray);
         List<Callable<List<BarcodeHit>>> stripReads = new ArrayList<>();
         for (LinearBand.Crop strip : strips.subList(0, Math.min(MAX_READ_STRIPS, strips.size()))) {
@@ -2563,6 +2594,7 @@ final class Scan {
             }
         });
         if (stop()) {
+            takeWaiting(waiting);
             return;
         }
         // The bars of a postal code stand on one track of unequal height, which gives segment
@@ -2622,6 +2654,66 @@ final class Scan {
             }
             candidatesOff = candidatesOff(thresholds, longer, all);
         });
+        takeWaiting(waiting);
+    }
+
+    /** The read of the lines that waited for the crops ({@link #readCandidates}), when they read nothing. */
+    private void takeWaiting(BarcodeHit waiting) {
+        if (waiting != null && hits.isEmpty()) {
+            acceptBand(List.of(waiting));
+        }
+    }
+
+    /** The attempt of a read of {@link ProfileLines} that only two lines of its box agree on. */
+    private static final String PAIR = "scan-line-2";
+    /** What {@link ProfileLines} reads: the codes with a check that two lines of a box confirm; the short retail codes have too few digits for that. */
+    private static final Set<Symbology> LINE_FORMATS = EnumSet.of(Symbology.EAN_13, Symbology.UPC_A, Symbology.CODE_128);
+
+    /**
+     * Those of {@code formats} the lines read. They read no supplement, so EAN-13 and UPC-A are
+     * left to the rows of the crops when one is asked for or required.
+     */
+    private Set<Symbology> lineFormats(Set<Symbology> formats) {
+        Set<Symbology> read = EnumSet.copyOf(formats);
+        read.retainAll(LINE_FORMATS);
+        if (options.eanAddOn() != EanAddOn.IGNORE) {
+            read.remove(Symbology.EAN_13);
+            read.remove(Symbology.UPC_A);
+        }
+        return read;
+    }
+
+    /**
+     * The symbols {@link ProfileLines} reads on lines across {@code boxes}, as hits with the two
+     * ends of the middle line; null when there is no box or nothing it reads is asked for.
+     */
+    private static List<BarcodeHit> lineReads(GrayU8 gray, List<LinearBand.Crop> boxes, Set<Symbology> read) {
+        if (read.isEmpty() || boxes.isEmpty()) {
+            return null;
+        }
+        List<ProfileLines.Quad> quads = new ArrayList<>(boxes.size());
+        for (LinearBand.Crop box : boxes) {
+            int w = box.image().width;
+            int h = box.image().height;
+            ImagePoint a = box.toSource().toSource(0, 0);
+            ImagePoint b = box.toSource().toSource(w, 0);
+            ImagePoint c = box.toSource().toSource(w, h);
+            ImagePoint d = box.toSource().toSource(0, h);
+            quads.add(new ProfileLines.Quad(a.x(), a.y(), b.x(), b.y(), c.x(), c.y(), d.x(), d.y()));
+        }
+        List<BarcodeHit> hits = new ArrayList<>();
+        for (ProfileLines.Found found : ProfileLines.read(gray, quads, read)) {
+            // As for every linear read: two points at least 30 pixels apart.
+            if (Math.hypot(found.rightX() - found.leftX(), found.rightY() - found.leftY()) < 30) {
+                continue;
+            }
+            int turned = boxes.get(found.box()).degrees();
+            int degrees = !found.upsideDown() && turned == 0 ? -1 : Math.floorMod(turned + (found.upsideDown() ? 180 : 0), 360);
+            hits.add(new BarcodeHit(found.text(), found.symbology(),
+                    List.of(new ImagePoint(found.leftX(), found.leftY()), new ImagePoint(found.rightX(), found.rightY())),
+                    degrees, 0.70, found.support() == 2 ? PAIR : found.profile()));
+        }
+        return hits;
     }
 
     /**

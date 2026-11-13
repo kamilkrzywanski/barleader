@@ -45,7 +45,8 @@ class LinearBandTest {
         BarcodeHit hit = hits.get(0);
         assertEquals(GTIN, hit.text());
         assertEquals(Symbology.EAN_13, hit.symbology());
-        assertTrue(hit.attempt().startsWith("linear-band"), hit.attempt());
+        // From the box of the band: the lines across it, or its crop.
+        assertTrue(hit.attempt().startsWith("scan-line") || hit.attempt().startsWith("linear-band"), hit.attempt());
         assertTrue(hit.orientationDegrees() >= 0, "orientation " + hit.orientationDegrees());
         assertTrue(hit.corners().size() >= 2, hit.toString());
         double centerX = canvas.getWidth() / 2.0;
