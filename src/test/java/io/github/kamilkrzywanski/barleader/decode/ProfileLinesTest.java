@@ -72,6 +72,59 @@ class ProfileLinesTest {
         assertTrue(ProfileLines.read(image, List.of(), EnumSet.of(Symbology.EAN_13)).isEmpty());
     }
 
+    /**
+     * The second look at a box: the strongest boxes from a profile sharpened a little, and any of
+     * the first eight without their slow shading. Each text comes with the lines that read it.
+     */
+    @Test
+    void theSecondLookReadsTheStrongestBoxesAndThenAnyBox() {
+        GrayU8 image = shaded(3.0, 0.6);
+        List<ProfileLines.Quad> boxes = List.of(box(image));
+        List<ProfileLines.Found> strongest = ProfileLines.recover(image, boxes, List.of(0), List.of(0), EnumSet.of(Symbology.EAN_13));
+        assertEquals(TEXT, strongest.get(0).text());
+        assertEquals("scan-line-soft", strongest.get(0).profile());
+        assertTrue(strongest.get(0).support() >= 3);
+        // Without a box that showed guards only the profile without its shading is read.
+        List<ProfileLines.Found> any = ProfileLines.recover(image, boxes, List.of(), List.of(), EnumSet.of(Symbology.EAN_13));
+        assertEquals(1, any.size());
+        assertEquals(TEXT, any.get(0).text());
+        assertEquals("scan-line-highpass", any.get(0).profile());
+    }
+
+    @Test
+    void theSecondLookReadsOnlyTheLongRetailCodesAndNothingOnAFlatBox() {
+        GrayU8 image = shaded(3.0, 1.0);
+        List<ProfileLines.Quad> boxes = List.of(box(image));
+        assertTrue(ProfileLines.recover(image, boxes, List.of(0), List.of(0), EnumSet.of(Symbology.CODE_128, Symbology.EAN_8)).isEmpty());
+        assertTrue(ProfileLines.recover(image, List.of(), List.of(), List.of(), EnumSet.of(Symbology.EAN_13)).isEmpty());
+        GrayU8 flat = new GrayU8(300, 120);
+        java.util.Arrays.fill(flat.data, (byte) 180);
+        assertTrue(ProfileLines.recover(flat, List.of(box(flat)), List.of(0), List.of(0), EnumSet.of(Symbology.EAN_13)).isEmpty());
+    }
+
+    /** A band is the mean of three lines: a row of noise beside the line moves each sample by a third of it. */
+    @Test
+    void aBandAveragesTheLinesBesideItAndTheWideMaskSharpensAnEdge() {
+        GrayU8 image = new GrayU8(60, 9);
+        for (int y = 0; y < image.height; y++) {
+            for (int x = 0; x < image.width; x++) {
+                image.data[y * image.stride + x] = (byte) (y == 3 ? 40 : x < 30 ? 100 : 160);
+            }
+        }
+        ProfileSampler line = new ProfileSampler();
+        line.sample(image, 0, 4, 59, 4, 1, 4096);
+        ProfileSampler band = new ProfileSampler();
+        band.sampleBand(image, 0, 4, 59, 4, 1, 4096, 1);
+        // Row 3 is dark, rows 4 and 5 show the step.
+        assertEquals(100, line.values()[10], 0.01f);
+        assertEquals((100 + 40 + 100) / 3f, band.values()[10], 0.01f);
+        assertEquals((160 + 40 + 160) / 3f, band.values()[50], 0.01f);
+        line.restoreContrastWide(1.5f);
+        assertEquals(100, line.values()[10], 0.01f);
+        // Two samples to either side of the step, which lies between samples 29 and 30.
+        assertTrue(line.values()[27] < 100 && line.values()[32] > 160, line.values()[27] + " and " + line.values()[32]);
+    }
+
     /** The profile of a row of an evenly lit symbol: each of the three cuts finds its bars, and the runs add up to the line. */
     @Test
     void theRunsOfALineCoverItFromEndToEnd() {
