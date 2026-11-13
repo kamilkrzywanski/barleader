@@ -34,8 +34,9 @@ import java.util.Map;
  *
  * <p>The boxes of this library have their bars across the first side, so the rows along the other
  * side, which that engine reads as well, are counted against the same limits and not read. Not
- * ported yet: the reuse of stretches already read and the reader of tiny symbols, and of what
- * Medium does after its primary pass everything but the other shapes of a box ({@link #look}).
+ * ported: the reuse of stretches already read and the reader of tiny symbols. Of what Medium
+ * does after its primary pass, the other shapes of a box are read here ({@link #look}), and the
+ * sharpened crops ({@link #restored}).
  */
 public final class RetailEngine {
     /**
@@ -119,6 +120,8 @@ public final class RetailEngine {
     private static final int MAX_BOXES = 64;
     /** The most other shapes of boxes read after the boxes themselves. */
     private static final int MAX_ALTERNATIVES = 24;
+    /** The most pixels of crops sharpened for one frame with the narrow blur, and of the one crop with the wide blur. */
+    private static final int RESTORED_PIXELS = 131_072;
 
     private final GrayU8 frame;
     private Candidate current;
@@ -136,6 +139,8 @@ public final class RetailEngine {
     private RunWindows.Read softRead;
     /** For each box of the last run, whether its rows showed the signs of a symbol. */
     private final List<Boolean> evidence = new ArrayList<>();
+    private final List<Integer> boxGuards = new ArrayList<>();
+    private final List<Integer> boxBlurred = new ArrayList<>();
     private float[] shifted = new float[FIXED_SAMPLES];
     private final RunWindows.Runs shiftedRuns = new RunWindows.Runs();
     private final SignalModels.Local localRuns = new SignalModels.Local();
@@ -149,7 +154,29 @@ public final class RetailEngine {
      * runs had guards that look like guards, and how many pairs of ends had guards that could be
      * blurred guards. A frame with neither shows the engine no sign of an EAN-13.
      */
-    public record Seen(List<Found> symbols, int guards, int blurredGuards) {
+    public record Seen(List<Found> symbols, int guards, int blurredGuards, List<Integer> boxGuards, List<Integer> boxBlurredGuards) {
+        /** The boxes to look at again first: those whose rows showed guards, or four times guards that could be blurred, most guards first. */
+        public List<Integer> strongest() {
+            List<Integer> boxes = new ArrayList<>();
+            for (int box = 0; box < boxGuards.size(); box++) {
+                if (boxGuards.get(box) > 0 || boxBlurredGuards.get(box) >= 4) {
+                    boxes.add(box);
+                }
+            }
+            boxes.sort((a, b) -> boxGuards.get(b) - boxGuards.get(a));
+            return boxes;
+        }
+
+        /** The boxes whose rows showed any sign of a symbol: guards, or twice guards that could be blurred. */
+        public List<Integer> signed() {
+            List<Integer> boxes = new ArrayList<>();
+            for (int box = 0; box < boxGuards.size(); box++) {
+                if (boxGuards.get(box) > 0 || boxBlurredGuards.get(box) >= 2) {
+                    boxes.add(box);
+                }
+            }
+            return boxes;
+        }
     }
 
     /** The EAN-13 symbols on rows across {@code quads}, the boxes of a locator in frame pixels. */
@@ -172,6 +199,8 @@ public final class RetailEngine {
     public static Seen look(GrayU8 frame, List<Quad> quads) {
         RetailEngine engine = new RetailEngine(frame);
         List<Found> symbols = engine.run(quads);
+        List<Integer> boxGuards = new ArrayList<>(engine.boxGuards);
+        List<Integer> boxBlurred = new ArrayList<>(engine.boxBlurred);
         if (symbols.isEmpty()) {
             List<Quad> shapes = new ArrayList<>();
             List<Integer> origin = new ArrayList<>();
@@ -198,13 +227,77 @@ public final class RetailEngine {
         // Bars doubled by camera shake are cut wrongly the same way on every row, and read as another
         // text at a cost near the limit. A symbol no row of which read clearly counts only when the
         // frame's pixels follow the modules of its text.
+        return new Seen(clearOrAgreeing(frame, symbols), engine.guards, engine.blurredGuards, boxGuards, boxBlurred);
+    }
+
+    private static List<Found> clearOrAgreeing(GrayU8 frame, List<Found> symbols) {
         List<Found> kept = new ArrayList<>();
         for (Found found : symbols) {
             if (found.clear() || SourceCheck.agrees(frame, found.polygon(), found.text())) {
                 kept.add(found);
             }
         }
-        return new Seen(kept, engine.guards, engine.blurredGuards);
+        return kept;
+    }
+
+    /**
+     * The symbols of boxes read again on sharpened crops, for a frame of which {@code seen} read
+     * nothing and a second look at its lines neither: the two boxes
+     * whose rows showed most guards, four at least, each on its crop (a fifth of its size and four
+     * pixels more on every side, {@link #RESTORED_PIXELS} for both) with a blur of five pixels
+     * taken off; then the first of them on a crop with a blur of nine taken off. A symbol counts
+     * on five rows, when no lines of the frame across it read another text, and from the wider
+     * blur only when the frame's pixels follow the modules of its text. After Medium's
+     * {@code recover_restored_regions} and {@code recover_late_wide_crop}
+     * ({@code bindings/rust/src/pipeline/restoration.rs}), which rescan the crop with its
+     * locator where this reads the box alone.
+     */
+    public static List<Found> restored(GrayU8 frame, List<Quad> quads, Seen seen) {
+        List<Integer> guards = seen.boxGuards();
+        List<Integer> boxes = new ArrayList<>();
+        for (int box = 0; box < guards.size(); box++) {
+            if (guards.get(box) >= 4) {
+                boxes.add(box);
+            }
+        }
+        boxes.sort((a, b) -> guards.get(b) - guards.get(a));
+        List<Found> out = new ArrayList<>();
+        int remaining = RESTORED_PIXELS;
+        for (int pass = 0; pass < 2 && out.isEmpty(); pass++) {
+            boolean wide = pass == 1;
+            for (int box : boxes.subList(0, Math.min(wide ? 1 : 2, boxes.size()))) {
+                Quad q = quads.get(box);
+                double xmin = Math.min(Math.min(q.x0(), q.x1()), Math.min(q.x2(), q.x3()));
+                double xmax = Math.max(Math.max(q.x0(), q.x1()), Math.max(q.x2(), q.x3()));
+                double ymin = Math.min(Math.min(q.y0(), q.y1()), Math.min(q.y2(), q.y3()));
+                double ymax = Math.max(Math.max(q.y0(), q.y1()), Math.max(q.y2(), q.y3()));
+                int x = (int) Math.max(0, Math.min(frame.width, Math.floor(xmin - (xmax - xmin) * 0.2 - 4)));
+                int y = (int) Math.max(0, Math.min(frame.height, Math.floor(ymin - (ymax - ymin) * 0.2 - 4)));
+                int w = (int) Math.max(0, Math.min(frame.width, Math.ceil(xmax + (xmax - xmin) * 0.2 + 4))) - x;
+                int h = (int) Math.max(0, Math.min(frame.height, Math.ceil(ymax + (ymax - ymin) * 0.2 + 4))) - y;
+                if (w < 3 || h < 3 || (long) w * h > (wide ? RESTORED_PIXELS : remaining)) {
+                    continue;
+                }
+                remaining -= wide ? 0 : w * h;
+                GrayU8 crop = CropSharpen.sharpen(frame, x, y, w, h, wide ? CropSharpen.WIDE : CropSharpen.NARROW);
+                Quad local = new Quad(q.x0() - x, q.y0() - y, q.x1() - x, q.y1() - y, q.x2() - x, q.y2() - y, q.x3() - x, q.y3() - y);
+                for (Found found : new RetailEngine(crop).run(List.of(local))) {
+                    if (found.support() < 5) {
+                        continue;
+                    }
+                    double[] polygon = found.polygon().clone();
+                    for (int i = 0; i < 8; i += 2) {
+                        polygon[i] += x;
+                        polygon[i + 1] += y;
+                    }
+                    if (SourceCheck.contradicted(frame, polygon, found.text()) || wide && !SourceCheck.agrees(frame, polygon, found.text())) {
+                        continue;
+                    }
+                    out.add(new Found(box, found.text(), polygon, found.support(), found.upsideDown(), found.clear()));
+                }
+            }
+        }
+        return clearOrAgreeing(frame, out);
     }
 
     /**
@@ -378,7 +471,11 @@ public final class RetailEngine {
             }
         }
         evidence.clear();
+        boxGuards.clear();
+        boxBlurred.clear();
         for (Candidate c : all) {
+            boxGuards.add(c.guardPass);
+            boxBlurred.add(c.blurWindows);
             guards += c.guardPass;
             blurredGuards += c.blurWindows;
             evidence.add(c.guardPass > 0 || c.blurWindows >= 2);
