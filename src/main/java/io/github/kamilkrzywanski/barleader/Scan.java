@@ -10,6 +10,7 @@ import io.github.kamilkrzywanski.barleader.decode.Code128Fit;
 import io.github.kamilkrzywanski.barleader.decode.EanCrossCheck;
 import io.github.kamilkrzywanski.barleader.decode.EanFit;
 import io.github.kamilkrzywanski.barleader.decode.ProfileLines;
+import io.github.kamilkrzywanski.barleader.decode.SourceCheck;
 import io.github.kamilkrzywanski.barleader.retail.RetailEngine;
 import io.github.kamilkrzywanski.barleader.decode.StripBands;
 import io.github.kamilkrzywanski.barleader.decode.EanHalves;
@@ -420,7 +421,7 @@ final class Scan {
                 if (!early) {
                     readCandidates(gray);
                 }
-                tryDeblurredBands();
+                tryDeblurredBands(gray);
             }
             tryCode128Fit(gray);
             tryEanFit(gray);
@@ -1408,15 +1409,15 @@ final class Scan {
      * digits, beside the right half of the real code. Like the fits after it, this takes no
      * attempt slot: only the time budget stops it, as the crops before it often spend the attempts.
      */
-    private void tryDeblurredBands() {
+    private void tryDeblurredBands(GrayU8 gray) {
         if (!hits.isEmpty()) {
             return;
         }
-        fanout.inOrder(deblurredCrops(), () -> outOfTime() || !hits.isEmpty(), this::added);
+        fanout.inOrder(deblurredCrops(gray), () -> outOfTime() || !hits.isEmpty(), this::added);
     }
 
     /** {@link #tryDeblurredBands} on each crop of {@link #bandCrops}, side by side; none without EAN-13 and UPC-A or without crops of {@link BarSegments}. */
-    private List<Callable<BarcodeHit>> deblurredCrops() {
+    private List<Callable<BarcodeHit>> deblurredCrops(GrayU8 gray) {
         Set<Symbology> retail = EnumSet.noneOf(Symbology.class);
         for (Symbology symbology : new Symbology[]{Symbology.EAN_13, Symbology.UPC_A}) {
             if (symbologies.contains(symbology)) {
@@ -1426,14 +1427,14 @@ final class Scan {
         List<Callable<BarcodeHit>> crops = new ArrayList<>();
         if (!retail.isEmpty() && segmentCrops) {
             for (LinearBand.Crop crop : bandCrops) {
-                crops.add(() -> deblurred(crop, retail));
+                crops.add(() -> deblurred(crop, retail, gray));
             }
         }
         return crops;
     }
 
     /** What {@link #tryDeblurredBands} reads on {@code crop}, or null. */
-    private BarcodeHit deblurred(LinearBand.Crop crop, Set<Symbology> retail) {
+    private BarcodeHit deblurred(LinearBand.Crop crop, Set<Symbology> retail, GrayU8 gray) {
         Deblur deblur = Deblur.blurred(crop);
         if (deblur == null) {
             return null;
@@ -1483,13 +1484,67 @@ final class Scan {
                 }
             }
         }
-        if (first == null || conflict) {
+        // The rows read the copies of the strongest box only, as tapirscan deblurs one box a frame: on a frame without a symbol they cost the most.
+        if (first == null && !conflict) {
+            return crop == bandCrops.get(0) ? deblurredRows(deblur, copies, names, retail, gray) : null;
+        }
+        if (conflict) {
             return null;
         }
         if (reading == copies.length || rival == 0 && (reading >= 2 || own >= 4 || fitted(deblur, copies, key, within))) {
             return first;
         }
         return null;
+    }
+
+    /**
+     * What the rows of {@link RetailEngine} read on the sharpened copies of a crop whose own rows
+     * read nothing there, as tapirscan reads its deblurred crops ({@code recover_deblurred_crops}
+     * of {@code bindings/rust/src/pipeline/deblur.rs}): a text on four rows of a copy. A copy is
+     * a restored image, and its rows can agree on a wrong text as clearly as on a right one, so
+     * beyond tapirscan the text counts only when the pixels of the frame follow its modules, when
+     * no lines of the frame across it read another text, and when no copy reads another text on
+     * four rows. The rows read no supplement.
+     */
+    private BarcodeHit deblurredRows(Deblur deblur, GrayU8[] copies, String[] names, Set<Symbology> retail, GrayU8 gray) {
+        if (options.eanAddOn() != EanAddOn.IGNORE) {
+            return null;
+        }
+        String text = null;
+        BarcodeHit hit = null;
+        for (int i = 0; i < copies.length; i++) {
+            double w = copies[i].width - 1;
+            double h = copies[i].height - 1;
+            for (RetailEngine.Found found : RetailEngine.read(copies[i], List.of(new ProfileLines.Quad(0, 0, w, 0, w, h, 0, h)))) {
+                if (found.support() < 4) {
+                    continue;
+                }
+                if (text != null && !text.equals(found.text())) {
+                    return null;
+                }
+                text = found.text();
+                double[] polygon = new double[8];
+                for (int k = 0; k < 8; k += 2) {
+                    ImagePoint point = deblur.toSource().toSource(found.polygon()[k], found.polygon()[k + 1]);
+                    polygon[k] = point.x();
+                    polygon[k + 1] = point.y();
+                }
+                boolean upcA = text.charAt(0) == '0' && retail.contains(Symbology.UPC_A);
+                if (hit != null || !upcA && !retail.contains(Symbology.EAN_13)
+                        || !SourceCheck.agrees(gray, polygon, text) || SourceCheck.contradicted(gray, polygon, text)) {
+                    continue;
+                }
+                ImagePoint left = new ImagePoint((polygon[0] + polygon[6]) / 2, (polygon[1] + polygon[7]) / 2);
+                ImagePoint right = new ImagePoint((polygon[2] + polygon[4]) / 2, (polygon[3] + polygon[5]) / 2);
+                if (Math.hypot(right.x() - left.x(), right.y() - left.y()) < 30) {
+                    continue;
+                }
+                int degrees = !found.upsideDown() && deblur.degrees() == 0 ? -1 : Math.floorMod(deblur.degrees() + (found.upsideDown() ? 180 : 0), 360);
+                hit = new BarcodeHit(upcA ? text.substring(1) : text, upcA ? Symbology.UPC_A : Symbology.EAN_13, List.of(left, right), degrees, 0.60,
+                        names[i] + "-rows");
+            }
+        }
+        return hit;
     }
 
     /**
@@ -2719,7 +2774,26 @@ final class Scan {
         }
         // Where no line read: the rows of the retail engine, which follow up a box whose rows show guards.
         if (hits.isEmpty() && (read.contains(Symbology.EAN_13) || read.contains(Symbology.UPC_A))) {
-            for (RetailEngine.Found found : RetailEngine.read(gray, quads)) {
+            RetailEngine.Seen seen = RetailEngine.look(gray, quads);
+            List<RetailEngine.Found> symbols = seen.symbols();
+            if (symbols.isEmpty()) {
+                // A second look at the lines of the boxes that showed guards, from restored profiles the frame's pixels must confirm.
+                for (ProfileLines.Found found : ProfileLines.recover(gray, quads, seen.strongest(), seen.signed(), read)) {
+                    if (Math.hypot(found.rightX() - found.leftX(), found.rightY() - found.leftY()) < 30) {
+                        continue;
+                    }
+                    int turned = boxes.get(found.box()).degrees();
+                    int degrees = !found.upsideDown() && turned == 0 ? -1 : Math.floorMod(turned + (found.upsideDown() ? 180 : 0), 360);
+                    hits.add(new BarcodeHit(found.text(), found.symbology(),
+                            List.of(new ImagePoint(found.leftX(), found.leftY()), new ImagePoint(found.rightX(), found.rightY())),
+                            degrees, 0.70, found.profile()));
+                }
+                // Then the boxes with most guards on sharpened crops.
+                if (hits.isEmpty()) {
+                    symbols = RetailEngine.restored(gray, quads, seen);
+                }
+            }
+            for (RetailEngine.Found found : symbols) {
                 double[] p = found.polygon();
                 ImagePoint left = new ImagePoint((p[0] + p[6]) / 2, (p[1] + p[7]) / 2);
                 ImagePoint right = new ImagePoint((p[2] + p[4]) / 2, (p[3] + p[5]) / 2);
@@ -2929,7 +3003,7 @@ final class Scan {
         List<Callable<Runnable>> jobs = new ArrayList<>();
         Once<TraceMatrix> matrix = traceJobs(jobs, gray);
         if (held == null) {
-            List<Callable<BarcodeHit>> deblurred = deblurredCrops();
+            List<Callable<BarcodeHit>> deblurred = deblurredCrops(gray);
             if (!deblurred.isEmpty()) {
                 // Deblurring needs an attempt left, as the steps before it did.
                 jobs.add(() -> () -> missedOff |= stop() ? OFF_DEBLUR : 0);
