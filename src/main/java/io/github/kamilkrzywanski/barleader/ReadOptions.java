@@ -12,7 +12,8 @@ import java.util.Set;
 
 /**
  * Immutable options for one read. {@link #fast()} is the default ladder with a 2.5 s, 40-attempt
- * budget. {@link #aggressive()} takes every step of the fast ladder, then adds the expensive
+ * budget. {@link #quick()} stops that ladder after the image as it is and the located linear
+ * symbols. {@link #aggressive()} takes every step of the fast ladder, then adds the expensive
  * variants, and raises the budget to 8 s and 100 attempts; the attempts the last steps of the fast
  * ladder take, after its variants, come on top of those. {@link #mode(DecodeMode)} changes only the
  * ladder; it does not rewrite budgets already set on this instance.
@@ -69,6 +70,14 @@ public final class ReadOptions {
                 FAST_BUDGET_MILLIS,
                 EanAddOn.IGNORE
         );
+    }
+
+    /**
+     * The shortest ladder ({@link DecodeMode#QUICK}) with the budget of {@link #fast()}: for a
+     * stream of images most of which hold no barcode, or where a symbol is expected sharp.
+     */
+    public static ReadOptions quick() {
+        return fast().mode(DecodeMode.QUICK);
     }
 
     public static ReadOptions aggressive() {

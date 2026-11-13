@@ -198,7 +198,7 @@ final class Scan {
         // none of the full frame. Fast mode first reads a box-averaged copy of about eight
         // megapixels, then the full frame when that read nothing. With findAll the full frame is
         // read, as a reduced copy can lose a small second symbol.
-        if (pixels >= REDUCE_PIXELS && options.mode() == DecodeMode.FAST && !options.findAll()) {
+        if (pixels >= REDUCE_PIXELS && options.mode() != DecodeMode.AGGRESSIVE && !options.findAll()) {
             int factor = (int) Math.ceil(Math.sqrt(pixels / (double) REDUCED_PIXELS));
             Transformed small = Geometry.boxDownscaled(work, factor);
             List<BarcodeHit> reduced = new ArrayList<>(new Scan(options.timeBudgetMillis(remainingMillis()), fanout)
@@ -300,6 +300,18 @@ final class Scan {
                 held = hits;
                 hits = new HitCollector(gray);
             }
+        }
+        if (options.mode() == DecodeMode.QUICK) {
+            // The shortest ladder ends with the candidates. With findAll they have not been read yet.
+            if (!early && !stop() && !variants.isEmpty()) {
+                linearRegions(gray);
+                readCandidates(gray);
+            }
+            // A read that waited for the variants has nothing left to wait for.
+            if (held != null && hits.isEmpty()) {
+                hits = held;
+            }
+            return hits.list();
         }
         if (!stop() && !variants.isEmpty()) {
             // The linear readers of the variants read only the rows across a symbol the linear

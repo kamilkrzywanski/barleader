@@ -34,6 +34,41 @@ class BarcodeReaderTest {
         }
     }
 
+    /** The shortest ladder reads what the image as it is and the located linear symbols give, with the budget of fast mode. */
+    @Test
+    void quickReadsCleanSymbolsAndLocatedLinearOnes() {
+        ReadOptions quick = ReadOptions.quick();
+        assertEquals(DecodeMode.QUICK, quick.mode());
+        assertEquals(ReadOptions.FAST_ATTEMPTS, quick.maxAttempts());
+        assertEquals(ReadOptions.FAST_BUDGET_MILLIS, quick.timeBudgetMillis());
+        for (Sample sample : Samples.all()) {
+            if (sample.kind() == Kind.CLEAN) {
+                assertCovers(sample, texts(reader.read(sample.image(), quick)));
+            }
+        }
+        // No upright row crosses a Code 128 at 30 degrees: the lines across its box or its strip read it.
+        Sample tilted = sample("code128-rotated-30");
+        List<BarcodeHit> hits = reader.read(tilted.image(), quick);
+        assertCovers(tilted, texts(hits));
+        assertFalse(hits.get(0).attempt().startsWith("original"), hits.get(0).attempt());
+        // With findAll the located symbols are read as well.
+        assertCovers(tilted, texts(reader.read(tilted.image(), quick.findAll(true))));
+    }
+
+    /**
+     * What only a later step reads is left to fast mode: a Code 128 printed light on dark, which
+     * the inverted frame reads, a QR Code under glare, which the frame without its shading reads,
+     * and one in noise, which the finder trace reads.
+     */
+    @Test
+    void quickLeavesWhatOnlyALaterStepReads() {
+        for (String name : List.of("inverted-code128", "qr-glare", "qr-noise")) {
+            Sample sample = sample(name);
+            assertTrue(reader.read(sample.image(), ReadOptions.quick()).isEmpty(), name);
+            assertCovers(sample, texts(reader.read(sample.image(), ReadOptions.fast())));
+        }
+    }
+
     @Test
     void rotatedCode128ReportsCornersInsideTheImage() {
         Sample sample = sample("code128");
