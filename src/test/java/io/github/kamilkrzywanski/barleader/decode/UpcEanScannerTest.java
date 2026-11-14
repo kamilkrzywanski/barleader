@@ -86,6 +86,26 @@ class UpcEanScannerTest {
         assertTrue(tried > 0, "no phase reads only from quarter pixels");
     }
 
+    /**
+     * Whether a read counts depends on its row, so a text refused on two rows is asked about on a
+     * third, and not on a fourth.
+     */
+    @Test
+    void aTextRefusedTwiceIsAskedAboutAThirdTime() {
+        String text = "5901234123457";
+        BinaryBitmap image = BinaryBitmap.global(new GrayLuminanceSource(withMiddleRow(text, text, 3.0, 0)));
+        EnumSet<Symbology> ean13 = EnumSet.of(Symbology.EAN_13);
+        int[] asked = new int[1];
+
+        UpcEanScanner.Found found = UpcEanScanner.read(image, ean13, EanAddOn.IGNORE, read -> ++asked[0] == 3);
+        assertNotNull(found);
+        assertEquals(text, found.text());
+
+        asked[0] = 0;
+        assertNull(UpcEanScanner.read(image, ean13, EanAddOn.IGNORE, read -> ++asked[0] == 4));
+        assertEquals(3, asked[0]);
+    }
+
     /** Twelve rows of {@code text} with the row the scan starts on, the middle one, of {@code middle}. */
     private static GrayU8 withMiddleRow(String text, String middle, double module, double phase) {
         GrayU8 image = BlurredBars.render(new EAN13Writer().encode(text, BarcodeFormat.EAN_13, 1, 1), module, phase);
