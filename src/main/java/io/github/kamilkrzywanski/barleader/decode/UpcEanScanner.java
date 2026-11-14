@@ -91,8 +91,13 @@ final class UpcEanScanner {
         return scan(image, symbologies, addOn, OneDRow.FINE, decoded, accept, true, late);
     }
 
-    /** How often a scan asks about one text, and how many refusals end it. */
-    private static final int REFUSALS_A_TEXT = 2;
+    /**
+     * How often a scan asks about one text, and how many refusals end it. Whether a read counts
+     * depends on its row: a short code has to repeat on the strip beside it, and a read behind a
+     * guard that did not hold counts only as an EAN-13 or UPC-A. With two asks, two such rows used
+     * up a text before the row that counts: two EAN-8 of tapirscan's benchmark went unread.
+     */
+    private static final int REFUSALS_A_TEXT = 3;
     private static final int REFUSALS = 8;
 
     private static boolean wanted(Set<Symbology> symbologies) {
