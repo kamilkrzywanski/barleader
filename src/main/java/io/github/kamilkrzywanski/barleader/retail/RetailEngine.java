@@ -91,6 +91,8 @@ public final class RetailEngine {
         final int box;
         final Quad quad;
         final List<Observation> observations = new ArrayList<>();
+        /** The readings of EAN-8 on its rows, which link into tracks of their own. */
+        final List<Observation> shortObservations = new ArrayList<>();
         List<Detection> detections = List.of();
         List<Segment> plan = List.of();
         List<Segment> confirmation = List.of();
@@ -102,6 +104,8 @@ public final class RetailEngine {
         int limit;
         /** The pairs of ends on its rows whose guards could be blurred guards. */
         int blurWindows;
+        /** The rows read between their peaks and valleys for EAN-8. */
+        int peakRows;
 
         Candidate(int box, Quad quad) {
             this.box = box;
@@ -144,17 +148,28 @@ public final class RetailEngine {
     private float[] shifted = new float[FIXED_SAMPLES];
     private final RunWindows.Runs shiftedRuns = new RunWindows.Runs();
     private final SignalModels.Local localRuns = new SignalModels.Local();
+    /** Whether the rows are read for EAN-8 as well, and the EAN-8 symbols of the last run: eight digits each. */
+    private final boolean shortRows;
+    private final List<Found> shorts = new ArrayList<>();
+    private final RunWindows.Runs peakRuns = new RunWindows.Runs();
 
     private RetailEngine(GrayU8 frame) {
+        this(frame, false);
+    }
+
+    private RetailEngine(GrayU8 frame, boolean shortRows) {
         this.frame = frame;
+        this.shortRows = shortRows;
     }
 
     /**
      * What the rows of the boxes showed: the symbols, and over all boxes how many windows of 61
      * runs had guards that look like guards, and how many pairs of ends had guards that could be
-     * blurred guards. A frame with neither shows the engine no sign of an EAN-13.
+     * blurred guards. A frame with neither shows the engine no sign of an EAN-13. {@code shorts}
+     * are the EAN-8 symbols, each with its eight digits, when they were asked for.
      */
-    public record Seen(List<Found> symbols, int guards, int blurredGuards, List<Integer> boxGuards, List<Integer> boxBlurredGuards) {
+    public record Seen(List<Found> symbols, int guards, int blurredGuards, List<Integer> boxGuards, List<Integer> boxBlurredGuards,
+            List<Found> shorts) {
         /** The boxes to look at again first: those whose rows showed guards, or four times guards that could be blurred, most guards first. */
         public List<Integer> strongest() {
             List<Integer> boxes = new ArrayList<>();
@@ -197,8 +212,22 @@ public final class RetailEngine {
      * way on dozens of rows, each at a cost near the limit.
      */
     public static Seen look(GrayU8 frame, List<Quad> quads) {
-        RetailEngine engine = new RetailEngine(frame);
+        return look(frame, quads, false);
+    }
+
+    /**
+     * {@link #look(GrayU8, List)} that with {@code eight} reads EAN-8 on the same rows as well
+     * ({@link Seen#shorts}), as Medium does ({@code core/src/retail_pipeline.rs}): where no
+     * EAN-13 reads or was refused, every 43 runs between quiet zones are a window
+     * ({@link ShortWindows}), on the row cut at the middle level, between its peaks and valleys,
+     * with its levels following it and between its turns. The readings link into tracks as those
+     * of an EAN-13 do, and one that lies in an EAN-13 read on three rows, along it and with
+     * modules of its size, gives way to it.
+     */
+    public static Seen look(GrayU8 frame, List<Quad> quads, boolean eight) {
+        RetailEngine engine = new RetailEngine(frame, eight);
         List<Found> symbols = engine.run(quads);
+        List<Found> shorts = new ArrayList<>(engine.shorts);
         List<Integer> boxGuards = new ArrayList<>(engine.boxGuards);
         List<Integer> boxBlurred = new ArrayList<>(engine.boxBlurred);
         if (symbols.isEmpty()) {
@@ -227,7 +256,7 @@ public final class RetailEngine {
         // Bars doubled by camera shake are cut wrongly the same way on every row, and read as another
         // text at a cost near the limit. A symbol no row of which read clearly counts only when the
         // frame's pixels follow the modules of its text.
-        return new Seen(clearOrAgreeing(frame, symbols), engine.guards, engine.blurredGuards, boxGuards, boxBlurred);
+        return new Seen(clearOrAgreeing(frame, symbols), engine.guards, engine.blurredGuards, boxGuards, boxBlurred, shorts);
     }
 
     private static List<Found> clearOrAgreeing(GrayU8 frame, List<Found> symbols) {
@@ -470,6 +499,41 @@ public final class RetailEngine {
                 found.add(new Found(c.box, text.toString(), d.polygon(), d.support(), d.reversed(), d.clear()));
             }
         }
+        shorts.clear();
+        if (shortRows) {
+            List<double[]> primary = new ArrayList<>();
+            for (Candidate c : all) {
+                for (Detection d : c.detections) {
+                    if (d.support() >= 3) {
+                        primary.add(d.polygon());
+                    }
+                }
+            }
+            List<Detection> kept = new ArrayList<>();
+            for (Candidate c : all) {
+                if (c.shortObservations.size() < 2) {
+                    continue;
+                }
+                enter(c);
+                observations = c.shortObservations;
+                for (Detection d : detections(assemble(true))) {
+                    boolean known = false;
+                    for (Detection a : kept) {
+                        known |= Arrays.equals(a.digits(), d.digits()) && sameSpace(a.polygon(), d.polygon());
+                    }
+                    if (known || covered(primary, d.polygon())) {
+                        continue;
+                    }
+                    kept.add(d);
+                    StringBuilder text = new StringBuilder(8);
+                    for (int i = 5; i < 13; i++) {
+                        text.append((char) ('0' + d.digits()[i]));
+                    }
+                    shorts.add(new Found(c.box, text.toString(), d.polygon(), d.support(), d.reversed(), d.clear()));
+                }
+                observations = c.observations;
+            }
+        }
         evidence.clear();
         boxGuards.clear();
         boxBlurred.clear();
@@ -518,6 +582,50 @@ public final class RetailEngine {
         if (sample(fraction, from, to, (int) Math.max(64, Math.min(4096, Math.round((to - from) / step))), false)) {
             collect(fraction, from, to, full);
         }
+    }
+
+    /**
+     * Whether an EAN-8 lies in an EAN-13 read on three rows, along it and with modules of its
+     * size: the long symbol has the place ({@code retail_protection.rs}).
+     */
+    private static boolean covered(List<double[]> primary, double[] q) {
+        double ax = (q[0] + q[6]) / 2;
+        double ay = (q[1] + q[7]) / 2;
+        double dx = (q[2] + q[4]) / 2 - ax;
+        double dy = (q[3] + q[5]) / 2 - ay;
+        double width = Math.hypot(dx, dy);
+        if (width < 8) {
+            return false;
+        }
+        for (double[] p : primary) {
+            double ux = 0.5 * (p[2] + p[4] - p[0] - p[6]);
+            double uy = 0.5 * (p[3] + p[5] - p[1] - p[7]);
+            double w = Math.hypot(ux, uy);
+            double ratio = width / 67 / (w / 95);
+            if (ratio < 0.8 || ratio > 1.25 || Math.abs(dx * ux + dy * uy) < 0.97 * width * w) {
+                continue;
+            }
+            boolean inside = true;
+            for (double t : new double[]{0.1, 0.5, 0.9}) {
+                inside &= inside(p, ax + t * dx, ay + t * dy);
+            }
+            if (inside) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean inside(double[] q, double x, double y) {
+        boolean positive = false;
+        boolean negative = false;
+        for (int i = 0; i < 4; i++) {
+            int j = (i + 1) % 4;
+            double c = (q[2 * j] - q[2 * i]) * (y - q[2 * i + 1]) - (q[2 * j + 1] - q[2 * i + 1]) * (x - q[2 * i]);
+            positive |= c > 1e-6;
+            negative |= c < -1e-6;
+        }
+        return !(positive && negative);
     }
 
     private static int samples(double pixels, int least) {
@@ -1092,6 +1200,19 @@ public final class RetailEngine {
         RunWindows.Reads looks = RunWindows.shortQuiet(runs, full);
         add(looks, fraction, lo, hi, true);
         RunWindows.Reads reads = RunWindows.decode(runs, false);
+        if (shortRows) {
+            ShortWindows.Reads eight = new ShortWindows.Reads();
+            ShortWindows.decode(runs, reads, eight);
+            addShort(eight, fraction, lo, hi);
+            // The same row cut between its peaks and valleys, for 32 rows of a box.
+            if (current.peakRows < 32) {
+                current.peakRows++;
+                ShortWindows.peakRuns(signal, length, peakRuns);
+                eight = new ShortWindows.Reads();
+                ShortWindows.decode(peakRuns, reads, eight);
+                addShort(eight, fraction, lo, hi);
+            }
+        }
         if (full) {
             reads = RunWindows.merge(reads, SignalModels.clustered(signal, length, runs, reads));
             reads = RunWindows.merge(reads, RunWindows.decode(runs, true));
@@ -1101,6 +1222,15 @@ public final class RetailEngine {
             looks.visualCapped |= localShort.visualCapped;
             for (RunWindows.Visual v : localShort.visual) {
                 looks.look(v);
+            }
+            if (shortRows) {
+                ShortWindows.Reads eight = new ShortWindows.Reads();
+                ShortWindows.decode(localRuns.fractional, local, eight);
+                ShortWindows.decode(localRuns.integer, local, eight);
+                if (localRuns.turns != null) {
+                    ShortWindows.decode(localRuns.turns, local, eight);
+                }
+                addShort(eight, fraction, lo, hi);
             }
             reads = RunWindows.merge(reads, local);
             // A row that lost narrow bars or spaces at the middle level: only the first long rows of a box that read nothing are tried.
@@ -1259,6 +1389,45 @@ public final class RetailEngine {
             o.reversed = read.reversed();
             o.soft = read == softRead;
             observations.add(o);
+        }
+    }
+
+    /** The EAN-8 readings of a row, each once, and the stretches whose readings refused each other; 512 for a box. */
+    private void addShort(ShortWindows.Reads reads, double fraction, double lo, double hi) {
+        List<Observation> rows = current.shortObservations;
+        for (RunWindows.Read read : reads.symbols) {
+            Observation o = new Observation();
+            o.digits = read.digits();
+            o.fraction = fraction;
+            o.left = lo + (hi - lo) * (read.left() + 0.5) / length;
+            o.right = lo + (hi - lo) * (read.right() + 0.5) / length;
+            o.cost = read.cost();
+            o.gap = read.gap();
+            o.reversed = read.reversed();
+            boolean known = false;
+            for (Observation a : rows) {
+                known |= !a.ambiguous && Arrays.equals(a.digits, o.digits) && Math.abs(a.fraction - fraction) < 1e-9
+                        && Math.min(a.right, o.right) - Math.max(a.left, o.left) > 0.9 * Math.max(a.right - a.left, o.right - o.left);
+            }
+            if (known) {
+                continue;
+            }
+            if (rows.size() >= 512) {
+                return;
+            }
+            rows.add(o);
+        }
+        for (double[] interval : reads.conflicts) {
+            if (rows.size() >= 512) {
+                return;
+            }
+            Observation o = new Observation();
+            o.ambiguous = true;
+            o.digits = new int[13];
+            o.fraction = fraction;
+            o.left = lo + (hi - lo) * (interval[0] + 0.5) / length;
+            o.right = lo + (hi - lo) * (interval[1] + 0.5) / length;
+            rows.add(o);
         }
     }
 
@@ -1425,7 +1594,7 @@ public final class RetailEngine {
             }
             double[] left = point(a.left, a.fraction);
             double[] right = point(a.right, a.fraction);
-            double pixels = strong ? 1 : Math.max(2, Math.min(12, Math.hypot(right[0] - left[0], right[1] - left[1]) / 95));
+            double pixels = strong ? 1 : Math.max(2, Math.min(12, Math.hypot(right[0] - left[0], right[1] - left[1]) / (a.digits[0] == ShortWindows.EAN8 ? 67 : 95)));
             if (b.fraction - a.fraction < (sourceSupport ? pixels / cross : 0.15) - 1e-6) {
                 continue;
             }

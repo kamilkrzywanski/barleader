@@ -3,7 +3,7 @@ package io.github.kamilkrzywanski.barleader.retail;
 import com.google.zxing.oned.EAN13Writer;
 import io.github.kamilkrzywanski.barleader.image.GrayU8;
 
-/** An EAN-13 as modules, as the 59 widths of its runs, as a normalized row and as an image. */
+/** An EAN-13 or EAN-8 as modules, an EAN-13 as the 59 widths of its runs, and either as a normalized row and as an image. */
 final class Bars {
     static final String TEXT = "5901234123457";
     static final int[] DIGITS = {5, 9, 0, 1, 2, 3, 4, 1, 2, 3, 4, 5, 7};
@@ -14,6 +14,20 @@ final class Bars {
     /** The 95 modules of {@code text}, bars true. */
     static boolean[] modules(String text) {
         boolean[] encoded = new EAN13Writer().encode(text.substring(0, 12));
+        int from = 0;
+        while (!encoded[from]) {
+            from++;
+        }
+        int to = encoded.length;
+        while (!encoded[to - 1]) {
+            to--;
+        }
+        return java.util.Arrays.copyOfRange(encoded, from, to);
+    }
+
+    /** The 67 modules of an EAN-8, bars true. */
+    static boolean[] modules8(String text) {
+        boolean[] encoded = new com.google.zxing.oned.EAN8Writer().encode(text.substring(0, 7));
         int from = 0;
         while (!encoded[from]) {
             from++;
