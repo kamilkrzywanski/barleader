@@ -55,6 +55,32 @@ class RetailEngineTest {
         assertEquals(Bars.TEXT, found.get(0).text());
     }
 
+    /** An EAN-8 reads on the rows of its box when it is asked for, and not otherwise. */
+    @Test
+    void readsAnEan8WhenAskedFor() {
+        GrayU8 image = Bars.image(Bars.modules8("96385074"), 3, 80, 60);
+        RetailEngine.Seen seen = RetailEngine.look(image, List.of(box(image, 60)), true);
+        assertTrue(seen.symbols().isEmpty());
+        assertEquals(1, seen.shorts().size());
+        RetailEngine.Found symbol = seen.shorts().get(0);
+        assertEquals("96385074", symbol.text());
+        assertFalse(symbol.upsideDown());
+        assertTrue(symbol.support() >= 4, "rows " + symbol.support());
+        double[] p = symbol.polygon();
+        assertEquals(60, p[0], 1.5);
+        assertEquals(60 + 67 * 3, p[2], 1.5);
+        assertTrue(RetailEngine.look(image, List.of(box(image, 60))).shorts().isEmpty());
+    }
+
+    /** The rows of an EAN-13 read no EAN-8: the long symbol has the place. */
+    @Test
+    void anEan13GivesNoEan8() {
+        GrayU8 image = Bars.image(Bars.modules(Bars.TEXT), 3, 80, 60);
+        RetailEngine.Seen seen = RetailEngine.look(image, List.of(box(image, 60)), true);
+        assertEquals(1, seen.symbols().size());
+        assertTrue(seen.shorts().isEmpty());
+    }
+
     /** Two boxes over one symbol are one reading, the one with more rows. */
     @Test
     void twoBoxesOverOneSymbolGiveItOnce() {

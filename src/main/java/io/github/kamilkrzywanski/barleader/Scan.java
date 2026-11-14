@@ -2628,7 +2628,8 @@ final class Scan {
         // Single lines across the boxes of BarSegments, sampled from the frame, come before any crop
         // is read as an image: they cost a few milliseconds a photo and read symbols under shading
         // and low contrast, which the crops and the variants of the whole frame read after them.
-        List<BarcodeHit> lines = postal() ? null : lineReads(gray, segments(gray, options.findAll() ? 16 : 8), lineFormats(formats));
+        List<BarcodeHit> lines = postal() ? null : lineReads(gray, segments(gray, options.findAll() ? 16 : 8), lineFormats(formats),
+                formats.contains(Symbology.EAN_8) && options.eanAddOn() == EanAddOn.IGNORE);
         BarcodeHit pending = null;
         if (lines != null) {
             attempts++;
@@ -2737,6 +2738,9 @@ final class Scan {
     /** The attempts of a read of {@link RetailEngine}: on three rows or more, and on two. */
     private static final String ROWS = "scan-rows";
     private static final String ROW_PAIR = "scan-rows-2";
+    /** The attempts of an EAN-8 read of {@link RetailEngine}: on three rows or more, and on two. */
+    private static final String SHORT_ROWS = "scan-rows-8";
+    private static final String SHORT_ROW_PAIR = "scan-rows-8-2";
     /** What {@link ProfileLines} reads: the codes with a check that two lines of a box confirm; the short retail codes have too few digits for that. */
     private static final Set<Symbology> LINE_FORMATS = EnumSet.of(Symbology.EAN_13, Symbology.UPC_A, Symbology.CODE_128);
 
@@ -2756,10 +2760,12 @@ final class Scan {
 
     /**
      * The symbols {@link ProfileLines} reads on lines across {@code boxes}, as hits with the two
-     * ends of the middle line; null when there is no box or nothing it reads is asked for.
+     * ends of the middle line; null when there is no box or nothing it reads is asked for. With
+     * {@code eight} the rows of {@link RetailEngine}, read where no line read, are read for EAN-8
+     * as well.
      */
-    private static List<BarcodeHit> lineReads(GrayU8 gray, List<LinearBand.Crop> boxes, Set<Symbology> read) {
-        if (read.isEmpty() || boxes.isEmpty()) {
+    private static List<BarcodeHit> lineReads(GrayU8 gray, List<LinearBand.Crop> boxes, Set<Symbology> read, boolean eight) {
+        if (read.isEmpty() && !eight || boxes.isEmpty()) {
             return null;
         }
         List<ProfileLines.Quad> quads = new ArrayList<>(boxes.size());
@@ -2784,10 +2790,24 @@ final class Scan {
                     List.of(new ImagePoint(found.leftX(), found.leftY()), new ImagePoint(found.rightX(), found.rightY())),
                     degrees, 0.70, found.support() == 2 ? PAIR : found.profile()));
         }
-        // Where no line read: the rows of the retail engine, which follow up a box whose rows show guards.
-        if (hits.isEmpty() && (read.contains(Symbology.EAN_13) || read.contains(Symbology.UPC_A))) {
-            RetailEngine.Seen seen = RetailEngine.look(gray, quads);
+        // Where no line read: the rows of the retail engine, which follow up a box whose rows show guards,
+        // and which read an EAN-8 beside the long symbols when one is asked for.
+        if (hits.isEmpty() && (read.contains(Symbology.EAN_13) || read.contains(Symbology.UPC_A) || eight)) {
+            RetailEngine.Seen seen = RetailEngine.look(gray, quads, eight);
             List<RetailEngine.Found> symbols = seen.symbols();
+            if (eight) {
+                for (RetailEngine.Found found : seen.shorts()) {
+                    double[] p = found.polygon();
+                    ImagePoint left = new ImagePoint((p[0] + p[6]) / 2, (p[1] + p[7]) / 2);
+                    ImagePoint right = new ImagePoint((p[2] + p[4]) / 2, (p[3] + p[5]) / 2);
+                    if (Math.hypot(right.x() - left.x(), right.y() - left.y()) < 30) {
+                        continue;
+                    }
+                    int turned = boxes.get(found.box()).degrees();
+                    int degrees = !found.upsideDown() && turned == 0 ? -1 : Math.floorMod(turned + (found.upsideDown() ? 180 : 0), 360);
+                    hits.add(new BarcodeHit(found.text(), Symbology.EAN_8, List.of(left, right), degrees, 0.70, found.support() == 2 ? SHORT_ROW_PAIR : SHORT_ROWS));
+                }
+            }
             if (symbols.isEmpty()) {
                 // A second look at the lines of the boxes that showed guards, from restored profiles the frame's pixels must confirm.
                 for (ProfileLines.Found found : ProfileLines.recover(gray, quads, seen.strongest(), seen.signed(), read)) {

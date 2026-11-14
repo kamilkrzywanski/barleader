@@ -33,6 +33,8 @@ final class SignalModels {
         float[] normalized = new float[512];
         final RunWindows.Runs integer = new RunWindows.Runs();
         final RunWindows.Runs fractional = new RunWindows.Runs();
+        /** The runs between the turns of the profile, or null where there were none or an edge between two turns was not clear. */
+        RunWindows.Runs turns;
     }
 
     private SignalModels() {
@@ -165,7 +167,8 @@ final class SignalModels {
         if (cleaned != null) {
             reads = RunWindows.merge(reads, both(cleaned, guardBias));
         }
-        return RunWindows.merge(reads, extrema(p, length, guardBias));
+        scratch.turns = null;
+        return RunWindows.merge(reads, extrema(p, length, guardBias, scratch));
     }
 
     /** The symbols between short quiet zones on the runs {@link #local} left in {@code scratch}. */
@@ -336,6 +339,11 @@ final class SignalModels {
      * are read on their own and only clear readings count. For profiles of 45 to 512 runs.
      */
     static RunWindows.Reads extrema(float[] p, int length, boolean guardBias) {
+        return extrema(p, length, guardBias, null);
+    }
+
+    /** {@link #extrema(float[], int, boolean)}, leaving its runs in {@code scratch} when every edge was clear. */
+    static RunWindows.Reads extrema(float[] p, int length, boolean guardBias, Local scratch) {
         int raw = 1;
         for (int i = 1; i < length; i++) {
             raw += p[i - 1] >= 0.5f != p[i] >= 0.5f ? 1 : 0;
@@ -447,6 +455,9 @@ final class SignalModels {
             runs.add(start, length, high[count - 1]);
         }
         RunWindows.Reads reads = both(runs, guardBias);
+        if (scratch != null && !ambiguous) {
+            scratch.turns = runs;
+        }
         if (ambiguous) {
             reads.symbols.removeIf(read -> read.cost() > 0.06f || read.gap() < 0.1f);
             for (RunWindows.Reads chunk : chunks) {
