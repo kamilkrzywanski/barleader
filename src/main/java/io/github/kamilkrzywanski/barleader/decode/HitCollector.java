@@ -16,7 +16,9 @@ import java.util.List;
 
 /**
  * Drops empty payloads and keeps one hit when the same payload sits on the same spot. A UPC-E
- * that is the left half of an EAN-13 or UPC-A also read is dropped, whichever came first.
+ * that is the left half of an EAN-13 or UPC-A also read is dropped, whichever came first, and of
+ * two retail texts read from the bars of one symbol the one the frame shows stays
+ * ({@link #clearer}).
  */
 public final class HitCollector {
     private static final double MERGE_DISTANCE_SQ = 80.0 * 80.0;
@@ -51,6 +53,15 @@ public final class HitCollector {
         }
         hits.removeIf(existing -> leftHalf(existing, hit));
         for (int i = 0; i < hits.size(); i++) {
+            int verdict = clearer(hits.get(i), hit);
+            if (verdict < 0) {
+                return false;
+            }
+            if (verdict > 0) {
+                hits.remove(i--);
+            }
+        }
+        for (int i = 0; i < hits.size(); i++) {
             BarcodeHit existing = hits.get(i);
             if (existing.symbology() == hit.symbology()
                     && existing.text().equals(hit.text())
@@ -84,6 +95,61 @@ public final class HitCollector {
             return false;
         }
         return ean.regionMatches(1, upcE.text(), 1, 6);
+    }
+
+    /** By how much the frame must follow one text more closely than another for it to be the text of the bars. */
+    private static final double CLEARER = 0.05;
+
+    /**
+     * Which of two texts read from the bars of one EAN-13, UPC-A, EAN-8 or UPC-E the frame shows:
+     * one symbol has one text. With {@code findAll} a variant of the frame, most often its mean
+     * threshold or the frame turned by 180 degrees, read a second text from the bars of a symbol
+     * already read on 49 snapshot images, 38 of which the frame decides: an EAN-13 with the right half of the first and another
+     * left half, or a UPC-E with other digits. Each text is drawn in its own layout along the scan
+     * line of each hit ({@link SourceCheck#fit}): negative when the frame follows the text of
+     * {@code existing} more closely on both lines by {@link #CLEARER}, positive when it follows
+     * that of {@code hit}. Zero when the lines are not of one symbol ({@link #sameBars}), the texts
+     * are one, or the frame does not say which; then both stay as before, as two symbols printed
+     * one under the other, on a Japanese book, are two texts.
+     */
+    private int clearer(BarcodeHit existing, BarcodeHit hit) {
+        if (image == null || existing.corners().size() != 2 || hit.corners().size() != 2 || !retail(existing) || !retail(hit)
+                || gtin(existing).equals(gtin(hit)) || !sameBars(existing.corners(), hit.corners())) {
+            return 0;
+        }
+        double onFirst = fit(hit, existing) - fit(existing, existing);
+        double onSecond = fit(hit, hit) - fit(existing, hit);
+        return onFirst > CLEARER && onSecond > CLEARER ? 1 : onFirst < -CLEARER && onSecond < -CLEARER ? -1 : 0;
+    }
+
+    private static boolean retail(BarcodeHit hit) {
+        return hit.symbology() == Symbology.EAN_13 && hit.text().length() == 13 || hit.symbology() == Symbology.UPC_A && hit.text().length() == 12
+                || (hit.symbology() == Symbology.EAN_8 || hit.symbology() == Symbology.UPC_E) && hit.text().length() == 8;
+    }
+
+    /** The thirteen digits of an EAN-13, or of a UPC-A as the EAN-13 it is; a short code as its symbology and text. */
+    private static String gtin(BarcodeHit hit) {
+        return hit.symbology() == Symbology.UPC_A ? "0" + hit.text() : hit.symbology() == Symbology.EAN_13 ? hit.text() : hit.symbology() + hit.text();
+    }
+
+    /** How closely the frame follows the text of {@code hit} along the scan line of {@code line}. */
+    private double fit(BarcodeHit hit, BarcodeHit line) {
+        ImagePoint a = line.corners().get(0);
+        ImagePoint b = line.corners().get(1);
+        double length = Math.hypot(b.x() - a.x(), b.y() - a.y());
+        if (length < 8) {
+            return -1;
+        }
+        // Three lines a twelfth of the length apart at most, three pixels at least.
+        double half = Math.max(3, length / 24);
+        double nx = -(b.y() - a.y()) / length * half;
+        double ny = (b.x() - a.x()) / length * half;
+        double[] around = {a.x() - nx, a.y() - ny, b.x() - nx, b.y() - ny, b.x() + nx, b.y() + ny, a.x() + nx, a.y() + ny};
+        return switch (hit.symbology()) {
+            case EAN_8 -> SourceCheck.fitEan8(image, around, hit.text());
+            case UPC_E -> SourceCheck.fitUpcE(image, around, hit.text());
+            default -> SourceCheck.fit(image, around, gtin(hit));
+        };
     }
 
     public boolean isEmpty() {

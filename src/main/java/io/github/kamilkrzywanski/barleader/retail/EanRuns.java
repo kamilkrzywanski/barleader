@@ -222,6 +222,11 @@ public final class EanRuns {
         return total / digits <= MAX_COST ? module : -1f;
     }
 
+    /** The widths in modules of the four elements of {@code digit} in the odd left set, space first. */
+    public static int[] digitWidths(int digit) {
+        return DIGITS[digit].clone();
+    }
+
     /** The 95 modules of thirteen digits, a bar as one. */
     public static float[] modules(int[] digits) {
         float[] out = new float[95];

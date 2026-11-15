@@ -11,6 +11,7 @@ import io.github.kamilkrzywanski.barleader.retail.EanRuns;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.function.Predicate;
 
 /**
  * Whether the frame's own pixels speak against an EAN-13 that a recovery read. Ported from
@@ -115,20 +116,8 @@ public final class SourceCheck {
      * {@code recovered_ean_source_agreement}.
      */
     public static boolean agrees(GrayU8 frame, double[] polygon, String text) {
-        int[] digits = new int[13];
-        for (int i = 0; i < 13; i++) {
-            digits[i] = text.charAt(i) - '0';
-        }
         double[][] rows = new double[3][256];
-        double[] norms = new double[3];
-        for (int j = 0; j < 3; j++) {
-            double v = 0.2 + 0.3 * j;
-            for (int i = 0; i < 256; i++) {
-                double[] p = point(polygon, -0.02 + 1.04 * i / 255, v);
-                rows[j][i] = pixel(frame, p[0], p[1]);
-            }
-            norms[j] = normalize(rows[j]);
-        }
+        double[] norms = lines(frame, polygon, rows);
         double height = (Math.hypot(polygon[6] - polygon[0], polygon[7] - polygon[1]) + Math.hypot(polygon[4] - polygon[2], polygon[5] - polygon[3])) / 2;
         boolean eligible = false;
         for (int i = 0; i < 3; i++) {
@@ -139,15 +128,131 @@ public final class SourceCheck {
         if (!eligible) {
             return false;
         }
-        float[] bits = EanRuns.modules(digits);
+        // Bars are dark and the drawing counts them as one: a line that follows it correlates below zero.
+        Predicate<double[]> agreed = best -> {
+            for (int i = 0; i < 3; i++) {
+                for (int j = i + 1; j < 3; j++) {
+                    if (best[i] < 0 && best[i] * best[i] >= 0.65 && best[j] < 0 && best[j] * best[j] >= 0.65 && (j - i) * 0.3 * height >= 2) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+        return agreed.test(follow(rows, norms, modules(text, 13), agreed));
+    }
+
+    /**
+     * How closely the frame's pixels follow {@code text}, thirteen digits, inside {@code polygon}:
+     * the share of their variance that the best drawing of the text explains, as {@link #agrees}
+     * draws it, as the mean over those of its three lines that have contrast; -1 when none has.
+     * Two texts read from the same bars can be told apart by it.
+     */
+    public static double fit(GrayU8 frame, double[] polygon, String text) {
+        return fit(frame, polygon, modules(text, 13));
+    }
+
+    /** {@link #fit(GrayU8, double[], String)} for the eight digits of an EAN-8. */
+    public static double fitEan8(GrayU8 frame, double[] polygon, String text) {
+        return fit(frame, polygon, modules(text, 8));
+    }
+
+    /** {@link #fit(GrayU8, double[], String)} for the eight digits of a UPC-E: number system, six digits and check digit. */
+    public static double fitUpcE(GrayU8 frame, double[] polygon, String text) {
+        return fit(frame, polygon, modules(text, 6));
+    }
+
+    /** Which of the six digits of a UPC-E of number system 0 are of the even set, by its check digit; the first of them is the high bit. */
+    private static final int[] UPC_E_PARITY = {56, 52, 50, 49, 44, 38, 35, 42, 41, 37};
+
+    /** The modules, a bar as one, of the thirteen digits of an EAN-13, the eight of an EAN-8 ({@code digits} 8) or the eight of a UPC-E ({@code digits} 6). */
+    private static float[] modules(String text, int digits) {
+        int[] d = new int[text.length()];
+        for (int i = 0; i < d.length; i++) {
+            d[i] = text.charAt(i) - '0';
+        }
+        if (digits == 13) {
+            return EanRuns.modules(d);
+        }
+        float[] out = new float[digits == 8 ? 67 : 51];
+        int at = 0;
+        out[at] = 1;
+        out[at + 2] = 1;
+        at += 3;
+        for (int j = 0; j < digits; j++) {
+            if (digits == 8 && j == 4) {
+                out[at + 1] = 1;
+                out[at + 3] = 1;
+                at += 5;
+            }
+            boolean right = digits == 8 && j >= 4;
+            boolean even = digits == 6 && ((UPC_E_PARITY[d[7]] ^ (d[0] == 0 ? 0 : 63)) >> (5 - j) & 1) == 1;
+            int[] widths = EanRuns.digitWidths(d[digits == 6 ? j + 1 : j]);
+            // The odd set starts with a space, the even set is it backwards, and the right set starts with a bar.
+            boolean bar = right;
+            for (int k = 0; k < 4; k++) {
+                int width = widths[even ? 3 - k : k];
+                for (int m = 0; m < width; m++) {
+                    out[at++] = bar ? 1 : 0;
+                }
+                bar = !bar;
+            }
+        }
+        if (digits == 8) {
+            out[at] = 1;
+            out[at + 2] = 1;
+        } else {
+            out[at + 1] = 1;
+            out[at + 3] = 1;
+            out[at + 5] = 1;
+        }
+        return out;
+    }
+
+    private static double fit(GrayU8 frame, double[] polygon, float[] bits) {
+        double[][] rows = new double[3][256];
+        double[] norms = lines(frame, polygon, rows);
+        double[] best = follow(rows, norms, bits, null);
+        double sum = 0;
+        int count = 0;
+        for (int j = 0; j < 3; j++) {
+            if (norms[j] >= 160) {
+                sum += best[j] < 0 ? best[j] * best[j] : 0;
+                count++;
+            }
+        }
+        return count == 0 ? -1 : sum / count;
+    }
+
+    /** Three lines across {@code polygon}, at 0.2, 0.5 and 0.8 of its height, each normalized; returns their lengths before that. */
+    private static double[] lines(GrayU8 frame, double[] polygon, double[][] rows) {
+        double[] norms = new double[3];
+        for (int j = 0; j < 3; j++) {
+            double v = 0.2 + 0.3 * j;
+            for (int i = 0; i < 256; i++) {
+                double[] p = point(polygon, -0.02 + 1.04 * i / 255, v);
+                rows[j][i] = pixel(frame, p[0], p[1]);
+            }
+            norms[j] = normalize(rows[j]);
+        }
+        return norms;
+    }
+
+    /**
+     * For each line with contrast its lowest correlation with a drawing of the modules {@code bits}: sharp and
+     * blurred by 0.3, 0.6 and 0.9 of a module, a little longer and shorter, shifted by up to a
+     * module, either way round. Stops once {@code enough} holds for what it has.
+     */
+    private static double[] follow(double[][] rows, double[] norms, float[] bits, Predicate<double[]> enough) {
+        int count = bits.length;
         double[] best = new double[3];
-        double[] raster = new double[824];
-        double[] smoothed = new double[824];
+        double[] raster = new double[(count + 8) * 8];
+        double[] smoothed = new double[raster.length];
         double[] template = new double[256];
         for (int pass = 0; pass < 2; pass++) {
             for (int i = 0; i < raster.length; i++) {
                 int module = (int) Math.floor(i / 8.0 - 4);
-                raster[i] = module >= 0 && module < 95 ? bits[pass == 1 ? 94 - module : module] : 0;
+                raster[i] = module >= 0 && module < count ? bits[pass == 1 ? count - 1 - module : module] : 0;
             }
             for (double sigma : new double[]{0, 0.3, 0.6, 0.9}) {
                 if (sigma == 0) {
@@ -175,7 +280,7 @@ public final class SourceCheck {
                     for (double offset : new double[]{-1, -0.5, 0, 0.5, 1}) {
                         for (int i = 0; i < 256; i++) {
                             double u = -0.02 + 1.04 * i / 255;
-                            double index = ((95 * u - offset) / pitch + 4) * 8;
+                            double index = ((count * u - offset) / pitch + 4) * 8;
                             if (index < 0 || index >= smoothed.length - 1) {
                                 template[i] = 0;
                             } else {
@@ -194,19 +299,14 @@ public final class SourceCheck {
                             }
                             best[j] = Math.min(best[j], correlation);
                         }
-                        // Bars are dark and the drawing counts them as one: a line that follows it correlates below zero.
-                        for (int i = 0; i < 3; i++) {
-                            for (int j = i + 1; j < 3; j++) {
-                                if (best[i] < 0 && best[i] * best[i] >= 0.65 && best[j] < 0 && best[j] * best[j] >= 0.65 && (j - i) * 0.3 * height >= 2) {
-                                    return true;
-                                }
-                            }
+                        if (enough != null && enough.test(best)) {
+                            return best;
                         }
                     }
                 }
             }
         }
-        return false;
+        return best;
     }
 
     /** Takes the mean and the slope out of 256 values and scales them to unit length; returns their length before that. */
