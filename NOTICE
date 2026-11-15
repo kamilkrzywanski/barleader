@@ -141,7 +141,7 @@ core/src/candidate_scanner.rs and its sampling, decoding and association
 modules, core/src/multi_scan.rs with its execution and plan modules,
 core/src/invalid_visual.rs, the reconciliation of core/src/frame.rs and the
 retry mask of bindings/rust/src/detail.rs; retail/ShortWindows.java, the
-EAN-8 read on the same rows, of core/src/retail_short.rs and
+EAN-8 and UPC-E read on the same rows, of core/src/retail_short.rs and
 core/src/retail_peak_scratch.rs, with the collection of its readings and the
 priority of a long symbol from core/src/retail_pipeline.rs and
 core/src/retail_protection.rs. The checks of a read against the
