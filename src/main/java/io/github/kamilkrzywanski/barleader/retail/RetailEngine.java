@@ -150,26 +150,31 @@ public final class RetailEngine {
     private final SignalModels.Local localRuns = new SignalModels.Local();
     /** Whether the rows are read for EAN-8 as well, and the EAN-8 symbols of the last run: eight digits each. */
     private final boolean shortRows;
+    /** Whether the rows are read for UPC-E as well. */
+    private final boolean shortE;
+    private final List<Found> shortsE = new ArrayList<>();
     private final List<Found> shorts = new ArrayList<>();
     private final RunWindows.Runs peakRuns = new RunWindows.Runs();
 
     private RetailEngine(GrayU8 frame) {
-        this(frame, false);
+        this(frame, false, false);
     }
 
-    private RetailEngine(GrayU8 frame, boolean shortRows) {
+    private RetailEngine(GrayU8 frame, boolean shortRows, boolean shortE) {
         this.frame = frame;
-        this.shortRows = shortRows;
+        this.shortRows = shortRows || shortE;
+        this.shortE = shortE;
     }
 
     /**
      * What the rows of the boxes showed: the symbols, and over all boxes how many windows of 61
      * runs had guards that look like guards, and how many pairs of ends had guards that could be
      * blurred guards. A frame with neither shows the engine no sign of an EAN-13. {@code shorts}
-     * are the EAN-8 symbols, each with its eight digits, when they were asked for.
+     * are the EAN-8 symbols and {@code upcE} the UPC-E symbols, each with its eight digits, when
+     * they were asked for.
      */
     public record Seen(List<Found> symbols, int guards, int blurredGuards, List<Integer> boxGuards, List<Integer> boxBlurredGuards,
-            List<Found> shorts) {
+            List<Found> shorts, List<Found> upcE) {
         /** The boxes to look at again first: those whose rows showed guards, or four times guards that could be blurred, most guards first. */
         public List<Integer> strongest() {
             List<Integer> boxes = new ArrayList<>();
@@ -225,9 +230,19 @@ public final class RetailEngine {
      * modules of its size, gives way to it.
      */
     public static Seen look(GrayU8 frame, List<Quad> quads, boolean eight) {
-        RetailEngine engine = new RetailEngine(frame, eight);
+        return look(frame, quads, eight, false);
+    }
+
+    /**
+     * {@link #look(GrayU8, List, boolean)} that with {@code upcE} reads UPC-E on the rows as well
+     * ({@link Seen#upcE}): every 33 runs between four modules of white are a window, and an EAN-8
+     * and a UPC-E read over one stretch refuse each other.
+     */
+    public static Seen look(GrayU8 frame, List<Quad> quads, boolean eight, boolean upcE) {
+        RetailEngine engine = new RetailEngine(frame, eight, upcE);
         List<Found> symbols = engine.run(quads);
-        List<Found> shorts = new ArrayList<>(engine.shorts);
+        List<Found> shorts = eight ? new ArrayList<>(engine.shorts) : List.of();
+        List<Found> shortsE = new ArrayList<>(engine.shortsE);
         List<Integer> boxGuards = new ArrayList<>(engine.boxGuards);
         List<Integer> boxBlurred = new ArrayList<>(engine.boxBlurred);
         if (symbols.isEmpty()) {
@@ -256,7 +271,7 @@ public final class RetailEngine {
         // Bars doubled by camera shake are cut wrongly the same way on every row, and read as another
         // text at a cost near the limit. A symbol no row of which read clearly counts only when the
         // frame's pixels follow the modules of its text.
-        return new Seen(clearOrAgreeing(frame, symbols), engine.guards, engine.blurredGuards, boxGuards, boxBlurred, shorts);
+        return new Seen(clearOrAgreeing(frame, symbols), engine.guards, engine.blurredGuards, boxGuards, boxBlurred, shorts, shortsE);
     }
 
     private static List<Found> clearOrAgreeing(GrayU8 frame, List<Found> symbols) {
@@ -500,6 +515,7 @@ public final class RetailEngine {
             }
         }
         shorts.clear();
+        shortsE.clear();
         if (shortRows) {
             List<double[]> primary = new ArrayList<>();
             for (Candidate c : all) {
@@ -521,7 +537,8 @@ public final class RetailEngine {
                     for (Detection a : kept) {
                         known |= Arrays.equals(a.digits(), d.digits()) && sameSpace(a.polygon(), d.polygon());
                     }
-                    if (known || covered(primary, d.polygon())) {
+                    boolean e = d.digits()[0] == ShortWindows.UPCE;
+                    if (known || covered(primary, d.polygon(), e ? 51 : 67)) {
                         continue;
                     }
                     kept.add(d);
@@ -529,7 +546,7 @@ public final class RetailEngine {
                     for (int i = 5; i < 13; i++) {
                         text.append((char) ('0' + d.digits()[i]));
                     }
-                    shorts.add(new Found(c.box, text.toString(), d.polygon(), d.support(), d.reversed(), d.clear()));
+                    (e ? shortsE : shorts).add(new Found(c.box, text.toString(), d.polygon(), d.support(), d.reversed(), d.clear()));
                 }
                 observations = c.observations;
             }
@@ -588,7 +605,7 @@ public final class RetailEngine {
      * Whether an EAN-8 lies in an EAN-13 read on three rows, along it and with modules of its
      * size: the long symbol has the place ({@code retail_protection.rs}).
      */
-    private static boolean covered(List<double[]> primary, double[] q) {
+    private static boolean covered(List<double[]> primary, double[] q, double modules) {
         double ax = (q[0] + q[6]) / 2;
         double ay = (q[1] + q[7]) / 2;
         double dx = (q[2] + q[4]) / 2 - ax;
@@ -601,7 +618,7 @@ public final class RetailEngine {
             double ux = 0.5 * (p[2] + p[4] - p[0] - p[6]);
             double uy = 0.5 * (p[3] + p[5] - p[1] - p[7]);
             double w = Math.hypot(ux, uy);
-            double ratio = width / 67 / (w / 95);
+            double ratio = width / modules / (w / 95);
             if (ratio < 0.8 || ratio > 1.25 || Math.abs(dx * ux + dy * uy) < 0.97 * width * w) {
                 continue;
             }
@@ -1202,14 +1219,14 @@ public final class RetailEngine {
         RunWindows.Reads reads = RunWindows.decode(runs, false);
         if (shortRows) {
             ShortWindows.Reads eight = new ShortWindows.Reads();
-            ShortWindows.decode(runs, reads, eight);
+            ShortWindows.decode(runs, reads, eight, shortE);
             addShort(eight, fraction, lo, hi);
             // The same row cut between its peaks and valleys, for 32 rows of a box.
             if (current.peakRows < 32) {
                 current.peakRows++;
                 ShortWindows.peakRuns(signal, length, peakRuns);
                 eight = new ShortWindows.Reads();
-                ShortWindows.decode(peakRuns, reads, eight);
+                ShortWindows.decode(peakRuns, reads, eight, shortE);
                 addShort(eight, fraction, lo, hi);
             }
         }
@@ -1225,10 +1242,10 @@ public final class RetailEngine {
             }
             if (shortRows) {
                 ShortWindows.Reads eight = new ShortWindows.Reads();
-                ShortWindows.decode(localRuns.fractional, local, eight);
-                ShortWindows.decode(localRuns.integer, local, eight);
+                ShortWindows.decode(localRuns.fractional, local, eight, shortE);
+                ShortWindows.decode(localRuns.integer, local, eight, shortE);
                 if (localRuns.turns != null) {
-                    ShortWindows.decode(localRuns.turns, local, eight);
+                    ShortWindows.decode(localRuns.turns, local, eight, shortE);
                 }
                 addShort(eight, fraction, lo, hi);
             }
@@ -1594,7 +1611,7 @@ public final class RetailEngine {
             }
             double[] left = point(a.left, a.fraction);
             double[] right = point(a.right, a.fraction);
-            double pixels = strong ? 1 : Math.max(2, Math.min(12, Math.hypot(right[0] - left[0], right[1] - left[1]) / (a.digits[0] == ShortWindows.EAN8 ? 67 : 95)));
+            double pixels = strong ? 1 : Math.max(2, Math.min(12, Math.hypot(right[0] - left[0], right[1] - left[1]) / (a.digits[0] == ShortWindows.EAN8 ? 67 : a.digits[0] == ShortWindows.UPCE ? 51 : 95)));
             if (b.fraction - a.fraction < (sourceSupport ? pixels / cross : 0.15) - 1e-6) {
                 continue;
             }
