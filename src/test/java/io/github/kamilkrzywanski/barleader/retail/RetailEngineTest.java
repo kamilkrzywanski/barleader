@@ -72,6 +72,19 @@ class RetailEngineTest {
         assertTrue(RetailEngine.look(image, List.of(box(image, 60))).shorts().isEmpty());
     }
 
+    /** A UPC-E reads on the rows of its box when it is asked for, and not otherwise. */
+    @Test
+    void readsAUpcEWhenAskedFor() {
+        GrayU8 image = Bars.image(Bars.modulesE("04304702"), 3, 80, 60);
+        RetailEngine.Seen seen = RetailEngine.look(image, List.of(box(image, 60)), false, true);
+        assertTrue(seen.symbols().isEmpty());
+        assertTrue(seen.shorts().isEmpty());
+        assertEquals(1, seen.upcE().size());
+        assertEquals("04304702", seen.upcE().get(0).text());
+        assertTrue(seen.upcE().get(0).support() >= 4, "rows " + seen.upcE().get(0).support());
+        assertTrue(RetailEngine.look(image, List.of(box(image, 60)), true).upcE().isEmpty());
+    }
+
     /** The rows of an EAN-13 read no EAN-8: the long symbol has the place. */
     @Test
     void anEan13GivesNoEan8() {

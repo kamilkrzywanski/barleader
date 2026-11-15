@@ -19,7 +19,7 @@ class ShortWindowsTest {
 
     private static ShortWindows.Reads decode(RunWindows.Runs runs, RunWindows.Reads primary) {
         ShortWindows.Reads out = new ShortWindows.Reads();
-        ShortWindows.decode(runs, primary, out);
+        ShortWindows.decode(runs, primary, out, true);
         return out;
     }
 
@@ -133,5 +133,28 @@ class ShortWindowsTest {
         ShortWindows.Reads reads = decode(peaks, new RunWindows.Reads());
         assertEquals(1, reads.symbols.size());
         assertArrayEquals(DIGITS, reads.symbols.get(0).digits());
+    }
+
+    /** A UPC-E between four modules of white: number system, six digits and the check digit that their parity gives; not read unless asked for. */
+    @Test
+    void readsAUpcEWhenAskedFor() {
+        float[] row = Bars.row(Bars.modulesE("04304702"), 300, 4, 12);
+        RunWindows.Runs runs = runs(row);
+        assertEquals(35, runs.count);
+        ShortWindows.Reads reads = decode(runs, new RunWindows.Reads());
+        assertEquals(1, reads.symbols.size());
+        assertArrayEquals(new int[]{ShortWindows.UPCE, 0, 0, 0, 0, 0, 4, 3, 0, 4, 7, 0, 2}, reads.symbols.get(0).digits());
+        assertFalse(reads.symbols.get(0).reversed());
+        assertEquals(48 - 0.5, reads.symbols.get(0).left(), 1e-9);
+        assertEquals(48 + 51 * 4 - 0.5, reads.symbols.get(0).right(), 1e-9);
+        ShortWindows.Reads without = new ShortWindows.Reads();
+        ShortWindows.decode(runs, new RunWindows.Reads(), without, false);
+        assertTrue(without.symbols.isEmpty());
+        // Three modules of white before it are too few.
+        float[] tight = new float[300];
+        java.util.Arrays.fill(tight, 1f);
+        float[] symbol = Bars.row(Bars.modulesE("04304702"), 12 + 51 * 4 + 40, 4, 3);
+        System.arraycopy(symbol, 0, tight, 20, symbol.length);
+        assertTrue(decode(runs(tight), new RunWindows.Reads()).symbols.isEmpty());
     }
 }

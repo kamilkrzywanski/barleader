@@ -39,6 +39,20 @@ final class Bars {
         return java.util.Arrays.copyOfRange(encoded, from, to);
     }
 
+    /** The 51 modules of a UPC-E of eight digits, bars true. */
+    static boolean[] modulesE(String text) {
+        boolean[] encoded = new com.google.zxing.oned.UPCEWriter().encode(text.substring(0, 7));
+        int from = 0;
+        while (!encoded[from]) {
+            from++;
+        }
+        int to = encoded.length;
+        while (!encoded[to - 1]) {
+            to--;
+        }
+        return java.util.Arrays.copyOfRange(encoded, from, to);
+    }
+
     /** The widths of the 59 runs, {@code module} a module, with every bar {@code wider} wider at the cost of the spaces. */
     static float[] widths(boolean[] modules, float module, float wider) {
         float[] out = new float[59];
