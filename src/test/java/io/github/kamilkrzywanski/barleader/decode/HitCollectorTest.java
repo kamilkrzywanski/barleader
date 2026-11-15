@@ -117,4 +117,86 @@ class HitCollectorTest {
         assertTrue(hits.add(line("A1", 400, 0, 500, 0)));
         assertEquals(3, hits.list().size());
     }
+
+    /** An EAN-13 of one pixel a module, half a pixel off the grid so that no row reads it, on rows {@code from} to {@code to}. */
+    private static void ean13(GrayU8 image, String text, int from, int to) {
+        com.google.zxing.common.BitMatrix bars = new com.google.zxing.oned.EAN13Writer().encode(text, com.google.zxing.BarcodeFormat.EAN_13, 1, 1);
+        int first = 0;
+        while (!bars.get(first, 0)) {
+            first++;
+        }
+        for (int x = 0; x < image.width; x++) {
+            double ink = 0;
+            for (int m = 0; m < 95; m++) {
+                double cover = Math.min(x + 1, 20.5 + m + 1) - Math.max(x, 20.5 + m);
+                if (cover > 0 && bars.get(first + m, 0)) {
+                    ink += cover;
+                }
+            }
+            for (int y = from; y < to; y++) {
+                image.set(x, y, (int) Math.round(230 - 200 * ink));
+            }
+        }
+    }
+
+    private static GrayU8 blank(int width, int height) {
+        GrayU8 image = new GrayU8(width, height);
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                image.set(x, y, 230);
+            }
+        }
+        return image;
+    }
+
+    private static BarcodeHit ean13(String text, double y) {
+        return new BarcodeHit(text, Symbology.EAN_13, List.of(new ImagePoint(20.5, y), new ImagePoint(115.5, y)), 0, 0.9, "test");
+    }
+
+    /** Two texts read from the bars of one symbol, the right half the same: the one the pixels follow stays, whichever came first. */
+    @Test
+    void ofTwoTextsOnTheBarsOfOneSymbolTheOneTheFrameShowsStays() {
+        String text = "5901234123457";
+        String other = "4006381123457";
+        GrayU8 image = blank(140, 50);
+        ean13(image, text, 5, 45);
+
+        HitCollector wrongFirst = new HitCollector(image);
+        assertTrue(wrongFirst.add(ean13(other, 20)));
+        assertTrue(wrongFirst.add(ean13(text, 30)));
+        assertEquals(1, wrongFirst.list().size());
+        assertEquals(text, wrongFirst.list().get(0).text());
+
+        HitCollector rightFirst = new HitCollector(image);
+        assertTrue(rightFirst.add(ean13(text, 20)));
+        assertFalse(rightFirst.add(ean13(other, 30)));
+        assertEquals(1, rightFirst.list().size());
+        assertEquals(text, rightFirst.list().get(0).text());
+
+        // A UPC-A and the EAN-13 it is are one text, and stay as they did.
+        HitCollector forms = new HitCollector(blank(140, 50));
+        assertTrue(forms.add(ean13("0012345678905", 20)));
+        assertTrue(forms.add(new BarcodeHit("012345678905", Symbology.UPC_A, List.of(new ImagePoint(20.5, 30), new ImagePoint(115.5, 30)), 0, 0.9, "test")));
+        assertEquals(2, forms.list().size());
+    }
+
+    /** Where the frame does not say which text its bars are, or the lines are of two symbols, both stay. */
+    @Test
+    void twoTextsTheFrameDoesNotTellApartBothStay() {
+        String text = "5901234123457";
+        String other = "4006381123457";
+        // Without the frame.
+        HitCollector blind = new HitCollector();
+        assertTrue(blind.add(ean13(text, 20)));
+        assertTrue(blind.add(ean13(other, 30)));
+        assertEquals(2, blind.list().size());
+        // Two symbols one under the other, as on a Japanese book.
+        GrayU8 stacked = blank(140, 100);
+        ean13(stacked, text, 5, 40);
+        ean13(stacked, other, 60, 95);
+        HitCollector two = new HitCollector(stacked);
+        assertTrue(two.add(ean13(text, 20)));
+        assertTrue(two.add(ean13(other, 80)));
+        assertEquals(2, two.list().size());
+    }
 }

@@ -78,4 +78,52 @@ class SourceCheckTest {
         double[] half = {outline[0], outline[1], outline[0] + 150, outline[3], outline[0] + 150, outline[5], outline[6], outline[7]};
         assertFalse(SourceCheck.contradicted(image, half, "4006381333931"));
     }
+
+    /** A symbol of {@code bars} at three pixels a module on 60 rows with 30 pixels around it, and its outline from the first bar to the last. */
+    private static Object[] drawn(com.google.zxing.common.BitMatrix bars) {
+        GrayU8 row = BlurredBars.render(bars, 3, 0);
+        int first = 0;
+        while (!bars.get(first, 0)) {
+            first++;
+        }
+        int last = bars.getWidth() - 1;
+        while (!bars.get(last, 0)) {
+            last--;
+        }
+        int margin = 30;
+        GrayU8 image = new GrayU8(row.width + 2 * margin, 60 + 2 * margin);
+        for (int y = 0; y < image.height; y++) {
+            for (int x = 0; x < image.width; x++) {
+                boolean inside = y >= margin && y < margin + 60 && x >= margin && x < margin + row.width;
+                image.data[y * image.stride + x] = (byte) (inside ? row.data[x - margin] & 255 : 200);
+            }
+        }
+        double left = margin + 3.0 * first;
+        double right = margin + 3.0 * (last + 1);
+        return new Object[]{image, new double[]{left, margin + 10, right, margin + 10, right, margin + 50, left, margin + 50}};
+    }
+
+    /** The frame follows the text of its symbol closely and another text clearly less, for each of the three layouts. */
+    @Test
+    void theFitTellsTheTextOfASymbolFromAnother() {
+        Object[] ean13 = drawn(new EAN13Writer().encode(TEXT, BarcodeFormat.EAN_13, 1, 1));
+        double own = SourceCheck.fit((GrayU8) ean13[0], (double[]) ean13[1], TEXT);
+        assertTrue(own > 0.8, "own " + own);
+        assertTrue(SourceCheck.fit((GrayU8) ean13[0], (double[]) ean13[1], "4006381123457") < own - 0.1);
+
+        Object[] ean8 = drawn(new com.google.zxing.oned.EAN8Writer().encode("96385074", BarcodeFormat.EAN_8, 1, 1));
+        own = SourceCheck.fitEan8((GrayU8) ean8[0], (double[]) ean8[1], "96385074");
+        assertTrue(own > 0.8, "own " + own);
+        assertTrue(SourceCheck.fitEan8((GrayU8) ean8[0], (double[]) ean8[1], "96315074") < own - 0.05);
+
+        Object[] upcE = drawn(new com.google.zxing.oned.UPCEWriter().encode("04304702", BarcodeFormat.UPC_E, 1, 1));
+        own = SourceCheck.fitUpcE((GrayU8) upcE[0], (double[]) upcE[1], "04304702");
+        assertTrue(own > 0.8, "own " + own);
+        assertTrue(SourceCheck.fitUpcE((GrayU8) upcE[0], (double[]) upcE[1], "04963406") < own - 0.1);
+
+        // A frame without contrast says nothing.
+        GrayU8 flat = new GrayU8(200, 100);
+        java.util.Arrays.fill(flat.data, (byte) 128);
+        assertTrue(SourceCheck.fit(flat, new double[]{10, 10, 190, 10, 190, 90, 10, 90}, TEXT) < 0);
+    }
 }
