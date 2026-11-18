@@ -2,7 +2,7 @@
 
 The release workflow takes the section of the tagged version as the notes of its GitHub release.
 
-## Unreleased
+## 0.3.0
 
 ### Threads
 
